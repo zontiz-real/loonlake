@@ -1355,6 +1355,17 @@ const validToken = (t) => typeof t === 'string' && /^[A-Za-z0-9_-]{16,64}$/.test
 
 io.on('connection', (socket) => {
   let p = null;
+  // a bad message from one player must never take the whole lake down: every handler is guarded
+  const rawOn = socket.on.bind(socket);
+  socket.on = (ev, fn) => rawOn(ev, (...args) => {
+    try {
+      return fn(...args);
+    } catch (err) {
+      console.warn(`Handler "${ev}" failed:`, err && err.message);
+      const ack = args[args.length - 1];
+      if (typeof ack === 'function') { try { ack({ ok: false }); } catch { /* ignore */ } }
+    }
+  });
   socket.emit('world', WORLD);
 
   socket.on('peek', (token, ack) => {
@@ -1944,6 +1955,7 @@ io.on('connection', (socket) => {
 
 let lastTick = nowMs();
 setInterval(() => {
+ try {
   const t = nowMs();
   const dt = Math.min((t - lastTick) / 1000, 0.1);
   lastTick = t;
@@ -1965,7 +1977,13 @@ setInterval(() => {
     const sock = sockOf(p.id);
     if (sock) sock.emit('me', privateState(p));
   }
+ } catch (err) {
+  console.warn('Tick failed:', err && err.message);
+ }
 }, 1000 / TICK_RATE);
+
+process.on('uncaughtException', (err) => console.warn('Uncaught error:', err && err.stack));
+process.on('unhandledRejection', (err) => console.warn('Unhandled rejection:', err));
 
 server.listen(PORT, () => {
   console.log(`Loon Lake running at http://localhost:${PORT}${DEBUG ? ' (debug commands on)' : ''}`);
