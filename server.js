@@ -89,6 +89,24 @@ const WORLD = {
 
 const TIMING = { biteMin: 3000, biteMax: 9000, biteWindow: 1400 };
 
+// weather rolls forward on its own: clear spells, clouds, rain, and the odd storm. Fish bite sooner in the wet.
+const WEATHER = { kind: 'clear', until: 0 };
+const WEATHER_LEN = { clear: [150, 320], cloudy: [60, 130], rain: [100, 220], storm: [55, 110] };
+const WEATHER_NEXT = { clear: [['cloudy', 0.75], ['rain', 0.25]], cloudy: [['clear', 0.4], ['rain', 0.5], ['storm', 0.1]], rain: [['cloudy', 0.5], ['clear', 0.25], ['storm', 0.25]], storm: [['rain', 0.7], ['cloudy', 0.3]] };
+const BITE_WEATHER = { clear: 1, cloudy: 0.9, rain: 0.75, storm: 0.65 };
+function setWeather(kind) {
+  WEATHER.kind = kind;
+  const [lo, hi] = WEATHER_LEN[kind];
+  WEATHER.until = Date.now() + (lo + Math.random() * (hi - lo)) * 1000;
+}
+function tickWeather() {
+  if (Date.now() < WEATHER.until) return;
+  let r = Math.random();
+  for (const [kind, w] of WEATHER_NEXT[WEATHER.kind]) { if ((r -= w) <= 0) return setWeather(kind); }
+  setWeather('clear');
+}
+setWeather('clear');
+
 const COMBAT = {
   hp: 100, damage: 34, range: 72, cone: 0.11, cooldown: 420, spread: 0.05,
   dropCash: 0.4, respawn: 3000, npcRespawn: 18000, stake: 100, spawnSafe: 5000,
@@ -649,6 +667,7 @@ function scheduleBite(p, socket) {
   let scale = h.weed ? 0.55 : 1;
   if (p.bobber && hotspotAt(p.bobber.x, p.bobber.z)) scale *= 0.45;
   if (isGolden()) scale *= 0.75;
+  scale *= BITE_WEATHER[WEATHER.kind] || 1;
   p.biteWindow = TIMING.biteWindow * (h.whiskey ? 0.7 : 1);
   const wait = Math.max(1200, rand(TIMING.biteMin, TIMING.biteMax) * scale * (p.fastBite ? 0.15 : 1));
   p.biteTimer = setTimeout(() => {
@@ -1115,6 +1134,7 @@ function snapshot() {
   const standings = derby.active ? derbyStandings() : [];
   return {
     hour: Math.round(hourNow() * 1000) / 1000,
+    wx: WEATHER.kind,
     players: list,
     fish: school.map((f) => ({ id: f.id, sid: f.sid, x: r2(f.x), z: r2(f.z), rot: r2(f.rot), alive: f.alive, hurt: f.alive && f.hp < f.maxHp })),
     npcs: npcs.map((n) => ({
@@ -1269,6 +1289,7 @@ function debugCommand(p, socket, text) {
     socket.emit('respawn', { x: p.x, z: p.z, rot: p.rot, hp: p.hp });
     return say('Out on the water.');
   }
+  if (cmd === 'weather') { const k = ['clear', 'cloudy', 'rain', 'storm'].includes(args[0]) ? args[0] : 'clear'; setWeather(k); WEATHER.until = nowMs() + 30 * 60 * 1000; return say(`Weather: ${k} (held for 30 minutes).`); }
   if (cmd === 'fast') { p.fastBite = !p.fastBite; return say(p.fastBite ? 'Fast bites on.' : 'Fast bites off.'); }
   return say('Commands: /cash N, /tp moss|shack|camp|dock, /hour H, /derby, /gear, /fast, /boat, /sea, /channel');
 }
@@ -1825,6 +1846,7 @@ setInterval(() => {
   tickFish(dt);
   tickHotspots();
   tickDerby();
+  tickWeather();
   npcs.forEach((n) => tickNpc(n, dt));
   tickRespawns();
   collectPickups();

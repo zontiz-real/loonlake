@@ -5,6 +5,7 @@ import { initTouch } from './touch.js';
 import { createWorld, makeLabel, wave, WATER_Y, DOCK_Y, isNightHour, isGoldenHour, groundHeight } from './world.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { createFx } from './fx.js';
+import { createWeather } from './weather.js';
 import { groundMove, airMove, nextHopBoost, FEEL } from './movement.js';
 import { loadModels, LOOKS, SKINS, aimBone } from './models.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -119,6 +120,8 @@ const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 40
 camera.position.set(0, 22, 55);
 const world = createWorld(scene, renderer, camera, { isTouch, high: loadQuality === 'high' });
 const fx = createFx(scene, camera);
+const weather = createWeather(scene, camera);
+let weatherKind = 'clear';
 
 // post: bloom makes the fire, lanterns, sun glints, and sparkles glow, then a soft vignette frames it
 const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType, samples: 4 }));
@@ -227,7 +230,7 @@ let aimRot = 0;
 let castInfo = { valid: false, hot: false };
 let camLift = 0;
 const cam = { yaw: 0, pitch: 0.34, dist: TUNING.camDist, aim: 0, shake: 0 };
-if (window.__loon) Object.assign(window.__loon, { cam, vel, phys: () => ({ jumpY, jumpV, grounded }), fishViews: () => fishViews, makeFish, species: () => speciesById, hold: (h) => { held = h; hotbarSig = ''; }, data: () => myData, me: () => views.get(myId), npcViews: () => npcViews, ragStep: (id, n) => { const v = npcViews.get(id) || views.get(id); for (let i = 0; v && v.rag && i < n; i++) stepRagdoll(v, 1 / 60, audioT); } });
+if (window.__loon) Object.assign(window.__loon, { cam, vel, fishState: () => ({ phase, power, reel: reel ? { tension: reel.tension, progress: reel.progress, dir: reel.dir } : null }), phys: () => ({ jumpY, jumpV, grounded }), fishViews: () => fishViews, makeFish, species: () => speciesById, hold: (h) => { held = h; hotbarSig = ''; }, data: () => myData, me: () => views.get(myId), npcViews: () => npcViews, ragStep: (id, n) => { const v = npcViews.get(id) || views.get(id); for (let i = 0; v && v.rag && i < n; i++) stepRagdoll(v, 1 / 60, audioT); } });
 let pointerLocked = false;
 // automated browsers can't hold pointer lock (it also blocks screenshots), so they use drag-to-look
 let noLock = isTouch || !!navigator.webdriver;
@@ -1032,6 +1035,7 @@ let boardSig = '';
 socket.on('state', (s) => {
   if (!W || !s) return;
   syncHour(s.hour);
+  weatherKind = s.wx || 'clear';
   hotspots = s.hotspots || [];
   derbyState = s.derby;
   const seen = new Set();
@@ -3507,7 +3511,8 @@ function renderVitals() {
   if (!d) return;
   const night = isNightHour(clockHour);
   const golden = isGoldenHour(clockHour);
-  const clockText = fmtHour(clockHour) + (golden ? ', golden hour' : night ? ', night' : '');
+  const wxName = { cloudy: 'cloudy', rain: 'raining', storm: 'thunderstorm' }[weatherKind];
+  const clockText = fmtHour(clockHour) + (golden ? ', golden hour' : night ? ', night' : '') + (wxName ? `, ${wxName}` : '');
   const status = d.alive === false ? '' : d.safe ? 'Safe in camp. No shooting.' : '';
   const questSig = (d.quests || []).map((q) => `${q.type}${q.n}/${q.goal}`).join(',');
   const sig = [clockText, d.hp, d.cash, d.bag.n, d.bag.value, status, d.xp, d.level, questSig].join('|');
@@ -3838,7 +3843,14 @@ renderer.setAnimationLoop(() => {
     computeAim(m);
     updateCastMarker(m, t);
   }
-  world.update(dt, t, clockHour, focus, { ripple: (x, z, s) => fx.ripple(x, z, s, 1.4, 0.5) });
+  const wx = weather.update(dt, weatherKind, {
+    inWater: (x, z) => inWater(x, z),
+    ripple: (x, z) => fx.ripple(x, z, 0.45 + Math.random() * 0.3, 0.8, 0.35),
+    thunder: (delay) => sfx.thunder(delay),
+  });
+  world.update(dt, t, clockHour, focus, { ripple: (x, z, s) => fx.ripple(x, z, s, 1.4, 0.5) }, Math.min(1, wx.level));
+  sfx.rain(wx.rain * (myId && boating() ? 0.8 : 1));
+  $('lightning').style.opacity = String(wx.flash * 0.85);
   if (W) updateAmbientFx(dt, t);
   fx.update(dt);
   const fireDist = m ? Math.hypot(m.x - world.firePos.x, m.z - world.firePos.z) : 99;

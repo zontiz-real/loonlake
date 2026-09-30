@@ -1009,7 +1009,10 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
   }
 
   // focus is where the player (or the camera) is, so shadows stay sharp there
-  function update(dt, t, hour, focus, events) {
+  const STORM = { top: new THREE.Color(0x5B6772), hor: new THREE.Color(0x8C979E), fog: new THREE.Color(0x7B878E) };
+  const tmpStorm = new THREE.Color();
+  // wet: 0 (clear) to 1 (storm) dims the sun, greys the sky, and pulls the fog in
+  function update(dt, t, hour, focus, events, wet = 0) {
     day.hour = hour;
     day.golden = isGoldenHour(hour);
     lerpKeys(hour);
@@ -1024,9 +1027,10 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     sun.position.copy(focus).addScaledVector(tmpV, 70);
     sun.target.position.copy(focus);
     sun.color.copy(day.light);
-    sun.intensity = day.sun;
-    hemi.intensity = day.hemi;
+    sun.intensity = day.sun * (1 - 0.72 * wet);
+    hemi.intensity = day.hemi * (1 - 0.34 * wet);
     hemi.color.copy(day.top).lerp(day.horizon, 0.5).lerp(WHITE, 0.35);
+    if (wet > 0.01) hemi.color.lerp(tmpStorm.copy(STORM.hor).multiplyScalar(1 - day.night * 0.85), wet * 0.7);
     fill.intensity = 0.4 * (1 - day.night * 0.6);
 
     skyU.uTop.value.copy(day.top);
@@ -1035,6 +1039,13 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     skyU.uGlow.value = Math.max(0, 1 - day.night * 1.2);
     skyU.uTime.value = t;
     skyU.uCloud.value.copy(day.horizon).lerp(WHITE, 0.72 * (1 - day.night)).multiplyScalar(1 - day.night * 0.62);
+    const dark = 1 - day.night * 0.85;
+    if (wet > 0.01) {
+      skyU.uTop.value.lerp(tmpStorm.copy(STORM.top).multiplyScalar(dark), wet * 0.85);
+      skyU.uHorizon.value.lerp(tmpStorm.copy(STORM.hor).multiplyScalar(dark), wet * 0.85);
+      skyU.uCloud.value.lerp(tmpStorm.copy(STORM.fog).multiplyScalar(dark * 0.9), wet * 0.8);
+      skyU.uGlow.value *= 1 - wet * 0.95;
+    }
     grassTime.value = t;
     sky.position.copy(camera.position);
     stars.position.copy(camera.position);
@@ -1044,14 +1055,19 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     moon.visible = moonDir.y > -0.05;
     moon.material.opacity = 0.35 + day.night * 0.65;
     scene.fog.color.copy(day.fog);
+    if (wet > 0.01) scene.fog.color.lerp(tmpStorm.copy(STORM.fog).multiplyScalar(dark), wet * 0.85);
+    scene.fog.near = 75 * (1 - 0.55 * wet);
+    scene.fog.far = 210 * (1 - 0.5 * wet);
 
     waterU.uTime.value = t;
     waterU.uSky.value.copy(day.horizon).lerp(day.top, 0.35);
     waterU.uDeep.value.copy(WATER_DAY.deep).lerp(WATER_NIGHT.deep, day.night);
     waterU.uShallow.value.copy(WATER_DAY.shallow).lerp(WATER_NIGHT.shallow, day.night);
     waterU.uSunDir.value.copy(daytime ? sunDir : moonDir);
-    waterU.uSunColor.value.copy(day.light).multiplyScalar(daytime ? Math.min(1, day.sun / 2) : 0.35);
-    waterU.uFogColor.value.copy(day.fog);
+    waterU.uSunColor.value.copy(day.light).multiplyScalar((daytime ? Math.min(1, day.sun / 2) : 0.35) * (1 - 0.85 * wet));
+    waterU.uFogColor.value.copy(scene.fog.color);
+    waterU.uFogNear.value = scene.fog.near;
+    waterU.uFogFar.value = scene.fog.far;
     waterU.uNight.value = day.night;
 
     const glow = Math.max(0.12, day.night * 1.4 + (day.golden ? 0.2 : 0));
