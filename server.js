@@ -272,13 +272,54 @@ function ownsHold(p, held) {
   return DRUGS.includes(held) && p.pocket[held] > 0;
 }
 
+// ---------------------------------------------------------------- progression
+
+const XP_BY_RARITY = { junk: 2, common: 10, uncommon: 25, treasure: 40, rare: 60, epic: 120, legendary: 300 };
+const levelOf = (xp) => Math.floor(Math.sqrt(Math.max(0, xp) / 60)) + 1;
+const xpFloor = (level) => (level - 1) * (level - 1) * 60;
+const QUEST_TYPES = ['catch', 'uncommon', 'hot'];
+const QUEST_GOALS = { catch: [3, 5, 8], uncommon: [1, 2, 3], hot: [1, 2, 3] };
+const QUEST_PAY = { catch: [25, 45, 80], uncommon: [40, 70, 120], hot: [45, 80, 130] };
+
+function newQuest(p, avoid) {
+  const options = QUEST_TYPES.filter((t) => !avoid.includes(t));
+  const type = options[Math.floor(Math.random() * options.length)];
+  const tier = Math.min(2, Math.floor((levelOf(p.xp) - 1) / 3));
+  return { type, goal: QUEST_GOALS[type][tier], n: 0, reward: QUEST_PAY[type][tier], xp: 15 + tier * 15 };
+}
+
+function ensureQuests(p) {
+  if (!Array.isArray(p.quests)) p.quests = [];
+  p.quests = p.quests.filter((q) => q && QUEST_TYPES.includes(q.type)).slice(0, 3);
+  while (p.quests.length < 3) p.quests.push(newQuest(p, p.quests.map((q) => q.type)));
+}
+
+// returns the quests this catch completed; each one is swapped for a fresh quest
+function advanceQuests(p, species, hot) {
+  ensureQuests(p);
+  const rank = RARITY_RANK[species.rarity];
+  const real = species.rarity !== 'junk';
+  const done = [];
+  p.quests = p.quests.map((q, i, all) => {
+    const hit = (q.type === 'catch' && real) || (q.type === 'uncommon' && real && rank >= 2) || (q.type === 'hot' && real && hot);
+    if (!hit) return q;
+    q.n += 1;
+    if (q.n < q.goal) return q;
+    done.push({ type: q.type, goal: q.goal, reward: q.reward, xp: q.xp });
+    p.cash += q.reward;
+    p.xp += q.xp;
+    return newQuest(p, all.map((o) => o.type).filter((t, j) => j !== i));
+  });
+  return done;
+}
+
 function storeProfile(p) {
   if (!p || p.guest) return;
   profiles[p.token] = {
     name: p.name, color: p.color, look: p.look, skin: p.skin, cash: p.cash, rod: p.rod, bait: p.bait,
     rifle: p.rifle, ammo: p.ammo, pocket: p.pocket, bag: p.bag, ownsBoat: !!p.ownsBoat,
     journal: p.journal, caught: p.caught, earned: p.earned, derbyWins: p.derbyWins,
-    best: p.best, seen: nowMs(),
+    best: p.best, xp: p.xp, quests: p.quests, seen: nowMs(),
   };
   saveDirty = true;
 }
@@ -909,7 +950,7 @@ function snapshot() {
   const list = [];
   for (const p of players.values()) {
     list.push({
-      id: p.id, name: p.name, color: p.color, look: p.look, skin: p.skin, x: r2(p.x), z: r2(p.z), rot: r2(p.rot),
+      id: p.id, name: p.name, color: p.color, look: p.look, skin: p.skin, x: r2(p.x), z: r2(p.z), rot: r2(p.rot), jy: r2(p.jy || 0), level: levelOf(p.xp),
       state: p.state, bobber: p.bobber, cash: p.cash, hp: Math.max(0, p.hp), alive: p.alive,
       rifle: p.rifle, rod: p.rod, held: p.held || 'rod', boat: !!p.boat, high: highFlags(p), caught: p.caught, best: p.best,
     });
@@ -942,7 +983,8 @@ function privateState(p) {
     cash: p.cash, ammo: p.ammo, rifle: p.rifle, rod: p.rod, bait: p.bait, pocket: p.pocket,
     bag: { n: p.bag.length, value: p.bag.reduce((s, f) => s + f.value, 0) },
     high: highFlags(p), highLeft: highLeft(p), moveMul: moveMul(p), hp: Math.max(0, p.hp),
-    alive: p.alive, safe: inCamp(p) || nowMs() < p.safeUntil, state: p.state, boat: !!p.boat, ownsBoat: !!p.ownsBoat,
+    alive: p.alive, safe: inCamp(p) || nowMs() < p.safeUntil, state: p.state,
+    xp: p.xp, level: levelOf(p.xp), xpLow: xpFloor(levelOf(p.xp)), xpNext: xpFloor(levelOf(p.xp) + 1), quests: p.quests, boat: !!p.boat, ownsBoat: !!p.ownsBoat,
   };
 }
 
@@ -1097,7 +1139,7 @@ io.on('connection', (socket) => {
       lastMove: nowMs(), budget: 2, lastChat: 0,
       cash: COMBAT.stake, hp: COMBAT.hp, alive: true, rifle: false, ammo: 0, rod: 0, bait: 0, held: 'rod',
       pocket: freshPocket(), bag: [], high: { weed: 0, whiskey: 0, crank: 0 },
-      journal: {}, caught: 0, earned: 0, derbyWins: 0, best: null,
+      journal: {}, caught: 0, earned: 0, derbyWins: 0, best: null, xp: 0, quests: [], jy: 0,
       nextShot: 0, respawnAt: 0, bj: null, safeUntil: nowMs() + COMBAT.spawnSafe,
     };
     if (prof) {
@@ -1107,8 +1149,10 @@ io.on('connection', (socket) => {
         pocket: { ...freshPocket(), ...(prof.pocket || {}) }, bag: Array.isArray(prof.bag) ? prof.bag : [],
         journal: prof.journal || {}, caught: prof.caught || 0, earned: prof.earned || 0,
         derbyWins: prof.derbyWins || 0, best: prof.best || null, ownsBoat: !!prof.ownsBoat,
+        xp: Math.max(0, Number(prof.xp) || 0), quests: prof.quests,
       });
     }
+    ensureQuests(p);
     players.set(socket.id, p);
     storeProfile(p);
     const payload = { id: socket.id, you: { x: p.x, z: p.z, rot: p.rot }, guest, returning: !!prof, cash: p.cash, journal: p.journal, caught: p.caught, color: p.color };
@@ -1128,6 +1172,7 @@ io.on('connection', (socket) => {
     if (Number.isFinite(m.rot)) p.rot = m.rot;
     if (Number.isFinite(m.aim)) p.aim = m.aim;
     if (typeof m.held === 'string' && HOLDABLE.has(m.held) && ownsHold(p, m.held)) p.held = m.held;
+    p.jy = Number.isFinite(m.jy) ? Math.min(Math.max(m.jy, 0), 2.5) : 0;
     if (p.state !== 'idle') return;
     const x = Number(m.x);
     const z = Number(m.z);
@@ -1193,6 +1238,16 @@ io.on('connection', (socket) => {
     const rank = RARITY_RANK[s.rarity];
     if (rank >= 1 && s.rarity !== 'treasure' && (!p.best || f.lbs > p.best.lbs)) p.best = { name: s.name, lbs: f.lbs };
     const bagged = giveFish(p, s.name, f.lbs, f.value);
+    const levelBefore = levelOf(p.xp);
+    const xpGain = (XP_BY_RARITY[s.rarity] || 5) + (first ? 20 : 0) + (pb ? 10 : 0) + (f.hot ? 5 : 0);
+    p.xp += xpGain;
+    const questDone = advanceQuests(p, s, f.hot);
+    const level = levelOf(p.xp);
+    const levelBonus = level > levelBefore ? 25 * level : 0;
+    if (levelBonus) {
+      p.cash += levelBonus;
+      feed(`${p.name} reached angler level ${level}`, 'join');
+    }
     const derbyEntry = derby.active && s.rarity !== 'junk' && s.rarity !== 'treasure';
     const derbyLead = derbyWeighIn(p, s, f.lbs);
     io.emit('caught', { id: p.id, sid: s.id, name: s.name, lbs: f.lbs, rarity: s.rarity, x: where.x, z: where.z });
@@ -1205,6 +1260,7 @@ io.on('connection', (socket) => {
     reply({
       ok: true, id: s.id, name: s.name, rarity: s.rarity, lbs: f.lbs, value: f.value, bagged,
       first, pb, hot: f.hot, derby: derbyEntry, derbyLead, journal: p.journal,
+      xpGain: xpGain + questDone.reduce((n, q) => n + q.xp, 0), level, levelUp: levelBonus > 0, levelBonus, questDone,
     });
   });
 

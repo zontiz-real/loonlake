@@ -532,3 +532,11 @@ body.touch #prompt { bottom: calc(40% + var(--safe-b)); }
   @keyframes fadeIn { from { opacity: 0; } }
   @keyframes fadeOut { to { opacity: 0; } }
 }
+
+/* ---------- level + quests ---------- */
+#levelLine { font-size: .82rem; color: var(--brass); font-weight: 600; margin-top: 4px; }
+#xpBar { height: 5px; margin: 3px 0 6px; border-radius: 3px; background: rgba(255, 255, 255, .16); overflow: hidden; }
+#xpBar i { display: block; height: 100%; width: 0; background: var(--brass); transition: width .5s ease-out; }
+#questList { margin: 6px 0 0; padding: 0; list-style: none; font-size: .78rem; line-height: 1.35; color: var(--muted); }
+#questList li { padding-left: 8px; border-left: 2px solid var(--brass); margin-top: 3px; }
+body.touch #questList { display: none; }

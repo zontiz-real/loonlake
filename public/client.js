@@ -844,7 +844,7 @@ socket.on('state', (s) => {
     const prevState = v.data.state;
     v.data = d;
     if (d.id !== myId) {
-      v.tx = d.x; v.tz = d.z; v.trot = d.rot; v.state = d.state;
+      v.tx = d.x; v.tz = d.z; v.trot = d.rot; v.state = d.state; v.jy = d.jy || 0;
       if (d.bobber && !v.bobberPos) v.fly = { t: 0, from: v.tip.getWorldPosition(new THREE.Vector3()), remote: true };
       if (d.state === 'bite' && prevState !== 'bite' && d.bobber) fx.ripple(d.bobber.x, d.bobber.z, 0.8, 0.9, 0.5);
       v.bobberPos = d.bobber;
@@ -1869,6 +1869,9 @@ function showCatchTag(res) {
   if (res.derbyLead) add('Leads the derby', 'derby');
   else if (res.derby) add('Weighed in for the derby', 'derby');
   if (res.hot) add('Hot spot');
+  if (res.xpGain) add(`+${res.xpGain} XP`);
+  if (res.levelUp) add(`Level ${res.level}! +$${res.levelBonus}`, 'pb');
+  for (const q of res.questDone || []) add(`Quest done: +$${q.reward}`, 'derby');
   const stay = res.rarity === 'legendary' ? 6500 : RARITY_RANK[res.rarity] >= 4 ? 5200 : 4200;
   tagTimer = setTimeout(() => {
     el.classList.add('out');
@@ -2073,6 +2076,7 @@ function finishReel(ok, msg, snapped) {
     const mm = me();
     if (mm && !res.bagged && res.value > 0) fx.floater(mm.x, 2.3, mm.z, `+$${res.value}`, 'cash', 1.6);
     if (RARITY_RANK[res.rarity] >= 4) cam.shake += 0.3;
+    if (mm && res.levelUp) { fx.floater(mm.x, 2.9, mm.z, `Level ${res.level}!`, 'cash', 2.2); sfx.land('legendary'); }
     completeGoal('land');
     if (res.hot) completeGoal('hot');
     if (res.derby) completeGoal('derby');
@@ -2346,8 +2350,8 @@ function updateLocal(m, dt) {
   sendTimer += dt;
   if (sendTimer >= 0.05) {
     sendTimer = 0;
-    if (m.x !== lastSent.x || m.z !== lastSent.z || m.trot !== lastSent.rot || held !== lastSent.held || Math.abs(aimRot - (lastSent.aim || 0)) > 0.01) {
-      lastSent = { x: m.x, z: m.z, rot: m.trot, aim: aimRot, held };
+    if (m.x !== lastSent.x || m.z !== lastSent.z || m.trot !== lastSent.rot || held !== lastSent.held || jumpY !== lastSent.jy || Math.abs(aimRot - (lastSent.aim || 0)) > 0.01) {
+      lastSent = { x: m.x, z: m.z, rot: m.trot, aim: aimRot, held, jy: jumpY };
       socket.emit('move', lastSent);
     }
   }
@@ -2458,6 +2462,8 @@ function updateView(v, dt, t) {
     if (v.boatMesh) v.boatMesh.visible = false;
     v.y += ((onDock(v.x, v.z) ? DOCK_Y : 0) - v.y) * k;
   }
+  if (!isMe) v.jyS = (v.jyS || 0) + ((v.jy || 0) - (v.jyS || 0)) * k;
+  const jOff = isMe ? jumpY : v.jyS || 0;
   const bob = aliveNow && v.walking ? Math.abs(Math.sin(t * 10)) * 0.06 : 0;
   v.group.rotation.y = v.rot;
   v.group.rotation.z = aliveNow ? 0 : Math.PI / 2;
@@ -2477,11 +2483,11 @@ function updateView(v, dt, t) {
     v.speed += ((dt > 0 ? Math.hypot(v.x - px, v.z - pz) / dt : 0) - v.speed) * Math.min(1, dt * 8);
     v.px = v.x; v.pz = v.z;
     v.group.rotation.z = 0;
-    v.group.position.set(v.x, v.y + (isMe ? jumpY : 0), v.z);
+    v.group.position.set(v.x, v.y + jOff, v.z);
     animateModel(v, dt, aliveNow && v.walking && !inBoat, isMe && stepSprint, pose, aliveNow, inBoat && aliveNow);
   } else {
     const lunge = poseLimbs(v, t, aliveNow && v.walking, isMe && stepSprint, pose, dt);
-    v.group.position.set(v.x + Math.sin(v.rot) * lunge, v.y + bob + (isMe ? jumpY : 0) + (aliveNow ? 0 : 0.35), v.z + Math.cos(v.rot) * lunge);
+    v.group.position.set(v.x + Math.sin(v.rot) * lunge, v.y + bob + jOff + (aliveNow ? 0 : 0.35), v.z + Math.cos(v.rot) * lunge);
   }
   if (v.flash > 0) { v.flash -= dt; v.cloth.emissive.setRGB(v.flash > 0 ? 0.6 : 0, 0, 0); }
 
@@ -2869,7 +2875,8 @@ function renderVitals() {
   const golden = isGoldenHour(clockHour);
   const clockText = fmtHour(clockHour) + (golden ? ', golden hour' : night ? ', night' : '');
   const status = d.alive === false ? '' : d.safe ? 'Safe in camp. No shooting.' : '';
-  const sig = [clockText, d.hp, d.cash, d.bag.n, d.bag.value, status].join('|');
+  const questSig = (d.quests || []).map((q) => `${q.type}${q.n}/${q.goal}`).join(',');
+  const sig = [clockText, d.hp, d.cash, d.bag.n, d.bag.value, status, d.xp, d.level, questSig].join('|');
   if (sig === vitalsSig) return;
   vitalsSig = sig;
   $('clockLine').innerHTML = night ? MOON_SVG : SUN_SVG;
@@ -2881,7 +2888,25 @@ function renderVitals() {
   $('cashLine').textContent = `$${d.cash}`;
   $('bagLine').textContent = d.bag.n ? `${d.bag.n} fish in the bag, $${d.bag.value}` : 'Bag is empty';
   $('statusLine').textContent = status;
+  if (d.level) {
+    $('levelLine').textContent = `Angler level ${d.level}`;
+    const span = Math.max(1, d.xpNext - d.xpLow);
+    $('xpBar').firstElementChild.style.width = `${clamp(((d.xp - d.xpLow) / span) * 100, 0, 100)}%`;
+  }
+  const list = $('questList');
+  list.replaceChildren();
+  for (const q of d.quests || []) {
+    const li = document.createElement('li');
+    li.textContent = `${QUEST_TEXT[q.type](q.goal)}  ${q.n}/${q.goal}  ($${q.reward})`;
+    list.append(li);
+  }
 }
+
+const QUEST_TEXT = {
+  catch: (n) => `Catch ${n} fish`,
+  uncommon: (n) => `Catch ${n} uncommon or better`,
+  hot: (n) => `Catch ${n} on a hot spot`,
+};
 
 const mm = $('minimap');
 const mmCtx = mm.getContext('2d');

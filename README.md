@@ -14,6 +14,7 @@ Fish for cash, climb through better rods and bait, fill out your journal, and wi
 ## What's in it
 
 - **Fishing.** Hold left click to charge a cast, and a ring on the water shows where it will land (gold means a hot spot, red means it will hit land). Tap when the bobber dunks, then reel: hold left click, ease off before the red line, and press A or D against the direction the fish is pulling.
+- **Levels and quests.** Every catch earns XP (more for rare fish, first catches and personal bests). Level up for a cash bonus. Three rolling quests (catch fish, catch uncommon or better, catch on a hot spot) pay cash and XP, then get replaced with a fresh one that scales with your level. Both save with your profile.
 - **14 species** across common, uncommon, rare, epic, and legendary, plus junk and treasure. Walleye bite at dawn and dusk. Catfish and eelpout only come out at night. Sturgeon live in the deep middle, so you need a rod that casts far. Press J for the journal.
 - **Gear.** Four rods (longer casts, more line strength, faster reel) and four baits (rarer fish), bought in order from Moss.
 - **Hot spots.** Bubbling patches that drift around the lake. They bite faster and hold bigger fish. They show as gold rings on the minimap.
