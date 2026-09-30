@@ -147,8 +147,8 @@ const DAY_KEYS = [
   { h: 4.8, top: '#0E1734', hor: '#2C3252', fog: '#212B43', sun: 0.42, hemi: 0.64, light: '#9FB4FF', night: 0.95 },
   { h: 6, top: '#3E5C92', hor: '#F0A77E', fog: '#C99A86', sun: 0.8, hemi: 0.62, light: '#FFC08A', night: 0.25 },
   { h: 7.5, top: '#6F9FCF', hor: '#E9D6BC', fog: '#D9D6C8', sun: 1.25, hemi: 0.8, light: '#FFE2B8', night: 0 },
-  { h: 12, top: '#3F86CC', hor: '#A9CBDD', fog: '#AFC8D2', sun: 1.55, hemi: 0.88, light: '#FFF2DC', night: 0 },
-  { h: 17, top: '#4A85C4', hor: '#B9CFD4', fog: '#B8C8C6', sun: 1.4, hemi: 0.84, light: '#FFE7C4', night: 0 },
+  { h: 12, top: '#3F86CC', hor: '#A9CBDD', fog: '#A3C2D3', sun: 1.55, hemi: 0.88, light: '#FFF2DC', night: 0 },
+  { h: 17, top: '#4A85C4', hor: '#B9CFD4', fog: '#AFC5CA', sun: 1.4, hemi: 0.84, light: '#FFE7C4', night: 0 },
   { h: 19, top: '#4D5F9A', hor: '#F29A62', fog: '#D98D6A', sun: 0.85, hemi: 0.65, light: '#FFB070', night: 0.15 },
   { h: 20.6, top: '#1B2152', hor: '#5B3F66', fog: '#36304E', sun: 0.45, hemi: 0.66, light: '#B7A8E8', night: 0.75 },
   { h: 22, top: '#08112A', hor: '#1C2A48', fog: '#172339', sun: 0.42, hemi: 0.62, light: '#9FB4FF', night: 1 },
@@ -171,7 +171,7 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
   const fill = new THREE.DirectionalLight(0x8FB4C9, 0.4);
   fill.position.set(20, 12, -30);
   scene.add(fill);
-  scene.fog = new THREE.Fog(0xD5E3E0, 75, 210);
+  scene.fog = new THREE.Fog(0xD5E3E0, 100, 250);
 
   // ---------- sky
   const skyU = {
@@ -248,8 +248,8 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     uSunDir: { value: new THREE.Vector3(0, 1, 0) },
     uSunColor: { value: new THREE.Color() },
     uFogColor: { value: new THREE.Color() },
-    uFogNear: { value: 75 },
-    uFogFar: { value: 210 },
+    uFogNear: { value: 100 },
+    uFogFar: { value: 250 },
     uRadius: { value: 30 },
     uNight: { value: 0 },
   };
