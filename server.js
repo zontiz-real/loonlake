@@ -21,7 +21,8 @@ const DAY_MS = 12 * 60 * 1000; // one full day on the lake
 const WORLD = {
   lakeRadius: 30,
   shoreRadius: 31,
-  bounds: 60,
+  bounds: 60, // the play area: spawns, NPCs and the map
+  edge: 200, // how far you can walk: out over the hills, well past the play area
   dock: { minX: -1.6, maxX: 1.6, minZ: 14, maxZ: 32 },
   moveSpeed: 6,
   sprint: 1.5,
@@ -37,7 +38,9 @@ const WORLD = {
     { id: 'skiff', name: 'Aluminum skiff', price: 600, speed: 12.5, desc: 'Faster, wider, and it does not rot.', color: '#9AA5AD', scale: 1.15 },
     { id: 'cruiser', name: 'Sport cruiser', price: 1800, speed: 16.5, desc: 'Fast enough to cross the big water before the fish stop biting.', color: '#C43B2B', scale: 1.35 },
   ],
-  bhop: 1.6,
+  // how far past sprint speed the server lets a player move before snapping them back. Hopping has no cap on the client,
+  // so this is set far beyond what chained hops reach in practice (about 150 perfect hops in a row); it only stops teleports.
+  bhop: 12,
   market: { remote: 0.7 },
   camp: {
     dealer: { x: 10, z: 40 },
@@ -90,6 +93,8 @@ const COMBAT = {
 
 // fists: every third punch inside the combo window is a haymaker
 const PUNCH = { range: 2.3, cone: 0.8, damage: 14, heavy: 28, cooldown: 360, comboWindow: 1100, knock: 0.3, heavyKnock: 2.6 };
+// everyone carries a hunting knife: slower than a jab, hits much harder, and a stab in the back nearly always kills
+const KNIFE = { range: 2.5, cone: 0.7, damage: 38, backstab: 95, cooldown: 520, knock: 0.25 };
 
 const DERBY = { firstIn: 75 * 1000, every: 6 * 60 * 1000, length: 150 * 1000, basePot: 100, perEntry: 40 };
 
@@ -213,7 +218,7 @@ const inOcean = (x, z) => {
 };
 const onLand = (x, z) =>
   onDock(x, z) ||
-  (Math.hypot(x, z) >= WORLD.shoreRadius && Math.abs(x) <= WORLD.bounds && Math.abs(z) <= WORLD.bounds && !inChannel(x, z, 0.8));
+  (Math.hypot(x, z) >= WORLD.shoreRadius && Math.abs(x) <= WORLD.edge && Math.abs(z) <= WORLD.edge && !inChannel(x, z, 0.8));
 const inWater = (x, z) => !onDock(x, z) && (Math.hypot(x, z) < WORLD.lakeRadius - 0.3 || inChannel(x, z) || inOcean(x, z));
 // on foot you can also wade and swim: land, any water, or the shoreline strip between them
 const footOk = (x, z) => onLand(x, z) || inWater(x, z) || inChannel(x, z, 0.8) || Math.hypot(x, z) < WORLD.shoreRadius;
@@ -312,9 +317,9 @@ function writeSaves() {
 function freshPocket() { return { weed: 0, whiskey: 0, crank: 0 }; }
 
 const GUN_IDS = Object.keys(WORLD.guns);
-const HOLDABLE = new Set(['fists', 'rod', 'bait', ...GUN_IDS, 'weed', 'whiskey', 'crank', 'bag']);
+const HOLDABLE = new Set(['fists', 'knife', 'rod', 'bait', ...GUN_IDS, 'weed', 'whiskey', 'crank', 'bag']);
 function ownsHold(p, held) {
-  if (held === 'fists' || held === 'rod' || held === 'bait' || held === 'bag') return true;
+  if (held === 'fists' || held === 'knife' || held === 'rod' || held === 'bait' || held === 'bag') return true;
   if (GUN_IDS.includes(held)) return !!p.guns[held];
   return DRUGS.includes(held) && p.pocket[held] > 0;
 }
@@ -1323,9 +1328,11 @@ io.on('connection', (socket) => {
     const now = nowMs();
     const dt = Math.min((now - p.lastMove) / 1000, 0.5);
     p.lastMove = now;
-    const mul = moveMul(p) * WORLD.sprint * WORLD.bhop;
+    const walk = moveMul(p) * WORLD.sprint;
+    const mul = walk * (p.boat ? 1.6 : WORLD.bhop);
     const speed = p.boat ? boatSpeed(p) : WORLD.moveSpeed;
-    p.budget = Math.min(p.budget + speed * mul * dt * 1.3, 2.5 * mul * (p.boat ? 1.6 : 1));
+    // the budget refills fast enough for any hop speed, but its ceiling stays small so nobody can bank up a teleport
+    p.budget = Math.min(p.budget + speed * mul * dt * 1.3, Math.max(2.5 * walk * (p.boat ? 1.6 : 1), speed * mul * 0.12));
     if (Number.isFinite(m.rot)) p.rot = m.rot;
     if (Number.isFinite(m.aim)) p.aim = m.aim;
     if (typeof m.held === 'string' && HOLDABLE.has(m.held) && ownsHold(p, m.held)) p.held = m.held;
@@ -1579,10 +1586,13 @@ io.on('connection', (socket) => {
     if (p.state !== 'idle') return reply({ ok: false, msg: 'Reel in first.' });
     const t = nowMs();
     if (t < (p.nextPunch || 0)) return reply({ ok: false });
-    p.combo = t - (p.lastPunch || 0) < PUNCH.comboWindow ? ((p.combo || 0) % 3) + 1 : 1;
+    const knife = !!(body && body.knife);
+    p.combo = !knife && t - (p.lastPunch || 0) < PUNCH.comboWindow ? ((p.combo || 0) % 3) + 1 : 1;
     p.lastPunch = t;
-    const heavy = p.combo === 3;
-    p.nextPunch = t + (heavy ? PUNCH.cooldown * 1.7 : PUNCH.cooldown);
+    const heavy = !knife && p.combo === 3;
+    p.nextPunch = t + (knife ? KNIFE.cooldown : heavy ? PUNCH.cooldown * 1.7 : PUNCH.cooldown);
+    const reach = knife ? KNIFE.range : PUNCH.range;
+    const cone = knife ? KNIFE.cone : PUNCH.cone;
     let rot = Number(body && body.rot);
     if (!Number.isFinite(rot)) rot = p.rot;
     p.rot = rot;
@@ -1590,21 +1600,25 @@ io.on('connection', (socket) => {
     const consider = (kind, o) => {
       if (!o.alive || o === p) return;
       const d = Math.hypot(o.x - p.x, o.z - p.z);
-      if (d > PUNCH.range) return;
-      if (d > 0.4 && Math.abs(angleDiff(Math.atan2(o.x - p.x, o.z - p.z), rot)) > PUNCH.cone) return;
+      if (d > reach) return;
+      if (d > 0.4 && Math.abs(angleDiff(Math.atan2(o.x - p.x, o.z - p.z), rot)) > cone) return;
       if (!best || d < best.d) best = { kind, o, d };
     };
     players.forEach((o) => consider('player', o));
     npcs.forEach((n) => consider('npc', n));
-    const out = { ok: true, hit: null, heavy, combo: p.combo };
+    const out = { ok: true, hit: null, heavy, combo: p.combo, knife };
     if (best) {
       const o = best.o;
-      const dmg = heavy ? PUNCH.heavy : PUNCH.damage;
-      const knock = heavy ? PUNCH.heavyKnock : PUNCH.knock;
+      // from behind: the target is facing the same way the attacker is swinging
+      const backstab = knife && Math.abs(angleDiff(o.rot || 0, rot)) < 0.9;
+      const dmg = knife ? (backstab ? KNIFE.backstab : KNIFE.damage) : heavy ? PUNCH.heavy : PUNCH.damage;
+      const knock = knife ? KNIFE.knock : heavy ? PUNCH.heavyKnock : PUNCH.knock;
+      out.backstab = backstab;
+      out.dmg = dmg;
       const kx = Math.sin(rot) * knock;
       const kz = Math.cos(rot) * knock;
       if (best.kind === 'player') {
-        const res = hurtPlayer(o, dmg, p, 'knocked out');
+        const res = hurtPlayer(o, dmg, p, knife ? 'stabbed' : 'knocked out');
         if (res === 'safe') out.hit = 'safe';
         else {
           out.hit = 'player';
@@ -1624,12 +1638,12 @@ io.on('connection', (socket) => {
         if (onLand(o.x + kx, o.z + kz)) { o.x += kx; o.z += kz; }
         out.hit = 'npc';
         out.killed = o.hp <= 0;
-        if (out.killed) killNpc(o, p.name, 'knocked out', p);
+        if (out.killed) killNpc(o, p.name, knife ? 'stabbed' : 'knocked out', p);
       }
       out.x = o.x;
       out.z = o.z;
     }
-    io.emit('punch', { id: p.id, rot, heavy, side: heavy || p.combo === 1 ? 'r' : 'l', hit: out.hit === 'player' || out.hit === 'npc', x: out.x, z: out.z });
+    io.emit('punch', { id: p.id, rot, heavy, knife, backstab: !!out.backstab, side: knife || heavy || p.combo === 1 ? 'r' : 'l', hit: out.hit === 'player' || out.hit === 'npc', x: out.x, z: out.z });
     reply(out);
   });
 

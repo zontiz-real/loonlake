@@ -26,26 +26,27 @@ Fish for cash, climb through better rods and bait, fill out your journal, and wi
 - **Boats.** Buy one from Moss ($180) or rent for $15 a trip at the end of the dock. Press E at any shoreline to launch, and E near land to step ashore. You can fish and shoot from the boat.
 - **The big water.** A channel runs south from the lake past a lighthouse out to open water with real swells. Out there you'll find cisco, whitefish, coho salmon, lake trout, a shipwreck bell, and, if the old-timers are right, Pressie.
 - **Fists.** Slot 1, or press F anywhere to throw a punch. Punches alternate hands, and every third punch in a quick combo is a haymaker that does double damage and shoves the target back. Anglers you punch fight back.
-- **Combat.** The rifle hits fish, NPC anglers, and players. Lake fish take two rounds; a wounded one bolts and trails blood. Hits spray blood, bodies ragdoll when they drop, and blood pools where they fall. Turn blood off under Help (H). Hold right click to aim over the shoulder for a tighter shot. Camp is a no-shooting zone for players, and you get 5 seconds of protection after spawning. NPCs only fight back when they're shot at.
+- **Knife.** Everyone carries a hunting knife in slot 2. A slash does 38 damage; stab someone from behind and it's 95.
+- **Combat.** The rifle hits fish, NPC anglers, and players. Lake fish take two rounds; a wounded one bolts and trails blood. Hits spray blood and a fine mist, droplets leave splats where they land, badly hurt people drip a trail, bodies ragdoll when they drop, and blood pools where they fall. In first person, getting hit or cutting someone up close puts blood on your screen. Turn blood off under Help (H). Hold right click to aim over the shoulder for a tighter shot. Camp is a no-shooting zone for players, and you get 5 seconds of protection after spawning. NPCs only fight back when they're shot at.
 - **Saves.** Cash, gear, bag, ammo, pocket, and journal save per browser (a token in localStorage) to `data/players.json`.
 - **Chat.** Press Enter. Messages also show as speech bubbles.
 - **Phones.** Use the left thumb stick to move and drag on the right side to look. A Punch or Shoot button appears for whatever you're holding, with light aim assist. Tapping Cast switches to your rod automatically. Phones vibrate on bites and hits (Android). Tap Full screen on Android, or on iPhone use Share, then Add to Home Screen, to play without the browser bars. The layout works in portrait and landscape.
 - **Characters.** Pick one of four realistic rigged people (the default), with smooth-shaded skin and hair, glossy eyes and a soft sky-colored rim light, or the Roblox-style Blocky avatar (rounded blocks, hair and a smiley face, with a jump pose and a landing squash). Choose a skin tone and shirt color too. Your choices save.
-- **Graphics.** Hills around the lake, wind-blown grass, birches, maples with some fall color, bushes, low-poly rocks, a red barn for the shack, rowboats at the dock, a well and fence at camp, animated fish, drifting clouds, and glow on firelight, lanterns, and sun glints. Help (H) has a Graphics setting. Auto picks High on computers and Low on phones.
+- **Graphics.** Hills around the lake, wind-blown grass, birches, maples with some fall color, bushes, low-poly rocks, a red barn for the shack, rowboats at the dock, a well and fence at camp, animated fish, sunlit cumulus clouds with high cirrus above them, and glow on firelight, lanterns, and sun glints. Help (H) has a Graphics setting. Auto picks High on computers and Low on phones.
 - **Settings.** Press H for controls, look speed, volume, brightness, invert Y, and camera shake.
 
 ## Controls
 
-WASD to walk, Shift to run. Click the game to lock the mouse, Esc to release it.
+WASD to walk, Shift to run. Click the game to lock the mouse, Esc to release it. You play in first person; **V** switches to third person and back. You can walk out past the lake and up into the hills, about 200 m in any direction.
 
 - **Left click** uses whatever is in your hands: cast and reel with the rod, fire a gun (hold for full auto on the SMG), punch with fists, or take a drug.
 - **Right click** (hold) zooms. With a gun out it aims down the sights, and you can still shoot while zoomed.
-- **Space** jumps (about 1.5 m, hold it longer for a higher hop). Movement is Roblox-style: you reach full speed almost instantly, stop just as fast, and steer freely in the air. Hold Space to keep hopping, and each hop you land right into adds speed (up to +35%) until you stop.
+- **Space** jumps (about 1.5 m, hold it longer for a higher hop). Movement is Roblox-style: you reach full speed almost instantly, stop just as fast, and steer freely in the air. Hold Space to keep hopping, and each hop you land right into adds 7% more speed, with no cap, until you miss a hop.
 - **R** reloads. Guns have magazines and share a pool of spare rounds.
-- **1-0, -, =** or the **scroll wheel** switch hotbar items: fists, rod, bait, then whichever guns you own, then the drugs and your bag. Ctrl + wheel moves the camera.
+- **1-0, -, =** or the **scroll wheel** switch hotbar items: fists, knife, rod, bait, then whichever guns you own, then the drugs and your bag. Ctrl + wheel moves the camera.
 - **Q** reels your line in. **E** talks to Moss, sits at the shack, or launches/leaves your boat. **F** throws a punch.
 - Walk into the water to swim. You can't fish while swimming. Players are solid, so you can't walk through each other.
-- **P** phone, **J** journal, **H** help, **Enter** chat.
+- **P** phone, **J** journal, **H** help, **V** first/third person, **Enter** chat.
 
 ## Debug commands
 

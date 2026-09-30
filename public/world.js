@@ -44,7 +44,7 @@ export function groundHeight(x, z) {
 
 // The ground is one grid with fine spacing where the terrain has sharp features (the canal banks, the
 // beach, the ocean shelf) and wide spacing on the flat play area and far hills.
-export const GROUND = { x0: -310, x1: 310, z0: -220, z1: 220 };
+export const GROUND = { x0: -340, x1: 340, z0: -220, z1: 340 };
 function gridLines(lo, hi, zones, coarse) {
   const set = new Set();
   const add = (v) => { if (v >= lo - 1e-6 && v <= hi + 1e-6) set.add(Math.round(v * 1000) / 1000); };
@@ -184,6 +184,7 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     uGlow: { value: 1 },
     uTime: { value: 0 },
     uCloud: { value: new THREE.Color(1, 1, 1) },
+    uCover: { value: 0.52 }, // lower means more cloud
   };
   const sky = new THREE.Mesh(
     new THREE.SphereGeometry(300, 32, 16),
@@ -194,25 +195,44 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
       fog: false,
       vertexShader: `varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
       fragmentShader: `
-        uniform vec3 uTop, uHorizon, uBottom, uSunDir, uSunColor, uCloud; uniform float uGlow, uTime; varying vec3 vDir;
+        uniform vec3 uTop, uHorizon, uBottom, uSunDir, uSunColor, uCloud; uniform float uGlow, uTime, uCover; varying vec3 vDir;
         float h2(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
         float n2(vec2 p){ vec2 i = floor(p); vec2 f = fract(p); vec2 u = f*f*(3.0-2.0*f);
           return mix(mix(h2(i), h2(i+vec2(1.0,0.0)), u.x), mix(h2(i+vec2(0.0,1.0)), h2(i+vec2(1.0,1.0)), u.x), u.y); }
-        float fbm(vec2 p){ float v = 0.0; float a = 0.5; for (int i = 0; i < 5; i++) { v += a * n2(p); p *= 2.03; a *= 0.5; } return v; }
+        float fbm(vec2 p){ float v = 0.0; float a = 0.5; for (int i = 0; i < 6; i++) { v += a * n2(p); p = p * 2.03 + vec2(1.7, 9.2); a *= 0.5; } return v; }
         void main(){
           vec3 d = normalize(vDir);
           float h = d.y;
-          vec3 col = h > 0.0 ? mix(uHorizon, uTop, pow(clamp(h, 0.0, 1.0), 0.5)) : mix(uHorizon, uBottom, clamp(-h * 4.0, 0.0, 1.0));
+          vec3 S = normalize(uSunDir);
+          float sd = max(dot(d, S), 0.0);
+          // sky: deep at the top, a pale hazy band at the horizon, and a warm glow around the sun
+          vec3 col = h > 0.0 ? mix(uHorizon, uTop, pow(clamp(h, 0.0, 1.0), 0.42)) : mix(uHorizon, uBottom, clamp(-h * 4.0, 0.0, 1.0));
+          col = mix(col, uHorizon * 1.06 + uSunColor * 0.04 * uGlow, exp(-max(h, 0.0) * 12.0) * 0.4);
+          col += uSunColor * uGlow * (pow(sd, 5.0) * 0.16 + pow(sd, 48.0) * 0.3);
           float cover = 0.0;
           if (h > 0.0) {
-            vec2 uv = d.xz / (h + 0.12) * 1.5 + vec2(uTime * 0.008, uTime * 0.003);
-            float c = fbm(uv);
-            cover = smoothstep(0.5, 0.78, c) * smoothstep(0.0, 0.2, h);
-            vec3 cc = uCloud * (0.82 + 0.3 * smoothstep(0.55, 0.95, c));
-            col = mix(col, cc, cover * 0.88);
+            vec2 uv = d.xz / (h + 0.09);
+            float fade = smoothstep(0.0, 0.16, h);
+            // high, thin cirrus streaks that drift slowly
+            vec2 cu = uv * 0.3 + vec2(uTime * 0.003, uTime * 0.0012);
+            float ci = fbm(vec2(cu.x * 0.5 + cu.y * 0.2, cu.y * 3.0));
+            ci = smoothstep(0.56, 0.86, ci) * fade * 0.4;
+            col = mix(col, uCloud * 1.02 + uSunColor * 0.12 * uGlow, ci);
+            // cumulus: a density field, plus a second sample nudged toward the sun for self-shadowing
+            vec2 p = uv * 1.1 + vec2(uTime * 0.009, uTime * 0.0035);
+            float den = fbm(p);
+            float c = smoothstep(uCover, uCover + 0.22, den);
+            vec2 toSun = normalize(S.xz + vec2(1e-4)) * 0.09;
+            float lit = clamp((den - fbm(p + toSun)) * 5.0 + 0.55, 0.0, 1.0);
+            vec3 shadowC = uCloud * 0.58 + uTop * 0.12;
+            vec3 litC = uCloud * 1.06 + uSunColor * 0.28 * uGlow;
+            vec3 cc = mix(shadowC, litC, lit);
+            cc *= mix(0.82, 1.0, smoothstep(uCover, uCover + 0.45, den)); // thin edges read lighter, thick cores a touch darker
+            cc += uSunColor * pow(sd, 7.0) * (1.0 - smoothstep(uCover, uCover + 0.3, den)) * 1.1 * uGlow; // silver lining
+            cover = c * fade;
+            col = mix(col, cc, cover * 0.96);
           }
-          float s = max(dot(d, normalize(uSunDir)), 0.0);
-          col += uSunColor * (pow(s, 900.0) * 3.0 * (1.0 - cover) + pow(s, 14.0) * 0.28) * uGlow;
+          col += uSunColor * pow(sd, 1400.0) * 4.0 * (1.0 - cover) * uGlow;
           gl_FragColor = vec4(col, 1.0);
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
@@ -629,7 +649,7 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
 
     // forest, instanced
     const rnd = mulberry32(7);
-    const treeCount = high ? 340 : 170;
+    const treeCount = high ? 480 : 240;
     // One merged pine (trunk plus five ragged, drooping tiers with a dark-to-light gradient), so every tree is one draw call
     // and no two look the same once each instance gets its own scale, lean, turn and tint.
     const pineGeo = (() => {
@@ -675,7 +695,7 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     const dummy = new THREE.Object3D();
     const tint = new THREE.Color();
     for (let placed = 0; placed < treeCount;) {
-      const spread = placed < treeCount * 0.45 ? w.bounds + 25 : 150;
+      const spread = placed < treeCount * 0.4 ? w.bounds + 25 : placed < treeCount * 0.75 ? 150 : w.edge + 30;
       const x = (rnd() * 2 - 1) * spread;
       const z = (rnd() * 2 - 1) * spread;
       if (Math.hypot(x, z) < w.shoreRadius + 7) continue;
@@ -693,7 +713,7 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
       pines.setMatrixAt(placed, dummy.matrix);
       tint.setRGB(0.82 + rnd() * 0.3, 0.9 + rnd() * 0.22, 0.8 + rnd() * 0.3);
       pines.setColorAt(placed, tint);
-      if (Math.abs(x) <= w.bounds + 1 && Math.abs(z) <= w.bounds + 1) colliders.push({ x, z, r: 0.35 * s });
+      if (Math.abs(x) <= w.edge + 1 && Math.abs(z) <= w.edge + 1) colliders.push({ x, z, r: 0.35 * s });
       placed++;
     }
     scene.add(pines);
@@ -740,7 +760,7 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
         tint.setHSL(0.21 + rnd() * 0.05, 0.3, 0.6 + rnd() * 0.22, THREE.SRGBColorSpace);
         birchLeaves.setColorAt(placed * 3 + k, tint);
       }
-      if (Math.abs(x) <= w.bounds + 1 && Math.abs(z) <= w.bounds + 1) colliders.push({ x, z, r: 0.3 * s });
+      if (Math.abs(x) <= w.edge + 1 && Math.abs(z) <= w.edge + 1) colliders.push({ x, z, r: 0.3 * s });
       placed++;
     }
     scene.add(birchTrunks, birchLeaves);
@@ -1075,7 +1095,7 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
       else tint.setHSL(0.25 + rnd() * 0.07, 0.45 + rnd() * 0.2, 0.25 + rnd() * 0.1, THREE.SRGBColorSpace);
       const s = 0.75 + rnd() * 0.6;
       place(mapleSets[k], mapleCount[k]++, x, z, s, rnd() * 6.3, { Leaves: tint, Tree: bark });
-      if (Math.abs(x) <= w.bounds + 1 && Math.abs(z) <= w.bounds + 1) colliders.push({ x, z, r: 0.4 * s });
+      if (Math.abs(x) <= w.edge + 1 && Math.abs(z) <= w.edge + 1) colliders.push({ x, z, r: 0.4 * s });
     }
     mapleSets.forEach((set, k) => { set.finish(mapleCount[k]); scene.add(...set.meshes); });
 
@@ -1183,6 +1203,8 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     skyU.uSunDir.value.copy(sunDir);
     skyU.uGlow.value = Math.max(0, 1 - day.night * 1.2);
     skyU.uTime.value = t;
+    skyU.uSunColor.value.copy(day.light);
+    skyU.uCover.value = 0.5 + 0.06 * Math.sin(t * 0.004); // the sky slowly clears and clouds over
     skyU.uCloud.value.copy(day.horizon).lerp(WHITE, 0.72 * (1 - day.night)).multiplyScalar(1 - day.night * 0.62);
     grassTime.value = t;
     sky.position.copy(camera.position);

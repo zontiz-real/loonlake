@@ -4,6 +4,7 @@ import { sfx } from './sfx.js';
 import { initTouch } from './touch.js';
 import { createWorld, makeLabel, wave, WATER_Y, DOCK_Y, isNightHour, isGoldenHour, groundHeight } from './world.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { createFx } from './fx.js';
 import { groundMove, airMove, nextHopBoost, FEEL } from './movement.js';
 import { loadModels, LOOKS, SKINS, aimBone } from './models.js';
@@ -51,7 +52,7 @@ if (!/^[A-Za-z0-9_-]{16,64}$/.test(token || '')) {
   store.set('loonlake.token', token);
 }
 
-const settings = { sens: 1, volume: 0.8, bright: 0.8, invertY: false, shake: true, quality: 'auto', blood: true, ...store.get('loonlake.settings', {}) };
+const settings = { sens: 1, volume: 0.8, bright: 0.8, invertY: false, shake: true, quality: 'auto', blood: true, view: 'first', ...store.get('loonlake.settings', {}) };
 sfx.setVolume(settings.volume);
 
 const isTouch = matchMedia('(pointer: coarse)').matches || (navigator.maxTouchPoints > 0 && !matchMedia('(pointer: fine)').matches);
@@ -227,7 +228,7 @@ let deathUntil = 0;
 let aimRot = 0;
 let castInfo = { valid: false, hot: false };
 const cam = { yaw: 0, pitch: 0.34, dist: TUNING.camDist, aim: 0, shake: 0 };
-if (window.__loon) Object.assign(window.__loon, { cam, vel, fishViews: () => fishViews, makeFish, makeBoatMesh, makeAvatar, socket, species: () => speciesById, hold: (h) => { held = h; hotbarSig = ''; }, data: () => myData, me: () => views.get(myId), npcViews: () => npcViews, ragStep: (id, n) => { const v = npcViews.get(id) || views.get(id); for (let i = 0; v && v.rag && i < n; i++) stepRagdoll(v, 1 / 60, audioT); } });
+if (window.__loon) Object.assign(window.__loon, { cam, vel, fishViews: () => fishViews, makeFish, makeBoatMesh, makeAvatar, socket, fx, screenBlood, species: () => speciesById, hold: (h) => { held = h; hotbarSig = ''; }, data: () => myData, me: () => views.get(myId), npcViews: () => npcViews, ragStep: (id, n) => { const v = npcViews.get(id) || views.get(id); for (let i = 0; v && v.rag && i < n; i++) stepRagdoll(v, 1 / 60, audioT); } });
 let pointerLocked = false;
 // automated browsers can't hold pointer lock (it also blocks screenshots), so they use drag-to-look
 let noLock = isTouch || !!navigator.webdriver;
@@ -242,7 +243,7 @@ const alive = () => !myData || myData.alive !== false;
 const onDock = (x, z) => W && x >= W.dock.minX && x <= W.dock.maxX && z >= W.dock.minZ && z <= W.dock.maxZ;
 const inChannel = (x, z, m = 0) => W && x >= W.channel.minX - m && x <= W.channel.maxX + m && z >= W.channel.minZ - m && z <= W.channel.maxZ + m;
 const inOcean = (x, z) => W && x > W.ocean.minX && x < W.ocean.maxX && z > W.ocean.minZ && z < W.ocean.maxZ;
-const onLand = (x, z) => onDock(x, z) || (Math.hypot(x, z) >= W.shoreRadius && Math.abs(x) <= W.bounds && Math.abs(z) <= W.bounds && !inChannel(x, z, 0.8));
+const onLand = (x, z) => onDock(x, z) || (Math.hypot(x, z) >= W.shoreRadius && Math.abs(x) <= W.edge && Math.abs(z) <= W.edge && !inChannel(x, z, 0.8));
 const inWater = (x, z) => W && !onDock(x, z) && (Math.hypot(x, z) < W.lakeRadius - 0.3 || inChannel(x, z) || inOcean(x, z));
 // where a body or boat rests: water surface, dock planks, or the ground
 const surfaceAt = (x, z, t) => (inWater(x, z) ? WATER_Y + wave(x, z, t) : onDock(x, z) ? DOCK_Y : groundHeight(x, z));
@@ -408,7 +409,10 @@ function makeModelAvatar(color, name, look, skin) {
   const whiskey = new THREE.Mesh(GEO.bottle, new THREE.MeshStandardMaterial({ color: 0xC47A32, roughness: 0.32, metalness: 0.08 }));
   const crank = new THREE.Mesh(GEO.pack, new THREE.MeshStandardMaterial({ color: 0xF4F1EA, roughness: 0.4 }));
   weed.name = 'weed'; whiskey.name = 'whiskey'; crank.name = 'crank';
-  hand.add(weed, whiskey, crank);
+  const knife = makeKnife();
+  knife.name = 'knife';
+  knife.rotation.x = -0.3;
+  hand.add(weed, whiskey, crank, knife);
   hand.visible = false;
   const highMark = new THREE.Mesh(GEO.mark, new THREE.MeshBasicMaterial({ color: 0x6DBF67 }));
   highMark.position.set(0.3, 1.95, 0);
@@ -680,7 +684,11 @@ function makeBlockAvatar(color, name, skin = 0) {
   whiskey.name = 'whiskey';
   crank.name = 'crank';
   whiskey.position.y = 0.02;
-  hand.add(weed, whiskey, crank);
+  const knife = makeKnife();
+  knife.name = 'knife';
+  knife.rotation.x = -0.3;
+  knife.scale.setScalar(1.4);
+  hand.add(weed, whiskey, crank, knife);
   hand.visible = false;
 
   const highMark = new THREE.Mesh(GEO.mark, new THREE.MeshBasicMaterial({ color: 0x6DBF67 }));
@@ -769,15 +777,19 @@ function makeBoatMesh(tier = 0) {
 }
 
 // ---------- guns: each one built from parts, muzzle toward +z, grip at the origin
+// guns, knives and the rod reflect a soft studio environment, so metal reads as metal instead of flat black
+const gearEnv = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
 const GM = {
-  steel: new THREE.MeshStandardMaterial({ color: 0x1B1D20, roughness: 0.35, metalness: 0.75 }),
-  poly: new THREE.MeshStandardMaterial({ color: 0x2A2C2F, roughness: 0.7, metalness: 0.1 }),
+  steel: new THREE.MeshStandardMaterial({ color: 0x2A2D31, roughness: 0.32, metalness: 0.85 }),
+  poly: new THREE.MeshStandardMaterial({ color: 0x2A2C2F, roughness: 0.6, metalness: 0.1 }),
   wood: new THREE.MeshStandardMaterial({ color: 0x7A4A28, roughness: 0.65, metalness: 0.05 }),
   darkWood: new THREE.MeshStandardMaterial({ color: 0x4A2E1A, roughness: 0.7 }),
   glass: new THREE.MeshStandardMaterial({ color: 0x24344E, roughness: 0.1, metalness: 0.6 }),
   laser: new THREE.MeshStandardMaterial({ color: 0x552222, emissive: 0xFF2A2A, emissiveIntensity: 1.4, roughness: 0.4 }),
   switchPlate: new THREE.MeshStandardMaterial({ color: 0xC9A227, roughness: 0.3, metalness: 0.8 }),
+  sight: new THREE.MeshStandardMaterial({ color: 0xF2F4EE, emissive: 0x9CFF6A, emissiveIntensity: 0.6, roughness: 0.4 }),
 };
+Object.values(GM).forEach((m) => { m.envMap = gearEnv; m.envMapIntensity = 0.4; });
 function buildGunModel(id, a = {}) {
   const g = new THREE.Group();
   const part = (geo, mat, x, y, z, rx = 0, rz = 0) => {
@@ -788,7 +800,8 @@ function buildGunModel(id, a = {}) {
     g.add(m);
     return m;
   };
-  const box = (w, h, d, mat, x, y, z, rx = 0, rz = 0) => part(new THREE.BoxGeometry(w, h, d), mat, x, y, z, rx, rz);
+  // every block gets softly rounded edges so light rolls across the corners
+  const box = (w, h, d, mat, x, y, z, rx = 0, rz = 0) => part(new RoundedBoxGeometry(w, h, d, 2, Math.min(w, h, d) * 0.22), mat, x, y, z, rx, rz);
   const tube = (r, len, mat, x, y, z) => part(new THREE.CylinderGeometry(r, r, len, 10), mat, x, y, z, Math.PI / 2);
   const drum = (r, y, z) => part(new THREE.CylinderGeometry(r, r, 0.07, 16), GM.poly, 0, y, z, 0, Math.PI / 2);
   const grip = (h = 0.11, z = -0.01) => box(0.032, h, 0.05, GM.poly, 0, -h / 2 - 0.01, z, -0.2);
@@ -872,7 +885,201 @@ function buildGunModel(id, a = {}) {
     box(0.045, 0.07, 0.3, GM.poly, 0, 0.03, 0.0);
     grip(0.1, -0.05);
   }
+  // shared details: a trigger in its guard, iron sights on the guns without a scope, and a muzzle crown
+  const trig = part(new THREE.TorusGeometry(0.016, 0.0035, 5, 10, Math.PI * 0.9), GM.steel, 0, -0.022, id === 'pistol' || id === 'glock' ? 0.045 : 0.01, 0, Math.PI / 2);
+  trig.rotation.set(0, Math.PI / 2, 0);
+  const tall = { pistol: 0.068, glock: 0.072, smg: 0.078, arp: 0.088, draco: 0.064, shotgun: 0.083 }[id];
+  if (tall) {
+    const front = { pistol: 0.21, glock: 0.16, smg: 0.12, arp: 0.3, draco: 0.4, shotgun: 0.62 }[id];
+    box(0.006, 0.014, 0.008, GM.sight, 0, tall, front);
+    box(0.024, 0.012, 0.01, GM.steel, -0.0, tall - 0.001, front - (id === 'pistol' || id === 'glock' ? 0.17 : 0.3));
+  }
   return g;
+}
+
+// a hunting knife: grip at the origin, blade along +z, edge down
+const KNIFE_MAT = {
+  blade: new THREE.MeshStandardMaterial({ color: 0xA9AEB3, roughness: 0.38, metalness: 0.85 }),
+  grip: new THREE.MeshStandardMaterial({ color: 0x3B2416, roughness: 0.7 }),
+  guard: new THREE.MeshStandardMaterial({ color: 0x8A7250, roughness: 0.35, metalness: 0.8 }),
+};
+[KNIFE_MAT.blade, KNIFE_MAT.guard].forEach((m) => { m.envMap = gearEnv; });
+const KNIFE_GEO = (() => {
+  const blade = new THREE.Shape();
+  blade.moveTo(0, 0);
+  blade.lineTo(0.12, -0.002);
+  blade.quadraticCurveTo(0.165, 0.002, 0.185, 0.022); // the belly sweeps up to the point
+  blade.lineTo(0.14, 0.03); // clip point
+  blade.lineTo(0, 0.03);
+  blade.lineTo(0, 0);
+  const g = new THREE.ExtrudeGeometry(blade, { depth: 0.003, bevelEnabled: true, bevelThickness: 0.0025, bevelSize: 0.002, bevelSegments: 1, curveSegments: 8 });
+  g.translate(0, -0.012, -0.0015);
+  g.rotateY(-Math.PI / 2); // shape x runs along +z
+  g.translate(0, 0, 0.045);
+  const grip = new RoundedBoxGeometry(0.026, 0.034, 0.11, 2, 0.01);
+  grip.translate(0, -0.004, -0.02);
+  const guard = new RoundedBoxGeometry(0.03, 0.058, 0.012, 2, 0.004);
+  guard.translate(0, 0.0, 0.04);
+  const pommel = new THREE.CylinderGeometry(0.016, 0.018, 0.012, 10);
+  pommel.rotateX(Math.PI / 2);
+  pommel.translate(0, -0.004, -0.078);
+  return { blade: g, grip, guard, pommel };
+})();
+function makeKnife() {
+  const g = new THREE.Group();
+  const add = (geo, mat) => { const m = new THREE.Mesh(geo, mat); m.castShadow = true; g.add(m); return m; };
+  add(KNIFE_GEO.blade, KNIFE_MAT.blade);
+  add(KNIFE_GEO.grip, KNIFE_MAT.grip);
+  add(KNIFE_GEO.guard, KNIFE_MAT.guard);
+  add(KNIFE_GEO.pommel, KNIFE_MAT.guard);
+  return g;
+}
+
+// ---------- first person: the camera sits in your head and your arms hold whatever you have out.
+// V switches between first and third person.
+const fpWanted = () => settings.view !== 'third';
+// dead (ragdolling) players watch from outside
+const fpActive = () => { if (!fpWanted() || !myId || !alive()) return false; const m = me(); return !!m && !m.rag; };
+const vm = { group: new THREE.Group(), holder: new THREE.Group(), key: '', swing: 1, swingSide: 'r', kick: 0, sway: new THREE.Vector2(), on: false };
+vm.group.add(vm.holder);
+vm.group.visible = false;
+camera.add(vm.group);
+scene.add(camera);
+const VM_MAT = {
+  skin: new THREE.MeshStandardMaterial({ color: 0xE2B07E, roughness: 0.62 }),
+  sleeve: new THREE.MeshStandardMaterial({ color: 0xE0452B, roughness: 0.85 }),
+  cuff: new THREE.MeshStandardMaterial({ color: 0x2E2A26, roughness: 0.9 }),
+};
+const VM_GEO = {
+  sleeve: new THREE.CylinderGeometry(0.042, 0.05, 0.34, 10),
+  cuff: new THREE.CylinderGeometry(0.052, 0.052, 0.03, 10),
+  wrist: new THREE.CylinderGeometry(0.036, 0.04, 0.07, 10),
+  fist: new RoundedBoxGeometry(0.085, 0.075, 0.1, 3, 0.028),
+  thumb: new RoundedBoxGeometry(0.03, 0.03, 0.06, 2, 0.012),
+};
+[VM_GEO.sleeve, VM_GEO.cuff, VM_GEO.wrist].forEach((geo) => geo.rotateX(Math.PI / 2));
+// a forearm reaching forward (-z) with the fist at the origin
+function vmArm(side = 1) {
+  const g = new THREE.Group();
+  const add = (geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); g.add(m); return m; };
+  add(VM_GEO.sleeve, VM_MAT.sleeve, 0, -0.005, 0.25);
+  add(VM_GEO.cuff, VM_MAT.cuff, 0, -0.005, 0.085);
+  add(VM_GEO.wrist, VM_MAT.skin, 0, 0, 0.055);
+  add(VM_GEO.fist, VM_MAT.skin, 0, 0, 0);
+  add(VM_GEO.thumb, VM_MAT.skin, -0.04 * side, 0.02, -0.015);
+  return g;
+}
+const VM_LONG = new Set(['rifle', 'sniper', 'shotgun', 'draco', 'arp', 'smg']);
+function buildViewmodel(key, item) {
+  vm.holder.clear();
+  vm.key = key;
+  vm.tip = null;
+  const hold = new THREE.Group();
+  vm.holder.add(hold);
+  if (isGun(item)) {
+    const gun = buildGunModel(item, (myData && myData.att && myData.att[item]) || {});
+    gun.rotation.y = Math.PI;
+    hold.add(gun);
+    const right = vmArm(1);
+    right.position.set(0.004, -0.085, 0.03);
+    right.rotation.x = 0.35;
+    hold.add(right);
+    if (VM_LONG.has(item)) {
+      const left = vmArm(-1);
+      left.position.set(-0.03, -0.035, -0.26);
+      left.rotation.set(0.2, -0.45, 0);
+      hold.add(left);
+    }
+  } else if (item === 'rod') {
+    // rod, cork grip and reel, angled up and out ahead of you; the line hangs off vm.tip
+    const rod = new THREE.Group();
+    const blank = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.011, 1.7, 8), new THREE.MeshStandardMaterial({ color: 0x2A3A44, roughness: 0.35, metalness: 0.3 }));
+    blank.position.y = 0.85;
+    const cork = new THREE.Mesh(new THREE.CylinderGeometry(0.017, 0.016, 0.26, 10), new THREE.MeshStandardMaterial({ color: 0xB08A5A, roughness: 0.9 }));
+    cork.position.y = -0.02;
+    const reelBody = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.03, 14), new THREE.MeshStandardMaterial({ color: 0x9AA0A6, roughness: 0.3, metalness: 0.8 }));
+    reelBody.rotation.z = Math.PI / 2;
+    reelBody.position.set(0, 0.06, 0.045);
+    const guides = [0.4, 0.8, 1.15, 1.45].map((y) => {
+      const r = new THREE.Mesh(new THREE.TorusGeometry(0.012 - y * 0.004, 0.0025, 4, 10), new THREE.MeshStandardMaterial({ color: 0xC9CED3, metalness: 0.8, roughness: 0.3 }));
+      r.position.set(0, y, 0.014);
+      return r;
+    });
+    rod.add(blank, cork, reelBody, ...guides);
+    vm.tip = new THREE.Object3D();
+    vm.tip.position.y = 1.7;
+    rod.add(vm.tip);
+    rod.rotation.x = -1.05;
+    const arm = vmArm(1);
+    arm.position.set(0, -0.02, 0.02);
+    hold.add(rod, arm);
+  } else if (item === 'knife') {
+    const k = makeKnife();
+    k.rotation.set(0.25, Math.PI, 0);
+    k.position.set(0, 0.01, -0.02);
+    hold.add(k, vmArm(1));
+  } else if (item === 'fists') {
+    const r = vmArm(1);
+    const l = vmArm(-1);
+    r.name = 'r';
+    l.name = 'l';
+    r.position.set(0.2, 0, 0);
+    l.position.set(-0.2, 0, 0);
+    r.rotation.set(0.25, 0.12, 0);
+    l.rotation.set(0.25, -0.12, 0);
+    hold.add(r, l);
+  } else if (DRUGS.includes(item)) {
+    const mesh = new THREE.Mesh(item === 'weed' ? GEO.bud : item === 'whiskey' ? GEO.bottle : GEO.pack,
+      new THREE.MeshStandardMaterial({ color: item === 'weed' ? 0x6DBF67 : item === 'whiskey' ? 0xC47A32 : 0xF4F1EA, roughness: 0.4 }));
+    mesh.position.set(0, item === 'whiskey' ? 0.1 : 0.05, -0.02);
+    hold.add(mesh, vmArm(1));
+  }
+  hold.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; } });
+  hold.userData.item = item;
+}
+const VM_HIP = { gun: [0.16, -0.15, -0.34], long: [0.15, -0.17, -0.44], knife: [0.2, -0.2, -0.36], fists: [0, -0.15, -0.36], drug: [0.2, -0.2, -0.38], rod: [0.2, -0.26, -0.36] };
+function updateViewmodel(dt, t, show) {
+  vm.group.visible = show;
+  if (!show) return;
+  const item = phase !== 'idle' ? 'rod' : held;
+  const att = isGun(item) && myData && myData.att ? JSON.stringify(myData.att[item] || {}) : '';
+  const key = item + att + (isGun(item) && !ownsGun(item) ? 'x' : '');
+  if (key !== vm.key) buildViewmodel(key, isGun(item) && !ownsGun(item) ? 'none' : item);
+  const kind = isGun(item) ? (VM_LONG.has(item) ? 'long' : 'gun') : item === 'knife' ? 'knife' : item === 'fists' ? 'fists' : item === 'rod' ? 'rod' : 'drug';
+  const [hx, hy, hz] = VM_HIP[kind];
+  const aim = isGun(item) ? cam.aim : 0;
+  const m = me();
+  const moving = m && m.walking && jumpY === 0;
+  const speed = Math.hypot(vel.x, vel.z);
+  const bobA = moving ? Math.min(1, speed / 6) * (1 - aim * 0.85) : 0;
+  const bx = Math.sin(t * 9) * 0.014 * bobA;
+  const by = -Math.abs(Math.cos(t * 9)) * 0.016 * bobA + (jumpY > 0 ? -Math.min(0.05, jumpV * 0.008) : 0);
+  vm.kick *= Math.exp(-dt * 14);
+  vm.swing = Math.min(1, vm.swing + dt / (item === 'knife' ? 0.32 : 0.26));
+  const h = vm.holder;
+  h.position.set(lerp(hx, 0, aim) + bx, lerp(hy, -0.072, aim) + by, lerp(hz, -0.26, aim) + vm.kick * 1.4);
+  h.rotation.set(vm.kick * 3, 0, 0);
+  const sw = Math.sin(Math.min(1, vm.swing) * Math.PI);
+  const hold = h.children[0];
+  if (!hold) return;
+  hold.position.set(0, 0, 0);
+  hold.rotation.set(0, 0, 0);
+  if (item === 'rod') {
+    // pull back while charging a cast, lean forward while waiting, bow down under a fish
+    const back = phase === 'charging' ? power * 0.7 : 0;
+    const fight = phase === 'reeling' ? 0.25 + Math.sin(t * 17) * 0.03 : phase === 'bite' ? 0.12 : 0;
+    hold.rotation.set(back - fight, 0, 0);
+  } else if (item === 'knife' && vm.swing < 1) {
+    // a quick slash across and forward
+    hold.position.set(-sw * 0.16, sw * 0.04, -sw * 0.18);
+    hold.rotation.set(-sw * 0.5, sw * 0.6, -sw * 0.9);
+  } else if (item === 'fists') {
+    for (const arm of hold.children) {
+      const punching = vm.swing < 1 && arm.name === vm.swingSide;
+      arm.position.z = punching ? -sw * 0.26 : 0;
+      arm.position.y = punching ? sw * 0.05 : 0;
+    }
+  }
 }
 
 function makeBeam() {
@@ -1225,15 +1432,19 @@ socket.on('ragdoll', (r) => {
   if (!v) return;
   if (v.model) startRagdoll(v, r.dx, r.dz, r.force);
   if (settings.blood) {
-    const y = inWater(v.x, v.z) ? WATER_Y + 0.4 : 1.1;
-    fx.blood(v.x, y, v.z, r.dx, r.dz, 26, 1.2);
+    const y = inWater(v.x, v.z) ? 0.4 : 1.1;
+    fx.blood(v.x, y, v.z, r.dx, r.dz, 40, 1.4);
     if (inWater(v.x, v.z)) fx.waterBlood(v.x, v.z, 6);
   }
 });
 
 socket.on('shot', (shot) => {
   if (!shot || !shot.from || !shot.to) return;
+  // shots come from the server at flat-ground heights; lift them onto the hills
+  const liftAt = (x, z) => (inWater(x, z) ? 0 : Math.max(0, groundHeight(x, z)));
+  shot.from.y = (shot.from.y ?? 1.3) + liftAt(shot.from.x, shot.from.z);
   if (shot.surface) shot.to.y = surfaceAt(shot.to.x, shot.to.z, audioT) + 0.05;
+  else shot.to.y = (shot.to.y ?? 1) + liftAt(shot.to.x, shot.to.z);
   fx.tracer(shot.from, shot.to);
   if (shot.gun) {
     // brass (or a red shotgun shell) pops out to the gun's right and bounces
@@ -1254,9 +1465,11 @@ socket.on('shot', (shot) => {
     const d = Math.hypot(dx, dz) || 1;
     if (shot.hit === 'fish') fx.waterBlood(shot.to.x, shot.to.z, shot.killed ? 6 : 3);
     else {
-      fx.blood(shot.to.x, 1.1, shot.to.z, dx / d, dz / d, shot.killed ? 22 : 14, 1);
+      fx.blood(shot.to.x, 1.1, shot.to.z, dx / d, dz / d, shot.killed ? 34 : 20, shot.killed ? 1.3 : 1);
+      if (shot.killed) fx.blood(shot.to.x, 1.5, shot.to.z, dx / d, dz / d, 16, 1.6); // exit spray
       if (Math.random() < 0.6 && !inWater(shot.to.x, shot.to.z)) fx.bloodPool(shot.to.x + (dx / d) * 0.6, surfaceAt(shot.to.x, shot.to.z, audioT), shot.to.z + (dz / d) * 0.6, 0.5 + Math.random() * 0.4);
-      const near = camera.position.distanceTo(new THREE.Vector3(shot.to.x, 1, shot.to.z));
+      const near = camera.position.distanceTo(new THREE.Vector3(shot.to.x, shot.to.y, shot.to.z));
+      if (near < 3.5 && fpActive()) screenBlood(0.5 * (1 - near / 3.5) + 0.15);
       if (near < 25) sfx.splat(Math.max(0.2, 1 - near / 25));
     }
   }
@@ -1275,7 +1488,7 @@ socket.on('punch', (p) => {
   if (p.hit) {
     if (d < 30) sfx.thud(p.heavy, 0.6);
     if (p.x != null) {
-      if (settings.blood) fx.blood(p.x, 1.4, p.z, Math.sin(p.rot), Math.cos(p.rot), p.heavy ? 10 : 4, 0.6);
+      if (settings.blood) fx.blood(p.x, 1.35, p.z, Math.sin(p.rot), Math.cos(p.rot), p.knife ? (p.backstab ? 34 : 18) : p.heavy ? 10 : 4, p.knife ? 1 : 0.6);
       else fx.puff(p.x, 1.25, p.z, 0xF2EEE4, p.heavy ? 12 : 6);
     }
     const target = [...views.values(), ...npcViews.values()].find((o) => o.data.alive !== false && Math.hypot(o.x - p.x, o.z - p.z) < 1.2);
@@ -1291,9 +1504,37 @@ socket.on('knock', (k) => {
   cam.shake += k.heavy ? 0.45 : 0.2;
 });
 
+// first person: blood on the lens when you get hit or cut someone up close. Each call throws a fresh set of spots.
+const bloodLayer = document.createElement('div');
+bloodLayer.id = 'screenBlood';
+document.body.append(bloodLayer);
+let bloodLevel = 0;
+function screenBlood(amount) {
+  if (!settings.blood) return;
+  const spots = [];
+  const n = 4 + Math.floor(amount * 10);
+  for (let i = 0; i < n; i++) {
+    const edge = Math.random() < 0.7;
+    const x = edge ? (Math.random() < 0.5 ? Math.random() * 22 : 78 + Math.random() * 22) : 20 + Math.random() * 60;
+    const y = Math.random() * 100;
+    const r = 3 + Math.random() * (edge ? 16 : 7) * (0.6 + amount);
+    const a = (0.55 + Math.random() * 0.4).toFixed(2);
+    spots.push(`radial-gradient(circle at ${x.toFixed(1)}% ${y.toFixed(1)}%, rgba(150,8,8,${a}) 0, rgba(120,4,4,${a}) ${(r * 0.5).toFixed(1)}vmin, rgba(90,0,0,0) ${r.toFixed(1)}vmin)`);
+  }
+  bloodLayer.style.backgroundImage = spots.join(',');
+  bloodLevel = Math.min(1, Math.max(bloodLevel, amount + 0.25));
+  bloodLayer.style.opacity = String(bloodLevel);
+}
+setInterval(() => {
+  if (bloodLevel <= 0) return;
+  bloodLevel = Math.max(0, bloodLevel - 0.05);
+  bloodLayer.style.opacity = String(bloodLevel);
+}, 100);
+
 socket.on('hurt', (h) => {
   sfx.hurt();
   hurtT = 1;
+  if (settings.blood && h && h.how !== 'punch') screenBlood(0.55);
   cam.shake += 0.35;
   const m = me();
   if (m) {
@@ -1583,6 +1824,13 @@ addEventListener('keydown', (e) => {
     case 'KeyJ': if (!e.repeat) togglePanel('journal'); break;
     case 'KeyP': if (!e.repeat) togglePanel('phone'); break;
     case 'KeyH': if (!e.repeat) togglePanel('help'); break;
+    case 'KeyV':
+      if (!e.repeat) {
+        settings.view = fpWanted() ? 'third' : 'first';
+        store.set('loonlake.settings', settings);
+        flashPrompt(fpWanted() ? 'First person (V to switch)' : 'Third person (V to switch)', '', 1200);
+      }
+      break;
     case 'Enter': e.preventDefault(); openChat(); break;
     case 'Escape': closePanels(); break;
     case 'Digit1': case 'Digit2': case 'Digit3': case 'Digit4': case 'Digit5':
@@ -2442,14 +2690,14 @@ function assistRot(rot, range, cone) {
 }
 
 function attack() {
-  if (held === 'fists') tryPunch();
+  if (held === 'fists' || held === 'knife') tryPunch();
   else if (isGun(held)) tryShoot();
 }
 
 // left mouse always uses whatever is in your hands
 function usePrimary() {
   if (phase !== 'idle' || held === 'rod') { lmbFish = true; fishDown(); return; }
-  if (held === 'fists') tryPunch();
+  if (held === 'fists' || held === 'knife') tryPunch();
   else if (isGun(held)) tryShoot();
   else if (DRUGS.includes(held)) { lmbHeld = false; useDrug(held); }
   else if (held === 'bait') flashPrompt('Your bait goes on the hook when you cast.', '', 1500);
@@ -2473,15 +2721,19 @@ function tryPunch() {
   if (!myId || !alive() || openPanel || chatOpen || phase !== 'idle') return;
   const now = performance.now();
   if (now < nextPunchAt) return;
-  localCombo = now - lastLocalPunch < 1100 ? (localCombo % 3) + 1 : 1;
+  const knife = held === 'knife';
+  localCombo = !knife && now - lastLocalPunch < 1100 ? (localCombo % 3) + 1 : 1;
   lastLocalPunch = now;
-  const heavy = localCombo === 3;
-  nextPunchAt = now + (heavy ? 610 : 360);
+  const heavy = !knife && localCombo === 3;
+  nextPunchAt = now + (knife ? 520 : heavy ? 610 : 360);
   const m = me();
-  const rot = assistRot(aimRot, 2.8, 1.1);
-  if (m) { m.trot = m.rot = rot; startPunch(m, heavy || localCombo === 1 ? 'r' : 'l', heavy); }
-  sfx.whoosh(heavy);
-  socket.emit('punch', { rot }, (res) => {
+  const rot = assistRot(aimRot, knife ? 3 : 2.8, 1.1);
+  const side = knife || heavy || localCombo === 1 ? 'r' : 'l';
+  if (m) { m.trot = m.rot = rot; startPunch(m, side, heavy); }
+  vm.swing = 1;
+  vm.swingSide = side;
+  sfx.whoosh(heavy || knife);
+  socket.emit('punch', { rot, knife }, (res) => {
     if (!res || !res.ok) { if (res && res.msg) flashPrompt(res.msg, '', 1300); return; }
     if (res.hit === 'safe') { flashPrompt('Camp is a no-fighting zone.', '', 1500); return; }
     if (res.hit === 'player' || res.hit === 'npc') {
@@ -2491,9 +2743,11 @@ function tryPunch() {
       cam.shake += res.heavy ? 0.3 : 0.12;
       buzz(res.heavy ? 45 : 20);
       if (res.x != null) {
-        if (settings.blood) fx.blood(res.x, 1.4, res.z, Math.sin(rot), Math.cos(rot), res.heavy ? 10 : 4, 0.6);
+        if (settings.blood) fx.blood(res.x, 1.35, res.z, Math.sin(rot), Math.cos(rot), knife ? (res.backstab ? 34 : 18) : res.heavy ? 10 : 4, knife ? 1 : 0.6);
         else fx.puff(res.x, 1.25, res.z, 0xF2EEE4, res.heavy ? 14 : 7);
         if (res.heavy) fx.floater(res.x, 2.2, res.z, 'Haymaker!', 'dmg', 0.9);
+        if (knife && fpActive()) screenBlood(res.killed ? 0.7 : 0.3);
+        if (knife && res.dmg) fx.floater(res.x, 2.2, res.z, res.backstab ? `Backstab! ${res.dmg}` : String(res.dmg), 'dmg', res.backstab ? 1.15 : 0.85);
       }
     }
   });
@@ -2537,6 +2791,7 @@ function tryShoot() {
   sfx.shot(g.sound);
   cam.shake += 0.08 + g.pellets * 0.015;
   cam.pitch -= g.recoil || 0.015;
+  vm.kick = Math.min(0.1, vm.kick + 0.025 + (g.recoil || 0.015) * 0.8);
   const gun = held;
   socket.emit('shoot', { rot: shotRot, aiming: cam.aim > 0.5, gun, dist: isTouch ? 0 : aimDist }, (res) => {
     if (!res) return;
@@ -2580,13 +2835,13 @@ const GUN_ORDER = ['pistol', 'glock', 'arp', 'smg', 'draco', 'shotgun', 'rifle',
 const SLOT_KEYS_LABEL = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '='];
 function hotbarList() {
   const owned = myData && myData.guns ? GUN_ORDER.filter((g) => myData.guns[g]) : [];
-  return ['fists', 'rod', 'bait', ...owned, ...DRUGS, 'bag'];
+  return ['fists', 'knife', 'rod', 'bait', ...owned, ...DRUGS, 'bag'];
 }
 let held = 'rod';
 
 function canHold(act) {
   if (!myData) return act === 'rod' || act === 'fists';
-  if (act === 'fists' || act === 'rod' || act === 'bait' || act === 'bag') return true;
+  if (act === 'fists' || act === 'knife' || act === 'rod' || act === 'bait' || act === 'bag') return true;
   if (isGun(act)) return ownsGun(act);
   if (DRUGS.includes(act)) return (myData.pocket[act] || 0) > 0;
   return false;
@@ -2768,9 +3023,10 @@ function updateLocal(m, dt) {
   if (m.walking && !inBoat && !m.swimming && jumpY === 0) sfx.step(audioT, sprint);
   if (m.walking && m.swimming && Math.random() < dt * 5) fx.ripple(m.x, m.z, 0.7, 1, 0.4);
   if (!canMove && (phase === 'charging' || rifleUp)) m.trot = aimRot;
+  if (fpActive() && !inBoat) m.trot = cam.yaw + Math.PI; // in first person your body faces where you look
   if (lmbHeld && !openPanel && !chatOpen) {
     if (isGun(held) && effGun(held).auto) tryShoot();
-    else if (held === 'fists') tryPunch();
+    else if (held === 'fists' || held === 'knife') tryPunch();
   }
   if (phase === 'charging') {
     power += powerDir * TUNING.castCharge * dt;
@@ -2911,8 +3167,9 @@ function updateView(v, dt, t) {
   } else {
     if (v.boatMesh) v.boatMesh.visible = false;
     const swimNow = isMe ? !!v.swimming : !!v.data.swim;
-    const restY = swimNow ? WATER_Y + wave(v.x, v.z, t) - 0.3 : onDock(v.x, v.z) ? DOCK_Y : 0;
-    v.y += (restY - v.y) * k;
+    const restY = swimNow ? WATER_Y + wave(v.x, v.z, t) - 0.3 : onDock(v.x, v.z) ? DOCK_Y : groundHeight(v.x, v.z);
+    // follow the hills exactly; only ease into big steps like the dock or the water
+    if (Math.abs(restY - v.y) > 0.6) v.y += (restY - v.y) * k; else v.y = restY;
     v.swimLean = (v.swimLean || 0) + ((swimNow && aliveNow ? 1.1 : 0) - (v.swimLean || 0)) * k;
   }
   v.group.rotation.order = 'YXZ';
@@ -2945,10 +3202,11 @@ function updateView(v, dt, t) {
     v.rifle.scale.setScalar(1);
   }
   const drug = !fishing && aliveNow && (inHand === 'weed' || inHand === 'whiskey' || inHand === 'crank');
-  v.hand.visible = drug;
-  for (const child of v.hand.children) child.visible = drug && child.name === inHand;
+  const knifeOut = !fishing && aliveNow && inHand === 'knife';
+  v.hand.visible = drug || knifeOut;
+  for (const child of v.hand.children) child.visible = (drug || knifeOut) && child.name === inHand;
   v.label.visible = !isMe && aliveNow;
-  const pose = !aliveNow ? 'idle' : fishing || inHand === 'rod' ? 'rod' : gunHeld ? 'rifle' : inHand === 'fists' ? 'fists' : drug ? 'drug' : 'idle';
+  const pose = !aliveNow ? 'idle' : fishing || inHand === 'rod' ? 'rod' : gunHeld ? 'rifle' : inHand === 'fists' ? 'fists' : drug || knifeOut ? 'drug' : 'idle';
   if (v.model) {
     const px = v.px ?? v.x;
     const pz = v.pz ?? v.z;
@@ -2974,11 +3232,26 @@ function updateView(v, dt, t) {
     v.beam.visible = true;
     v.beam.position.copy(tmpA);
     tmpB.set(tmpA.x + fwdX * len, endY, tmpA.z + fwdZ * len);
-    v.beam.lookAt(tmpB);
-    v.beam.children[0].scale.z = len;
-    v.beam.children[0].position.z = len / 2;
-    v.beam.children[1].position.z = len;
-    v.beam.children[1].scale.setScalar(0.8 + Math.sin(t * 30) * 0.15);
+    if (isMe && vm.group.visible) {
+      // first person: from the gun in your hands to where the crosshair points
+      camera.getWorldDirection(tmpC);
+      const reach = tmpC.y < -0.02 ? Math.min(80, (surfaceAt(camera.position.x, camera.position.z, t) - camera.position.y) / tmpC.y) : 70;
+      vm.holder.getWorldPosition(tmpA).addScaledVector(tmpC, 0.35);
+      tmpB.copy(camera.position).addScaledVector(tmpC, Math.max(2, reach));
+      v.beam.position.copy(tmpA);
+      const flen = tmpA.distanceTo(tmpB);
+      v.beam.children[0].scale.z = flen;
+      v.beam.children[0].position.z = flen / 2;
+      v.beam.children[1].position.z = flen;
+      v.beam.lookAt(tmpB);
+      v.beam.children[1].scale.setScalar(0.8 + Math.sin(t * 30) * 0.15);
+    } else {
+      v.beam.lookAt(tmpB);
+      v.beam.children[0].scale.z = len;
+      v.beam.children[0].position.z = len / 2;
+      v.beam.children[1].position.z = len;
+      v.beam.children[1].scale.setScalar(0.8 + Math.sin(t * 30) * 0.15);
+    }
   } else if (v.beam) v.beam.visible = false;
   if (v.flash > 0) { v.flash -= dt; v.cloth.emissive.setRGB(v.flash > 0 ? 0.6 : 0, 0, 0); }
 
@@ -2991,6 +3264,10 @@ function updateView(v, dt, t) {
   v.pivot.rotation.z = isMe && reel ? -reel.side * 0.3 : 0;
   paintHigh(v, v.data.high);
   const hp = isMe && myData ? myData.hp : v.data.hp;
+  // badly hurt people leave a trail of drops behind them
+  if (settings.blood && aliveNow && hp > 0 && hp < 50 && !inBoat && !inWater(v.x, v.z) && Math.random() < dt * (hp < 25 ? 7 : 3.5)) {
+    fx.splat(v.x + (Math.random() - 0.5) * 0.4, surfaceAt(v.x, v.z, t), v.z + (Math.random() - 0.5) * 0.4, 0.07 + Math.random() * 0.1, 40);
+  }
   v.hp.sprite.visible = aliveNow && hp < 100 && hp > 0;
   if (v.hp.sprite.visible) drawHp(v.hp, hp);
   if (v.bubble && t > v.bubbleUntil) {
@@ -2999,12 +3276,24 @@ function updateView(v, dt, t) {
     v.bubble.material.dispose();
     v.bubble = null;
   }
+  if (isMe) {
+    // in first person you don't see your own body (your arms and rod are drawn on the camera); the boat stays under you
+    const fp = fpActive();
+    if (fp || v.fpHid) {
+      for (const c of v.group.children) {
+        if (c === v.boatMesh || c === v.label) continue;
+        if (c === v.pivot || c === v.rifle || c === v.hand || c === v.highMark || c === v.bubble || c === v.hp.sprite) { if (fp) c.visible = false; continue; }
+        c.visible = !fp; // switching back to third person shows the body again once; after that the usual rules apply
+      }
+      v.fpHid = fp;
+    }
+  }
   updateLine(v, dt, t, isMe, state);
 }
 
 function updateLine(v, dt, t, isMe, state) {
   if (!v.bobberPos || v.data.alive === false) { v.line.visible = v.bobber.visible = false; v.fly = null; return; }
-  const tip = v.tip.getWorldPosition(tmpA);
+  const tip = isMe && vm.tip && vm.group.visible ? vm.tip.getWorldPosition(tmpA) : v.tip.getWorldPosition(tmpA);
   const pos = tmpB.set(v.bobberPos.x, WATER_Y + 0.05 + wave(v.bobberPos.x, v.bobberPos.z, t), v.bobberPos.z);
   if (state === 'bite') pos.y -= 0.2 + Math.sin(t * 22) * 0.08;
   if (state === 'waiting' && isMe && nibble > 0) pos.y -= nibble * 0.1;
@@ -3212,10 +3501,45 @@ function updateCamera(m, dt, t) {
     cam.yaw -= d.x * s;
     cam.pitch += d.y * s * (settings.invertY ? -1 : 1);
   }
-  cam.pitch = clamp(cam.pitch, -0.35, 1.25);
+  const fp = fpActive();
+  cam.pitch = fp ? clamp(cam.pitch, -1.5, 1.5) : clamp(cam.pitch, -0.35, 1.25);
   const rifleOut = isGun(held) && ownsGun(held) && phase === 'idle' && alive();
   const aiming = aimHeld && alive() && !openPanel;
   cam.aim += ((aiming ? 1 : 0) - cam.aim) * Math.min(1, dt * 12);
+  updateViewmodel(dt, t, fp);
+  if (fp) {
+    // eyes in the head: face where the mouse points, bob a little when walking, sway when high
+    const sy = Math.sin(cam.yaw);
+    const cy = Math.cos(cam.yaw);
+    const cp = Math.cos(cam.pitch);
+    const moving = m.walking && jumpY === 0 && !boating();
+    const bob = moving && !reducedMotion ? Math.abs(Math.sin(t * 9)) * 0.035 * Math.min(1, Math.hypot(vel.x, vel.z) / 6) : 0;
+    const eyeY = (m.y || 0) + (boating() ? 1.3 : m.swimming ? 1.45 : 1.63) + jumpY + bob;
+    camera.position.set(m.x, eyeY, m.z);
+    tmpB.set(m.x - sy * cp, eyeY - Math.sin(cam.pitch), m.z - cy * cp);
+    camera.lookAt(tmpB);
+    const high = (myData && myData.high) || {};
+    const sway = (high.weed ? 0.15 : 0) + (high.whiskey ? 0.32 : 0);
+    if (sway && !reducedMotion) {
+      camera.rotation.z += Math.sin(t * 0.9) * sway * 0.12;
+      camera.rotation.x += Math.cos(t * 0.7) * sway * 0.05;
+    }
+    if (reel) cam.shake = Math.max(cam.shake, reel.tension > TUNING.redline ? 0.04 : 0);
+    const shake = settings.shake && !reducedMotion ? Math.min(cam.shake, 0.6) : 0;
+    if (shake > 0.001) {
+      camera.rotation.x += (Math.random() - 0.5) * shake * 0.06;
+      camera.rotation.y += (Math.random() - 0.5) * shake * 0.06;
+    }
+    cam.shake *= Math.exp(-dt * 8);
+    const zoomFov = rifleOut ? gunOf(held).zoom : 45;
+    const speedKick = clamp((Math.hypot(vel.x, vel.z) - 6.5) / 8, 0, 2.5) * 5 * (1 - cam.aim);
+    const fov = lerp(75, zoomFov, cam.aim) + (high.crank ? 7 : 0) + speedKick;
+    if (Math.abs(camera.fov - fov) > 0.05) {
+      camera.fov += (fov - camera.fov) * Math.min(1, dt * 8);
+      camera.updateProjectionMatrix();
+    }
+    return;
+  }
   const dist = lerp(cam.dist, TUNING.aimDist, rifleOut ? cam.aim : cam.aim * 0.5);
   const shoulder = rifleOut ? lerp(0.45, 0.8, cam.aim) : cam.aim * 0.3;
   const sy = Math.sin(cam.yaw);
@@ -3279,6 +3603,7 @@ const SLOT_ART = {
   crank: '<path fill="currentColor" d="M13.2 2 5 13.2h6.2L10 22l9.2-12.4h-6z"/>',
   bag: '<path fill="currentColor" d="M2 12.2c4.2-4.6 9.2-4.8 13.4-2.2 2.2 1.3 4.2 1.4 6.6-.6-1.4 3.4-3.8 5.6-7 5.8C10.6 15.4 6.2 14.2 2 12.2z"/><circle cx="16.2" cy="10.6" r="1" fill="#163438"/>',
 };
+SLOT_ART.knife = '<path fill="currentColor" d="M3.2 20.8 8.6 15.4 7.4 14.2 9 12.6 10.2 13.8 19.6 4.4C20.6 3.4 21.4 3.2 21.6 3.4 21.8 3.6 21.6 4.6 20.6 5.6L11.4 15 12.6 16.2 11 17.8 9.8 16.6 4.4 22z"/>';
 SLOT_ART.glock = SLOT_ART.pistol;
 SLOT_ART.arp = SLOT_ART.smg;
 SLOT_ART.draco = SLOT_ART.rifle;
@@ -3293,6 +3618,7 @@ function renderHotbar() {
   hotbarSig = sig;
   const slots = [
     { act: 'fists', art: 'fists', label: 'Fists', key: '1' },
+    { act: 'knife', art: 'knife', label: 'Hunting knife (stab from behind to finish them)' },
     { act: 'rod', art: 'rod', label: W.rods[d.rod].name, tier: [d.rod, W.rods.length], key: '2' },
     { act: 'bait', art: 'bait', label: W.baits[d.bait].name, tier: [d.bait, W.baits.length], key: '3' },
     ...GUN_ORDER.filter((g) => d.guns[g]).map((g) => ({
@@ -3594,7 +3920,7 @@ function updateHud(dt, t) {
   ch.hidden = !showCross;
   if (showCross) {
     const rifle = isGun(held) && ownsGun(held) && phase === 'idle';
-    ch.classList.toggle('fists', held === 'fists' && phase === 'idle');
+    ch.classList.toggle('fists', (held === 'fists' || held === 'knife') && phase === 'idle');
     ch.classList.toggle('rifle', rifle);
     if (rifle) {
       const h = d.high || {};
@@ -3666,7 +3992,7 @@ function updateHud(dt, t) {
       else if (!d.boat && onDock(m.x, m.z) && m.z < W.dock.minZ + 5) useLabel = 'Rent boat';
     }
     const fishLabel = { idle: 'Cast', charging: 'Let go', casting: 'Cast', out: 'Hook', bite: 'Hook', reeling: 'Reel' }[phase] || 'Cast';
-    const attackLabel = phase !== 'idle' ? null : held === 'fists' ? 'Punch' : isGun(held) && ownsGun(held) ? 'Shoot' : null;
+    const attackLabel = phase !== 'idle' ? null : held === 'fists' ? 'Punch' : held === 'knife' ? 'Stab' : isGun(held) && ownsGun(held) ? 'Shoot' : null;
     touch.sync({ fishLabel, fishAlert: phase === 'bite', attackLabel, useLabel, canReelIn: phase === 'out' || phase === 'bite' });
   }
 }
