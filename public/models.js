@@ -208,6 +208,15 @@ export async function loadModels(onProgress) {
   };
 
   // ---------- fish, recolored per species
+  // body proportions [width, height, length], plus belly and fin colors, so species read differently at a glance
+  const FISH_SHAPE = {
+    bluegill: [1.25, 1.35, 0.9], perch: [1, 1.15, 1], crappie: [1.15, 1.25, 0.95], bass: [1.05, 1.1, 1.05],
+    walleye: [0.95, 0.95, 1.1], eelpout: [0.85, 0.8, 1.3], pike: [0.8, 0.8, 1.3], catfish: [1.3, 0.9, 1.1],
+    muskie: [0.9, 0.9, 1.35], sturgeon: [0.95, 0.75, 1.4], golden: [1, 1.05, 1.1], cisco: [0.85, 0.9, 1.05],
+    whitefish: [0.95, 1, 1.05], salmon: [1, 1.05, 1.15], laketrout: [1, 1, 1.2], pressie: [1.1, 1.1, 1.5],
+  };
+  const FISH_BELLY = { perch: '#F1E9A8', bluegill: '#F2B24A', salmon: '#EFD9D0', sturgeon: '#D8D0BC', bass: '#E4E0B4', pike: '#EEEBD0' };
+  const FISH_FIN = { perch: '#E86A2A', salmon: '#B84A4A', bass: '#6E6A2E', golden: '#FFD36A', catfish: '#3A4448', bluegill: '#2D6E70', crappie: '#5E6B5E', pike: '#B0682C' };
   kit.fish = (sid, hex) => {
     const long = LONG_FISH.has(sid);
     const src = g[long ? 'fish_long' : 'fish_round'];
@@ -217,8 +226,8 @@ export async function loadModels(onProgress) {
     root.scale.multiplyScalar((long ? 0.72 : 0.46) / len);
     const mats = cloneMats(root, true);
     const body = new THREE.Color(hex || '#4FA3A5');
-    const belly = body.clone().lerp(new THREE.Color('#F2EEDC'), 0.6);
-    const fin = body.clone().multiplyScalar(0.55);
+    const belly = FISH_BELLY[sid] ? new THREE.Color(FISH_BELLY[sid]) : body.clone().lerp(new THREE.Color('#F2EEDC'), 0.6);
+    const fin = FISH_FIN[sid] ? new THREE.Color(FISH_FIN[sid]) : body.clone().multiplyScalar(0.55);
     if (long) {
       mats.Top?.color.copy(body);
       mats.Bottom?.color.copy(belly);
@@ -232,6 +241,7 @@ export async function loadModels(onProgress) {
     const group = new THREE.Group();
     const turn = new THREE.Group();
     turn.rotation.y = FISH_YAW;
+    if (FISH_SHAPE[sid]) turn.scale.set(...FISH_SHAPE[sid]);
     turn.add(root);
     group.add(turn);
     const mixer = new THREE.AnimationMixer(root);

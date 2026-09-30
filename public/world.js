@@ -236,7 +236,8 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
         float r = length(vWorld.xz) / uRadius;
         vec2 np = vWorld.xz * 1.1 + vec2(uTime * 0.22, uTime * 0.16);
         float n1 = vnoise(np); float n2 = vnoise(np * 2.3 - uTime * 0.35);
-        vec3 n = normalize(vN + vec3((n1 - 0.5) * 0.32, 0.0, (n2 - 0.5) * 0.32));
+        float n3 = vnoise(np * 5.3 + vec2(uTime * 0.7, -uTime * 0.5));
+        vec3 n = normalize(vN + vec3((n1 - 0.5) * 0.32 + (n3 - 0.5) * 0.14, 0.0, (n2 - 0.5) * 0.32 + (n3 - 0.5) * 0.14));
         vec3 V = normalize(cameraPosition - vWorld);
         float fres = pow(1.0 - clamp(dot(n, V), 0.0, 1.0), 4.0);
         vec3 base = mix(uDeep, uShallow, smoothstep(0.5, 1.0, r));
@@ -249,7 +250,11 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
         vec3 H = normalize(normalize(uSunDir) + V);
         float nh = max(dot(n, H), 0.0);
         col += uSunColor * (pow(nh, 260.0) * 2.4 + pow(nh, 28.0) * 0.1);
-        float foam = uLake * smoothstep(0.955, 0.997, r) * (0.55 + 0.45 * sin(uTime * 1.6 + vWorld.x * 0.7 + vWorld.z * 0.4));
+        // sun glitter that twinkles across the ripples, and a soft glow from light in the water
+        float twinkle = smoothstep(0.82, 1.0, vnoise(vWorld.xz * 5.5 + vec2(uTime * 1.6, uTime * 1.2)));
+        col += uSunColor * twinkle * pow(nh, 9.0) * 2.2;
+        col += uShallow * 0.1 * (1.0 - fres) * (1.0 - uNight * 0.8);
+        float foam = uLake * smoothstep(0.93, 0.997, r) * (0.35 + 0.65 * vnoise(vWorld.xz * 1.8 + vec2(uTime * 0.5, -uTime * 0.35))) * (0.6 + 0.4 * sin(uTime * 1.6 + vWorld.x * 0.7 + vWorld.z * 0.4));
         if (uLake < 0.5) foam = smoothstep(0.55, 0.95, sin(vWorld.z * 0.12 + uTime * 0.8) * 0.5 + 0.5) * smoothstep(-126.0, -118.0, vWorld.z) * 0.6;
         col = mix(col, vec3(0.92, 0.96, 0.94) * (1.0 - uNight * 0.65), foam * 0.6);
         float alpha = uLake > 0.5 ? mix(0.9, 0.74, smoothstep(0.86, 1.0, r)) : mix(0.8, 0.97, smoothstep(-110.0, -135.0, vWorld.z));

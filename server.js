@@ -32,6 +32,12 @@ const WORLD = {
   channel: { minX: -4.5, maxX: 4.5, minZ: -124, maxZ: -26 },
   ocean: { minX: -300, maxX: 300, minZ: -460, maxZ: -118 },
   boat: { buy: 180, rent: 15, speed: 9 },
+  boats: [
+    { id: 'row', name: 'Rowboat', price: 180, speed: 9, desc: 'A rowboat with a little motor. Gets you to the hot spots and down the channel.', color: '#6A3A1C', scale: 1 },
+    { id: 'skiff', name: 'Aluminum skiff', price: 600, speed: 12.5, desc: 'Faster, wider, and it does not rot.', color: '#9AA5AD', scale: 1.15 },
+    { id: 'cruiser', name: 'Sport cruiser', price: 1800, speed: 16.5, desc: 'Fast enough to cross the big water before the fish stop biting.', color: '#C43B2B', scale: 1.35 },
+  ],
+  bhop: 1.6,
   market: { remote: 0.7 },
   camp: {
     dealer: { x: 10, z: 40 },
@@ -40,12 +46,22 @@ const WORLD = {
     range: 4.2,
     safeRadius: 7,
   },
-  shop: { rifle: 80, ammo: 10, ammoCount: 6, weed: 25, whiskey: 15, crank: 40 },
+  shop: { ammo: 10, ammoCount: 12, weed: 25, whiskey: 15, crank: 40 },
+  guns: {
+    pistol: { name: 'Pistol', price: 60, mag: 12, reload: 1100, damage: 22, cooldown: 260, spread: 0.035, pellets: 1, range: 45, auto: false, start: 24, zoom: 52, desc: 'Quick to draw, quick to reload.' },
+    rifle: { name: 'Hunting rifle', price: 80, mag: 5, reload: 2300, damage: 34, cooldown: 420, spread: 0.05, pellets: 1, range: 72, auto: false, start: 10, zoom: 42, desc: 'Reliable at range.' },
+    shotgun: { name: 'Shotgun', price: 220, mag: 6, reload: 2700, damage: 13, cooldown: 850, spread: 0.13, pellets: 8, range: 26, auto: false, start: 12, zoom: 54, desc: 'Devastating up close.' },
+    smg: { name: 'SMG', price: 380, mag: 30, reload: 1900, damage: 11, cooldown: 95, spread: 0.075, pellets: 1, range: 42, auto: true, start: 60, zoom: 50, desc: 'Hold the button and hang on.' },
+    sniper: { name: 'Sniper rifle', price: 650, mag: 4, reload: 3000, damage: 90, cooldown: 1300, spread: 0.006, pellets: 1, range: 110, auto: false, start: 8, zoom: 18, desc: 'One or two shots at any distance.' },
+  },
   rods: [
     { id: 'cane', name: 'Cane pole', price: 0, castMax: 16, tol: 1, speed: 1, color: '#C9A36A', desc: 'Short casts. Snaps easy.' },
     { id: 'glass', name: 'Fiberglass rod', price: 75, castMax: 20, tol: 1.15, speed: 1.1, color: '#3E7CC9', desc: 'Longer casts, a little more give.' },
     { id: 'graphite', name: 'Graphite rod', price: 220, castMax: 24, tol: 1.32, speed: 1.22, color: '#2B2F33', desc: 'Reaches deep water. Reels faster.' },
     { id: 'boron', name: 'Lunker stick', price: 520, castMax: 28, tol: 1.55, speed: 1.38, color: '#E0452B', desc: 'Built for muskie and sturgeon.' },
+    { id: 'carbon', name: 'Carbon pro rod', price: 900, castMax: 32, tol: 1.75, speed: 1.55, color: '#7B3FA0', desc: 'Light, stiff, and long. Casts a football field.' },
+    { id: 'tourney', name: 'Tournament rod', price: 1600, castMax: 36, tol: 2.0, speed: 1.75, color: '#1FA89A', desc: 'What the derby champions use.' },
+    { id: 'mythic', name: 'Mythic rod', price: 3000, castMax: 40, tol: 2.4, speed: 2.0, color: '#F2B134', desc: 'Takes anything the lake can throw at it.' },
   ],
   baits: [
     { id: 'worms', name: 'Nightcrawlers', price: 0, desc: 'Panfish love them.' },
@@ -171,6 +187,8 @@ const onLand = (x, z) =>
   onDock(x, z) ||
   (Math.hypot(x, z) >= WORLD.shoreRadius && Math.abs(x) <= WORLD.bounds && Math.abs(z) <= WORLD.bounds && !inChannel(x, z, 0.8));
 const inWater = (x, z) => !onDock(x, z) && (Math.hypot(x, z) < WORLD.lakeRadius - 0.3 || inChannel(x, z) || inOcean(x, z));
+// on foot you can also wade and swim: land, any water, or the shoreline strip between them
+const footOk = (x, z) => onLand(x, z) || inWater(x, z) || inChannel(x, z, 0.8) || Math.hypot(x, z) < WORLD.shoreRadius;
 const waterRegion = (x, z) => (inOcean(x, z) || (inChannel(x, z) && z < -80) ? 'ocean' : 'lake');
 
 // nearest open water to launch a boat into, and nearest dry ground to step back onto
@@ -265,10 +283,11 @@ function writeSaves() {
 
 function freshPocket() { return { weed: 0, whiskey: 0, crank: 0 }; }
 
-const HOLDABLE = new Set(['fists', 'rod', 'bait', 'rifle', 'weed', 'whiskey', 'crank', 'bag']);
+const GUN_IDS = Object.keys(WORLD.guns);
+const HOLDABLE = new Set(['fists', 'rod', 'bait', ...GUN_IDS, 'weed', 'whiskey', 'crank', 'bag']);
 function ownsHold(p, held) {
   if (held === 'fists' || held === 'rod' || held === 'bait' || held === 'bag') return true;
-  if (held === 'rifle') return !!p.rifle;
+  if (GUN_IDS.includes(held)) return !!p.guns[held];
   return DRUGS.includes(held) && p.pocket[held] > 0;
 }
 
@@ -313,11 +332,38 @@ function advanceQuests(p, species, hot) {
   return done;
 }
 
+// ---------------------------------------------------------------- guns
+
+const freshGuns = () => Object.fromEntries(GUN_IDS.map((g) => [g, false]));
+const freshMag = () => Object.fromEntries(GUN_IDS.map((g) => [g, 0]));
+const hasAnyGun = (p) => GUN_IDS.some((g) => p.guns[g]);
+
+// a reload finishes lazily: the next thing that looks at the player settles it
+function tickReload(p) {
+  if (!p.reloadGun || nowMs() < p.reloadUntil) return;
+  const g = WORLD.guns[p.reloadGun];
+  const take = Math.max(0, Math.min(g.mag - p.mag[p.reloadGun], p.ammo));
+  p.mag[p.reloadGun] += take;
+  p.ammo -= take;
+  p.reloadGun = null;
+}
+
+function startReload(p, gunId) {
+  tickReload(p);
+  const g = WORLD.guns[gunId];
+  if (!g || !p.guns[gunId] || p.reloadGun || p.mag[gunId] >= g.mag || p.ammo <= 0) return false;
+  p.reloadGun = gunId;
+  p.reloadUntil = nowMs() + g.reload;
+  return true;
+}
+
+const boatSpeed = (p) => WORLD.boats[Math.max(0, p.boatTier)].speed;
+
 function storeProfile(p) {
   if (!p || p.guest) return;
   profiles[p.token] = {
     name: p.name, color: p.color, look: p.look, skin: p.skin, cash: p.cash, rod: p.rod, bait: p.bait,
-    rifle: p.rifle, ammo: p.ammo, pocket: p.pocket, bag: p.bag, ownsBoat: !!p.ownsBoat,
+    guns: p.guns, mag: p.mag, ammo: p.ammo, pocket: p.pocket, bag: p.bag, ownsBoat: !!p.ownsBoat, boatTier: p.boatTier,
     journal: p.journal, caught: p.caught, earned: p.earned, derbyWins: p.derbyWins,
     best: p.best, xp: p.xp, quests: p.quests, seen: nowMs(),
   };
@@ -697,7 +743,7 @@ function firstHit(ox, oz, rot, cone, range, skipId) {
   return best;
 }
 
-function applyHit(hit, shooter) {
+function applyHit(hit, shooter, dmg = COMBAT.damage) {
   if (!hit) return { hit: null };
   if (hit.kind === 'fish') {
     const f = school.find((x) => x.id === hit.id);
@@ -720,13 +766,13 @@ function applyHit(hit, shooter) {
   }
   if (hit.kind === 'player') {
     const t = players.get(hit.id);
-    const res = hurtPlayer(t, COMBAT.damage, shooter);
+    const res = hurtPlayer(t, dmg, shooter);
     if (res === 'hit' && players.has(shooter.id)) feed(`${shooter.name} hit ${t.name}`, 'combat');
     return { hit: res === 'safe' ? 'safe' : 'player', killed: res === 'kill', x: hit.x, z: hit.z };
   }
   const n = npcs.find((x) => x.id === hit.id);
   if (!n || !n.alive) return { hit: null };
-  n.hp -= COMBAT.damage;
+  n.hp -= dmg;
   if (shooter.id && players.has(shooter.id)) {
     n.aggro = shooter.id;
     n.aggroUntil = nowMs() + 9000;
@@ -736,12 +782,14 @@ function applyHit(hit, shooter) {
   return { hit: 'npc', killed, x: hit.x, z: hit.z };
 }
 
-function emitShot(from, rot, hit, by, result) {
-  const dist = hit ? hit.dist : COMBAT.range * 0.65;
+function emitShot(from, rot, hit, by, result, missDist) {
+  const aimed = !hit && Number.isFinite(missDist);
+  const dist = hit ? hit.dist : aimed ? missDist : COMBAT.range * 0.65;
   const to = pointAlong(from.x, from.z, rot, dist);
-  to.y = hit ? 0.9 : 1.1;
+  to.y = hit ? 0.9 : aimed ? 0.05 : 1.1;
+  const surface = aimed ? (inWater(to.x, to.z) ? 'water' : 'ground') : null;
   const kind = result && result.hit;
-  io.emit('shot', { from: { x: from.x, y: 1.35, z: from.z }, to, by, rot, hit: kind === 'safe' ? null : kind || null, killed: !!(result && result.killed) });
+  io.emit('shot', { from: { x: from.x, y: 1.35, z: from.z }, to, by, rot, surface, hit: kind === 'safe' ? null : kind || null, killed: !!(result && result.killed) });
 }
 
 function alertAnglers(p, rot) {
@@ -759,15 +807,22 @@ function alertAnglers(p, rot) {
   });
 }
 
-function playerFire(p, aimRot, aiming) {
-  const spread = COMBAT.spread * spreadMul(p) * (aiming ? 0.45 : 1);
-  const rot = aimRot + (Math.random() - 0.5) * 2 * spread;
-  p.rot = rot;
-  const hit = firstHit(p.x, p.z, rot, COMBAT.cone, COMBAT.range, p.id);
-  const res = applyHit(hit, p);
-  emitShot(p, rot, hit, p.id, res);
-  alertAnglers(p, rot);
-  return { ...res, ammo: p.ammo };
+function playerFire(p, aimRot, aiming, g, aimDist) {
+  // a shot never carries far past the point the player is looking at (so aiming into the water splashes there)
+  const range = Number.isFinite(aimDist) && aimDist > 0 ? Math.min(g.range, Math.max(8, aimDist + 8)) : g.range;
+  const missDist = Number.isFinite(aimDist) && aimDist > 0 && aimDist < g.range ? aimDist : null;
+  const spread = g.spread * spreadMul(p) * (aiming ? 0.45 : 1);
+  p.rot = aimRot;
+  let out = { hit: null };
+  for (let i = 0; i < g.pellets; i++) {
+    const rot = aimRot + (Math.random() - 0.5) * 2 * spread;
+    const hit = firstHit(p.x, p.z, rot, COMBAT.cone, range, p.id);
+    const res = applyHit(hit, p, g.damage);
+    if (i < 4) emitShot(p, rot, hit, p.id, res, missDist);
+    if (res && res.hit && (!out.hit || res.killed)) out = { ...res };
+  }
+  alertAnglers(p, aimRot);
+  return { ...out, ammo: p.ammo };
 }
 
 function npcFire(n, target) {
@@ -952,7 +1007,7 @@ function snapshot() {
     list.push({
       id: p.id, name: p.name, color: p.color, look: p.look, skin: p.skin, x: r2(p.x), z: r2(p.z), rot: r2(p.rot), jy: r2(p.jy || 0), level: levelOf(p.xp),
       state: p.state, bobber: p.bobber, cash: p.cash, hp: Math.max(0, p.hp), alive: p.alive,
-      rifle: p.rifle, rod: p.rod, held: p.held || 'rod', boat: !!p.boat, high: highFlags(p), caught: p.caught, best: p.best,
+      guns: p.guns, rod: p.rod, held: p.held || 'rod', boat: !!p.boat, bt: Math.max(0, p.boatTier), swim: !!p.swim, high: highFlags(p), caught: p.caught, best: p.best,
     });
   }
   const standings = derby.active ? derbyStandings() : [];
@@ -979,8 +1034,10 @@ function snapshot() {
 }
 
 function privateState(p) {
+  tickReload(p);
   return {
-    cash: p.cash, ammo: p.ammo, rifle: p.rifle, rod: p.rod, bait: p.bait, pocket: p.pocket,
+    guns: p.guns, mag: p.mag, reloadGun: p.reloadGun, reloadLeft: p.reloadGun ? Math.max(0, p.reloadUntil - nowMs()) : 0, boatTier: p.boatTier,
+    cash: p.cash, ammo: p.ammo, rod: p.rod, bait: p.bait, pocket: p.pocket,
     bag: { n: p.bag.length, value: p.bag.reduce((s, f) => s + f.value, 0) },
     high: highFlags(p), highLeft: highLeft(p), moveMul: moveMul(p), hp: Math.max(0, p.hp),
     alive: p.alive, safe: inCamp(p) || nowMs() < p.safeUntil, state: p.state,
@@ -1090,8 +1147,8 @@ function debugCommand(p, socket, text) {
   }
   if (cmd === 'hour') { setHour(Number(args[0]) || 12); return say('Clock set.'); }
   if (cmd === 'derby') { if (derby.active) derby.endsAt = nowMs(); else derby.nextAt = nowMs(); return say('Derby toggled.'); }
-  if (cmd === 'gear') { p.rod = WORLD.rods.length - 1; p.bait = WORLD.baits.length - 1; p.rifle = true; p.ammo += 30; return say('Maxed out.'); }
-  if (cmd === 'boat') { p.ownsBoat = true; return say('You own a boat.'); }
+  if (cmd === 'gear') { p.rod = WORLD.rods.length - 1; p.bait = WORLD.baits.length - 1; GUN_IDS.forEach((g) => { p.guns[g] = true; p.mag[g] = WORLD.guns[g].mag; }); p.ammo += 200; p.boatTier = WORLD.boats.length - 1; p.ownsBoat = true; return say('Maxed out.'); }
+  if (cmd === 'boat') { p.ownsBoat = true; p.boatTier = Math.max(p.boatTier, 0); return say('You own a boat.'); }
   if (cmd === 'sea' || cmd === 'channel') {
     resetLine(p);
     Object.assign(p, { ownsBoat: true, boat: true, x: cmd === 'sea' ? 6 : 0, z: cmd === 'sea' ? -132 : -70, rot: Math.PI, budget: 2 });
@@ -1137,14 +1194,17 @@ io.on('connection', (socket) => {
       x: s.x, z: s.z, rot: s.rot, aim: s.rot,
       state: 'idle', bobber: null, fish: null,
       lastMove: nowMs(), budget: 2, lastChat: 0,
-      cash: COMBAT.stake, hp: COMBAT.hp, alive: true, rifle: false, ammo: 0, rod: 0, bait: 0, held: 'rod',
+      cash: COMBAT.stake, hp: COMBAT.hp, alive: true, guns: freshGuns(), mag: freshMag(), reloadGun: null, reloadUntil: 0, boatTier: -1, swim: false, ammo: 0, rod: 0, bait: 0, held: 'rod',
       pocket: freshPocket(), bag: [], high: { weed: 0, whiskey: 0, crank: 0 },
       journal: {}, caught: 0, earned: 0, derbyWins: 0, best: null, xp: 0, quests: [], jy: 0,
       nextShot: 0, respawnAt: 0, bj: null, safeUntil: nowMs() + COMBAT.spawnSafe,
     };
     if (prof) {
       Object.assign(p, {
-        cash: prof.cash ?? COMBAT.stake, rifle: !!prof.rifle, ammo: prof.ammo || 0,
+        cash: prof.cash ?? COMBAT.stake, ammo: prof.ammo || 0,
+        guns: { ...freshGuns(), ...(prof.guns || {}), rifle: !!(prof.rifle || (prof.guns && prof.guns.rifle)) },
+        mag: { ...freshMag(), ...(prof.mag || {}) },
+        boatTier: Number.isInteger(prof.boatTier) ? Math.min(prof.boatTier, WORLD.boats.length - 1) : prof.ownsBoat ? 0 : -1,
         rod: Math.min(prof.rod || 0, WORLD.rods.length - 1), bait: Math.min(prof.bait || 0, WORLD.baits.length - 1),
         pocket: { ...freshPocket(), ...(prof.pocket || {}) }, bag: Array.isArray(prof.bag) ? prof.bag : [],
         journal: prof.journal || {}, caught: prof.caught || 0, earned: prof.earned || 0,
@@ -1166,30 +1226,33 @@ io.on('connection', (socket) => {
     const now = nowMs();
     const dt = Math.min((now - p.lastMove) / 1000, 0.5);
     p.lastMove = now;
-    const mul = moveMul(p) * WORLD.sprint;
-    const speed = p.boat ? WORLD.boat.speed : WORLD.moveSpeed;
+    const mul = moveMul(p) * WORLD.sprint * WORLD.bhop;
+    const speed = p.boat ? boatSpeed(p) : WORLD.moveSpeed;
     p.budget = Math.min(p.budget + speed * mul * dt * 1.3, 2.5 * mul * (p.boat ? 1.6 : 1));
     if (Number.isFinite(m.rot)) p.rot = m.rot;
     if (Number.isFinite(m.aim)) p.aim = m.aim;
     if (typeof m.held === 'string' && HOLDABLE.has(m.held) && ownsHold(p, m.held)) p.held = m.held;
+    if (p.reloadGun && p.held !== p.reloadGun) p.reloadGun = null;
     p.jy = Number.isFinite(m.jy) ? Math.min(Math.max(m.jy, 0), 2.5) : 0;
     if (p.state !== 'idle') return;
     const x = Number(m.x);
     const z = Number(m.z);
     if (!Number.isFinite(x) || !Number.isFinite(z)) return;
     const step = Math.hypot(x - p.x, z - p.z);
-    if (step > p.budget + 0.05 || !(p.boat ? inWater(x, z) : onLand(x, z))) {
+    if (step > p.budget + 0.05 || !(p.boat ? inWater(x, z) : footOk(x, z))) {
       socket.emit('correct', { x: p.x, z: p.z });
       return;
     }
     p.budget -= step;
     p.x = x;
     p.z = z;
+    p.swim = !p.boat && inWater(x, z);
   });
 
   socket.on('cast', (c, ack) => {
     const reply = replyFn(ack);
     if (!p || !p.alive || p.state !== 'idle' || !c) return reply({ ok: false });
+    if (p.swim) return reply({ ok: false, msg: 'Get out of the water to fish.' });
     const power = Math.max(0, Math.min(1, Number(c.power) || 0));
     if (Number.isFinite(c.rot)) p.rot = c.rot;
     const rod = WORLD.rods[p.rod];
@@ -1288,23 +1351,29 @@ io.on('connection', (socket) => {
       return reply({ ok: true, msg: `${list[next].name} is yours.`, gear: true });
     }
     if (item === 'boat') {
-      if (p.ownsBoat) return reply({ ok: false, msg: 'You already have a boat.' });
-      if (!pay(WORLD.boat.buy)) return reply({ ok: false, msg: `A boat is $${WORLD.boat.buy}.` });
+      const next = p.boatTier + 1;
+      if (next >= WORLD.boats.length) return reply({ ok: false, msg: 'You already have the best boat there is.' });
+      const boat = WORLD.boats[next];
+      if (!pay(boat.price)) return reply({ ok: false, msg: `The ${boat.name.toLowerCase()} is $${boat.price}.` });
+      p.boatTier = next;
       p.ownsBoat = true;
-      feed(`${p.name} bought a boat`, 'shop');
+      feed(`${p.name} bought a ${boat.name.toLowerCase()}`, 'shop');
       storeProfile(p);
-      return reply({ ok: true, msg: 'The boat is yours. Launch it from any shore with E, or from your phone.' });
+      return reply({ ok: true, msg: `The ${boat.name.toLowerCase()} is yours. Launch it from any shore with E, or from your phone.` });
     }
-    if (item === 'rifle') {
-      if (p.rifle) return reply({ ok: false, msg: 'You already have a rifle.' });
-      if (!pay(shop.rifle)) return reply({ ok: false, msg: `A rifle is $${shop.rifle}.` });
-      p.rifle = true;
-      p.ammo += shop.ammoCount;
-      feed(`${p.name} bought a rifle`, 'shop');
-      return reply({ ok: true, msg: `Rifle bought, with ${shop.ammoCount} rounds.` });
+    if (WORLD.guns[item]) {
+      const g = WORLD.guns[item];
+      if (p.guns[item]) return reply({ ok: false, msg: `You already have the ${g.name.toLowerCase()}.` });
+      if (!pay(g.price)) return reply({ ok: false, msg: `The ${g.name.toLowerCase()} is $${g.price}.` });
+      p.guns[item] = true;
+      p.mag[item] = g.mag;
+      p.ammo += g.start;
+      feed(`${p.name} bought a ${g.name.toLowerCase()}`, 'shop');
+      storeProfile(p);
+      return reply({ ok: true, msg: `${g.name} bought, loaded, with ${g.start} spare rounds.` });
     }
     if (item === 'ammo') {
-      if (!p.rifle) return reply({ ok: false, msg: 'Buy the rifle first.' });
+      if (!hasAnyGun(p)) return reply({ ok: false, msg: 'Buy a gun first.' });
       if (!pay(shop.ammo)) return reply({ ok: false, msg: `Ammo is $${shop.ammo}.` });
       p.ammo += shop.ammoCount;
       return reply({ ok: true, msg: `+${shop.ammoCount} rounds.` });
@@ -1447,15 +1516,32 @@ io.on('connection', (socket) => {
     const reply = replyFn(ack);
     if (!p || !p.alive) return reply({ ok: false, msg: 'You cannot shoot right now.' });
     if (p.state !== 'idle') return reply({ ok: false, msg: 'Reel in before you shoot.' });
-    if (!p.rifle) return reply({ ok: false, msg: 'Buy a rifle from Moss.' });
-    if (p.ammo <= 0) return reply({ ok: false, msg: 'Out of ammo. Moss sells more.' });
+    const gunId = body && WORLD.guns[body.gun] ? body.gun : GUN_IDS.includes(p.held) ? p.held : null;
+    if (!gunId || !p.guns[gunId]) return reply({ ok: false, msg: 'Buy a gun from Moss.' });
+    const g = WORLD.guns[gunId];
+    tickReload(p);
+    if (p.reloadGun) return reply({ ok: false, reloading: true });
+    if (p.mag[gunId] <= 0) {
+      if (p.ammo <= 0) return reply({ ok: false, msg: 'Out of ammo. Moss sells more.' });
+      startReload(p, gunId);
+      return reply({ ok: false, reloading: true });
+    }
     const t = nowMs();
     if (t < p.nextShot) return reply({ ok: false });
-    p.ammo -= 1;
-    p.nextShot = t + COMBAT.cooldown;
+    p.mag[gunId] -= 1;
+    p.nextShot = t + g.cooldown;
     let rot = Number(body && body.rot);
     if (!Number.isFinite(rot)) rot = p.rot;
-    reply({ ok: true, ...playerFire(p, rot, !!(body && body.aiming)) });
+    reply({ ok: true, gun: gunId, mag: p.mag[gunId], ...playerFire(p, rot, !!(body && body.aiming), g, Number(body && body.dist)) });
+  });
+
+  socket.on('reload', (body, ack) => {
+    const reply = replyFn(ack);
+    if (!p || !p.alive || p.state !== 'idle') return reply({ ok: false });
+    const gunId = body && WORLD.guns[body.gun] ? body.gun : null;
+    if (!gunId || !p.guns[gunId]) return reply({ ok: false });
+    if (p.ammo <= 0) return reply({ ok: false, msg: 'No spare rounds. Moss sells more.' });
+    reply({ ok: startReload(p, gunId), ms: WORLD.guns[gunId].reload });
   });
 
   const shackGuard = () => {

@@ -540,3 +540,17 @@ body.touch #prompt { bottom: calc(40% + var(--safe-b)); }
 #questList { margin: 6px 0 0; padding: 0; list-style: none; font-size: .78rem; line-height: 1.35; color: var(--muted); }
 #questList li { padding-left: 8px; border-left: 2px solid var(--brass); margin-top: 3px; }
 body.touch #questList { display: none; }
+
+/* ---------- ammo + scope ---------- */
+#ammoHud {
+  position: fixed; right: calc(20px + var(--safe-r)); bottom: calc(92px + var(--safe-b)); z-index: 6; pointer-events: none;
+  padding: 8px 14px; border-radius: 12px; background: rgba(20, 42, 36, .72); backdrop-filter: blur(8px); text-align: right;
+}
+#ammoHud small { display: block; font-size: .72rem; color: var(--muted); letter-spacing: .04em; text-transform: uppercase; }
+#ammoHud b { font-size: 1.5rem; font-variant-numeric: tabular-nums; }
+#ammoHud.empty b { color: #E0452B; }
+#scope { position: fixed; inset: 0; z-index: 2; pointer-events: none; background: radial-gradient(circle at 50% 50%, transparent 0, transparent 26vmin, rgba(0, 0, 0, .96) 27vmin); }
+#scope::before, #scope::after { content: ''; position: absolute; background: rgba(0, 0, 0, .85); }
+#scope::before { left: 50%; top: 50%; width: 52vmin; height: 1px; transform: translate(-50%, -50%); }
+#scope::after { left: 50%; top: 50%; height: 52vmin; width: 1px; transform: translate(-50%, -50%); }
+body.touch #ammoHud { bottom: calc(150px + var(--safe-b)); }
