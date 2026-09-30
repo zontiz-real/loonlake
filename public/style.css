@@ -574,3 +574,40 @@ body.touch #ammoHud { bottom: calc(150px + var(--safe-b)); }
 
 /* blood on the lens in first person; the spots are painted by screenBlood() and fade out */
 #screenBlood { position: fixed; inset: 0; pointer-events: none; z-index: 2; opacity: 0; filter: blur(0.6px); }
+
+/* ---------- inventory ---------- */
+.invBar { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.invBar .lbl { align-self: center; color: var(--muted); font-size: .88rem; margin-right: 2px; }
+#invSort button { padding: 7px 12px; font-size: .9rem; }
+#invSort button.on { background: var(--paper); color: var(--ink); }
+#invSell:disabled, #invRelease:disabled { opacity: .4; }
+#invGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; max-height: 300px; overflow: auto; padding: 2px; }
+#invGrid .empty { color: var(--muted); padding: 12px 2px; }
+.fishCard {
+  display: grid; grid-template-columns: 12px 1fr auto; grid-template-rows: auto auto; column-gap: 8px; align-items: center;
+  text-align: left; padding: 9px 10px; border-radius: 12px; background: rgba(236, 242, 234, .07); font-weight: 400;
+  border: 2px solid transparent; border-left: 4px solid var(--r-common);
+}
+.fishCard i { grid-row: 1 / 3; width: 12px; height: 12px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .25); }
+.fishCard b { font-weight: 600; font-size: .9rem; line-height: 1.2; }
+.fishCard small { grid-column: 2; color: var(--muted); font-size: .78rem; }
+.fishCard .price { grid-column: 3; grid-row: 1 / 3; color: var(--brass); font-weight: 600; }
+.fishCard:hover { background: rgba(236, 242, 234, .13); }
+.fishCard.sel { border-color: var(--brass); background: rgba(242, 177, 52, .16); }
+.fishCard.uncommon { border-left-color: var(--r-uncommon); }
+.fishCard.rare { border-left-color: var(--r-rare); }
+.fishCard.epic { border-left-color: var(--r-epic); }
+.fishCard.legendary { border-left-color: var(--r-legendary); background: rgba(216, 150, 27, .12); }
+.fishCard.junk { border-left-color: var(--r-junk); }
+.fishCard.treasure { border-left-color: var(--r-treasure); }
+#invLoadout .chip { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px 7px 9px; font-size: .9rem; opacity: .6; }
+#invLoadout .chip svg { width: 22px; height: 22px; }
+#invLoadout .chip.on { opacity: 1; background: rgba(242, 177, 52, .22); box-shadow: inset 0 0 0 2px var(--brass); }
+#invLoadoutNote { color: var(--muted); font-weight: 400; font-size: .85rem; }
+#invPocket { color: var(--muted); }
+
+/* ---------- catch streak ---------- */
+#streakLine { font-size: .85rem; font-weight: 600; color: #FF9A4D; }
+#streakLine.ending { animation: streakBlink .6s ease-in-out infinite alternate; }
+@keyframes streakBlink { to { opacity: .45; } }
+#tagFlags span.streak { background: #E0662B; color: #fff; }

@@ -349,7 +349,7 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
           foam = max(foam, crest * (0.55 + 0.45 * vnoise(vWorld.xz * 3.0 + uTime * 0.3)) * 1.3);
         }
         col = mix(col, vec3(0.92, 0.96, 0.94) * (1.0 - uNight * 0.65), clamp(foam * 0.6, 0.0, 0.85));
-        float alpha = uLake > 0.5 ? mix(0.9, 0.74, smoothstep(0.86, 1.0, r)) : mix(0.8, 0.97, smoothstep(-110.0, -135.0, vWorld.z));
+        float alpha = uLake > 0.5 ? mix(0.8, 0.64, smoothstep(0.86, 1.0, r)) : mix(0.8, 0.97, smoothstep(-110.0, -135.0, vWorld.z));
         float fogF = smoothstep(uFogNear, uFogFar, length(vWorld - cameraPosition));
         col = mix(col, uFogColor, fogF);
         gl_FragColor = vec4(col, alpha);

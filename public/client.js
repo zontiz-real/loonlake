@@ -52,7 +52,7 @@ if (!/^[A-Za-z0-9_-]{16,64}$/.test(token || '')) {
   store.set('loonlake.token', token);
 }
 
-const settings = { sens: 1, volume: 0.8, bright: 0.8, invertY: false, shake: true, quality: 'auto', blood: true, view: 'first', ...store.get('loonlake.settings', {}) };
+const settings = { sens: 1, volume: 0.8, bright: 0.8, invertY: false, shake: true, quality: 'auto', blood: true, view: 'first', fov: 75, loadout: null, invSort: 'value', ...store.get('loonlake.settings', {}) };
 sfx.setVolume(settings.volume);
 
 const isTouch = matchMedia('(pointer: coarse)').matches || (navigator.maxTouchPoints > 0 && !matchMedia('(pointer: fine)').matches);
@@ -228,7 +228,7 @@ let deathUntil = 0;
 let aimRot = 0;
 let castInfo = { valid: false, hot: false };
 const cam = { yaw: 0, pitch: 0.34, dist: TUNING.camDist, aim: 0, shake: 0 };
-if (window.__loon) Object.assign(window.__loon, { cam, vel, fishViews: () => fishViews, makeFish, makeBoatMesh, makeAvatar, socket, fx, screenBlood, species: () => speciesById, hold: (h) => { held = h; hotbarSig = ''; }, data: () => myData, me: () => views.get(myId), npcViews: () => npcViews, ragStep: (id, n) => { const v = npcViews.get(id) || views.get(id); for (let i = 0; v && v.rag && i < n; i++) stepRagdoll(v, 1 / 60, audioT); } });
+if (window.__loon) Object.assign(window.__loon, { cam, vel, fishViews: () => fishViews, makeFish, makeBoatMesh, makeAvatar, socket, fx, screenBlood, inv: () => inv, openInventory: () => openInventory(), panel: () => openPanel, species: () => speciesById, hold: (h) => { held = h; hotbarSig = ''; }, data: () => myData, me: () => views.get(myId), npcViews: () => npcViews, ragStep: (id, n) => { const v = npcViews.get(id) || views.get(id); for (let i = 0; v && v.rag && i < n; i++) stepRagdoll(v, 1 / 60, audioT); } });
 let pointerLocked = false;
 // automated browsers can't hold pointer lock (it also blocks screenshots), so they use drag-to-look
 let noLock = isTouch || !!navigator.webdriver;
@@ -1224,6 +1224,16 @@ function disposeGroup(g) {
 }
 
 function makePickupMesh(it) {
+  const g = makePickupModel(it);
+  // a soft column of light over every pickup, colored by what it is, so loot is easy to find
+  const beam = new THREE.Mesh(BEAM_GEO, BEAM_MAT[it.kind === 'cash' ? 'cash' : it.kind === 'fish' ? 'fish' : 'drug']);
+  beam.scale.setScalar(1 / (g.scale.x || 1));
+  g.add(beam);
+  return g;
+}
+const BEAM_GEO = (() => { const geo = new THREE.CylinderGeometry(0.07, 0.16, 3.2, 10, 1, true); geo.translate(0, 1.6, 0); return geo; })();
+const BEAM_MAT = Object.fromEntries(Object.entries({ cash: 0xFFC94A, fish: 0x6FC8FF, drug: 0x8DF08A }).map(([k, c]) => [k, new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 0.28, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide })]));
+function makePickupModel(it) {
   let mesh;
   if (it.kind === 'cash') {
     mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.05, 14), new THREE.MeshStandardMaterial({ color: 0xF2B134, metalness: 0.6, roughness: 0.3, emissive: 0x4A3000 }));
@@ -1373,7 +1383,8 @@ socket.on('state', (s) => {
     const prevState = v.data.state;
     v.data = d;
     if (d.id !== myId) {
-      v.tx = d.x; v.tz = d.z; v.trot = d.rot; v.state = d.state; v.jy = d.jy || 0;
+      setTarget(v, d.x, d.z);
+      v.trot = d.rot; v.state = d.state; v.jy = d.jy || 0;
       if (d.bobber && !v.bobberPos) v.fly = { t: 0, from: v.tip.getWorldPosition(new THREE.Vector3()), remote: true };
       if (d.state === 'bite' && prevState !== 'bite' && d.bobber) fx.ripple(d.bobber.x, d.bobber.z, 0.8, 0.9, 0.5);
       v.bobberPos = d.bobber;
@@ -1413,7 +1424,8 @@ function syncNpcs(list) {
     let v = npcViews.get(d.id);
     if (!v) { v = makeNpcView(d); npcViews.set(d.id, v); }
     v.data = d;
-    v.tx = d.x; v.tz = d.z; v.trot = d.rot;
+    setTarget(v, d.x, d.z);
+    v.trot = d.rot;
   }
   for (const [id, v] of npcViews) {
     if (seen.has(id)) continue;
@@ -1423,21 +1435,81 @@ function syncNpcs(list) {
   }
 }
 
+// Fish swim under the surface, so each one also gets a dark silhouette on the water, and anything uncommon or better a
+// ring in its rarity color that pulses. Both are drawn after the water so they're readable from the shore.
+const FISH_MARK = (() => {
+  const c = document.createElement('canvas');
+  c.width = 64; c.height = 128;
+  const g = c.getContext('2d');
+  const grd = g.createRadialGradient(32, 64, 4, 32, 64, 60);
+  grd.addColorStop(0, 'rgba(0,0,0,1)');
+  grd.addColorStop(0.55, 'rgba(0,0,0,.75)');
+  grd.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = grd;
+  g.beginPath(); g.ellipse(32, 64, 26, 60, 0, 0, Math.PI * 2); g.fill();
+  const tex = new THREE.CanvasTexture(c);
+  const shadowGeo = new THREE.PlaneGeometry(1, 1);
+  shadowGeo.rotateX(-Math.PI / 2);
+  const ringGeo = new THREE.RingGeometry(0.78, 1, 36);
+  ringGeo.rotateX(-Math.PI / 2);
+  const shadow = new THREE.MeshBasicMaterial({ map: tex, color: 0x0A1A20, transparent: true, opacity: 0.42, depthWrite: false });
+  const ring = Object.fromEntries(Object.entries({ uncommon: 0x6DDFA0, rare: 0x5AA8FF, epic: 0xC08AFF, legendary: 0xFFC940 })
+    .map(([k, col]) => [k, new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false })]));
+  return { shadowGeo, ringGeo, shadow, ring };
+})();
+function makeFishMark(sid, mesh) {
+  const g = new THREE.Group();
+  const size = new THREE.Box3().setFromObject(mesh).getSize(new THREE.Vector3());
+  const len = Math.max(0.35, Math.max(size.x, size.z));
+  const sh = new THREE.Mesh(FISH_MARK.shadowGeo, FISH_MARK.shadow);
+  sh.scale.set(len * 0.45, 1, len * 1.1);
+  g.add(sh);
+  const rarity = (speciesById[sid] || {}).rarity;
+  if (FISH_MARK.ring[rarity]) {
+    const r = new THREE.Mesh(FISH_MARK.ringGeo, FISH_MARK.ring[rarity]);
+    r.scale.setScalar(Math.max(0.6, len * 0.9));
+    r.name = 'ring';
+    g.add(r);
+  }
+  g.renderOrder = 3;
+  g.traverse((o) => { o.renderOrder = 3; });
+  scene.add(g);
+  return g;
+}
+
+// Updates from the server arrive about 20 times a second. Instead of easing toward the last one (which moves in steps),
+// keep a smoothed velocity and aim slightly ahead of it, so other players and NPCs glide.
+function setTarget(v, x, z) {
+  if (v.tAt !== undefined && v.tx !== undefined) {
+    const dt = Math.max(0.03, audioT - v.tAt);
+    const vx = (x - v.tx) / dt;
+    const vz = (z - v.tz) / dt;
+    if (Math.hypot(vx, vz) > 60) { v.vx = v.vz = 0; v.x = x; v.z = z; } // a teleport or respawn: jump there
+    else { v.vx = lerp(v.vx || 0, vx, 0.6); v.vz = lerp(v.vz || 0, vz, 0.6); }
+  }
+  v.tx = x; v.tz = z; v.tAt = audioT;
+}
+function glide(v, k) {
+  const ahead = Math.min(0.1, audioT - (v.tAt || audioT));
+  v.x += (v.tx + (v.vx || 0) * ahead - v.x) * k;
+  v.z += (v.tz + (v.vz || 0) * ahead - v.z) * k;
+}
+
 function syncFish(list) {
   const seen = new Set();
   for (const f of list) {
     seen.add(f.id);
     let v = fishViews.get(f.id);
     if (!v || v.mesh.userData.sid !== f.sid) {
-      if (v) { scene.remove(v.mesh); disposeGroup(v.mesh); }
+      if (v) { scene.remove(v.mesh); disposeGroup(v.mesh); scene.remove(v.mark); }
       const mesh = makeFish(f.sid);
       scene.add(mesh);
-      v = { mesh, x: f.x, z: f.z, rot: f.rot };
+      v = { mesh, x: f.x, z: f.z, rot: f.rot, mark: makeFishMark(f.sid, mesh) };
       fishViews.set(f.id, v);
     }
     v.tx = f.x; v.tz = f.z; v.trot = f.rot; v.alive = f.alive; v.hurt = f.hurt;
   }
-  for (const [id, v] of fishViews) if (!seen.has(id)) { scene.remove(v.mesh); disposeGroup(v.mesh); fishViews.delete(id); }
+  for (const [id, v] of fishViews) if (!seen.has(id)) { scene.remove(v.mesh); disposeGroup(v.mesh); scene.remove(v.mark); fishViews.delete(id); }
 }
 
 function syncPickups(list) {
@@ -1895,6 +1967,8 @@ addEventListener('keydown', (e) => {
     case 'KeyE': if (!e.repeat) interact(); break;
     case 'KeyF': quickPunch(); break;
     case 'KeyJ': if (!e.repeat) togglePanel('journal'); break;
+    case 'KeyI': if (!e.repeat) togglePanel('inventory'); break;
+    case 'Tab': e.preventDefault(); if (!e.repeat) togglePanel('inventory'); break;
     case 'KeyP': if (!e.repeat) togglePanel('phone'); break;
     case 'KeyH': if (!e.repeat) togglePanel('help'); break;
     case 'KeyV':
@@ -1989,7 +2063,7 @@ function flashPrompt(text, cls, ms) {
 
 // ================================================================ panels
 
-const PANELS = ['shop', 'shack', 'journal', 'help', 'phone'];
+const PANELS = ['shop', 'shack', 'journal', 'help', 'phone', 'inventory'];
 let shopSig = '';
 
 function togglePanel(name) {
@@ -2004,6 +2078,7 @@ function togglePanel(name) {
   if (name === 'shop') renderShop();
   if (name === 'shack') renderShack();
   if (name === 'journal') renderJournal();
+  if (name === 'inventory') openInventory();
   if (name === 'help') syncSettingsUI();
   if (name === 'phone') { showApp('home'); renderPhone(); }
   sfx.ui();
@@ -2239,7 +2314,7 @@ function itemButton(action, title, desc, price, disabled, owned) {
 function renderShop() {
   if (openPanel !== 'shop' || !myData || !W) return;
   const d = myData;
-  const sig = [d.cash, d.boatTier, d.rod, d.bait, Object.values(d.guns || {}).join(''), JSON.stringify(d.att || 0), JSON.stringify(d.glvl || 0), d.ammo, d.bag.n, d.bag.value, d.pocket.weed, d.pocket.whiskey, d.pocket.crank].join('|');
+  const sig = [d.cash, d.boatTier, d.bag.tier, d.rod, d.bait, Object.values(d.guns || {}).join(''), JSON.stringify(d.att || 0), JSON.stringify(d.glvl || 0), d.ammo, d.bag.n, d.bag.value, d.pocket.weed, d.pocket.whiskey, d.pocket.crank].join('|');
   if (sig === shopSig) return;
   shopSig = sig;
   const sell = $('sellBtn');
@@ -2253,6 +2328,11 @@ function renderShop() {
   tackle.append(nextRod
     ? itemButton('rod', nextRod.name, `${nextRod.desc} Casts ${nextRod.castMax} m. You have a ${rod.name.toLowerCase()}.`, `$${nextRod.price}`, d.cash < nextRod.price)
     : itemButton(null, rod.name, 'The best rod Moss has. Casts all the way to the deep middle.', 'Owned', true, true));
+  const bagTier = d.bag.tier || 0;
+  const nextBag = W.bags[bagTier + 1];
+  tackle.append(nextBag
+    ? itemButton('bagup', nextBag.name, `${nextBag.desc} Yours holds ${W.bags[bagTier].cap}.`, `$${nextBag.price}`, d.cash < nextBag.price)
+    : itemButton(null, W.bags[bagTier].name, `The biggest bag there is. Holds ${W.bags[bagTier].cap} fish.`, 'Owned', true, true));
   const nextBait = W.baits[d.bait + 1];
   const bait = W.baits[d.bait];
   tackle.append(nextBait
@@ -2320,10 +2400,149 @@ function sell() {
   });
 }
 
+// ---------- inventory: the bag, fish by fish, and which guns ride on the hotbar
+
+const LOADOUT_MAX = 4;
+const RARITY_ORDER = { legendary: 0, epic: 1, treasure: 2, rare: 3, uncommon: 4, common: 5, junk: 6 };
+const inv = { items: [], sel: new Set(), rev: -1, busy: 0 };
+// the hotbar shows up to four guns: the ones you picked in the inventory, or your first four
+function loadoutGuns() {
+  const owned = myData && myData.guns ? GUN_ORDER.filter((g) => myData.guns[g]) : [];
+  if (!Array.isArray(settings.loadout)) return owned.slice(0, LOADOUT_MAX);
+  return GUN_ORDER.filter((g) => owned.includes(g) && settings.loadout.includes(g)).slice(0, LOADOUT_MAX);
+}
+function openInventory() {
+  // one request at a time, but a lost reply (a dropped connection) doesn't lock the inventory for good
+  if ((inv.busy && performance.now() - inv.busy < 3000) || !myData) return;
+  inv.busy = performance.now();
+  const rev = myData.bag.rev;
+  socket.emit('bagList', null, (res) => {
+    inv.busy = 0;
+    if (!res || !res.ok) return;
+    inv.items = res.items || [];
+    inv.rev = rev;
+    for (const id of [...inv.sel]) if (!inv.items.some((f) => String(f.id) === id)) inv.sel.delete(id);
+    renderInventory();
+  });
+}
+function renderInventory() {
+  if (openPanel !== 'inventory' || !myData || !W) return;
+  const d = myData;
+  const bag = W.bags[d.bag.tier || 0];
+  const total = inv.items.reduce((s, f) => s + f.value, 0);
+  $('invSummary').textContent = `${bag.name}: ${inv.items.length}/${bag.cap} fish, worth $${total}`;
+  document.querySelectorAll('#invSort button').forEach((b) => b.classList.toggle('on', b.dataset.sort === settings.invSort));
+  const sorters = {
+    value: (a, b) => b.value - a.value,
+    lbs: (a, b) => (b.lbs || 0) - (a.lbs || 0),
+    rarity: (a, b) => (RARITY_ORDER[a.rarity] ?? 9) - (RARITY_ORDER[b.rarity] ?? 9) || b.value - a.value,
+    new: (a, b) => (b.t || 0) - (a.t || 0),
+  };
+  const list = [...inv.items].sort(sorters[settings.invSort] || sorters.value);
+  const grid = $('invGrid');
+  grid.replaceChildren();
+  if (!list.length) {
+    const p = document.createElement('p');
+    p.className = 'empty';
+    p.textContent = 'Your bag is empty. Go catch something.';
+    grid.append(p);
+  }
+  for (const f of list) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = `fishCard ${f.rarity || 'common'}` + (inv.sel.has(String(f.id)) ? ' sel' : '');
+    b.dataset.id = String(f.id);
+    const sp = speciesById[f.sid] || {};
+    b.innerHTML = `<i style="background:${sp.color || '#7F9A8F'}"></i><b></b><small></small><span class="price">$${f.value}</span>`;
+    b.querySelector('b').textContent = f.name;
+    const rar = f.rarity || 'common';
+    b.querySelector('small').textContent = `${f.lbs ? `${f.lbs} lb · ` : ''}${rar[0].toUpperCase()}${rar.slice(1)}`;
+    grid.append(b);
+  }
+  const m = me();
+  const atMoss = m && near(m, W.camp.dealer);
+  const rate = atMoss ? 1 : W.market.remote;
+  const picked = inv.items.filter((f) => inv.sel.has(String(f.id)));
+  const worth = Math.floor(picked.reduce((s, f) => s + f.value, 0) * rate);
+  $('invAll').textContent = picked.length === inv.items.length && inv.items.length ? 'Select none' : 'Select all';
+  $('invSell').disabled = !picked.length;
+  $('invSell').textContent = picked.length ? `Sell ${picked.length} for $${worth}${atMoss ? '' : ' (buyer takes 30%)'}` : 'Sell';
+  $('invRelease').disabled = !picked.length;
+  // loadout
+  const owned = GUN_ORDER.filter((g) => d.guns[g]);
+  const on = loadoutGuns();
+  $('invLoadoutNote').textContent = owned.length ? `${on.length}/${LOADOUT_MAX}. Click to add or remove.` : 'Moss sells guns.';
+  const lo = $('invLoadout');
+  lo.replaceChildren();
+  for (const g of owned) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'chip' + (on.includes(g) ? ' on' : '');
+    b.dataset.gun = g;
+    b.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${SLOT_ART[g] || ''}</svg>`;
+    b.append(W.guns[g].name);
+    lo.append(b);
+  }
+  const pk = d.pocket || {};
+  $('invPocket').textContent = `${d.ammo} spare rounds · weed ${pk.weed || 0} · whiskey ${pk.whiskey || 0} · crank ${pk.crank || 0} · $${d.cash} cash`;
+}
+$('invGrid').addEventListener('click', (e) => {
+  const b = e.target.closest('.fishCard');
+  if (!b) return;
+  const id = b.dataset.id;
+  if (inv.sel.has(id)) inv.sel.delete(id); else inv.sel.add(id);
+  sfx.ui();
+  renderInventory();
+});
+$('invSort').addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  settings.invSort = b.dataset.sort;
+  store.set('loonlake.settings', settings);
+  renderInventory();
+});
+$('invAll').addEventListener('click', () => {
+  if (inv.sel.size === inv.items.length) inv.sel.clear(); else inv.items.forEach((f) => inv.sel.add(String(f.id)));
+  renderInventory();
+});
+const bagAction = (ev) => {
+  if (!inv.sel.size) return;
+  socket.emit(ev, { ids: [...inv.sel] }, (res) => {
+    if (!res || !res.ok) { if (res && res.msg) flashPrompt(res.msg, '', 1500); return; }
+    inv.items = res.items || [];
+    inv.sel.clear();
+    if (ev === 'bagSell') { sfx.coin(); flashPrompt(res.msg, 'good', 1800); const m = me(); if (m) fx.floater(m.x, 2.2, m.z, `+$${res.total}`, 'cash'); } else flashPrompt(`Let ${res.count} fish go.`, '', 1300);
+    renderInventory();
+  });
+};
+$('invSell').addEventListener('click', () => bagAction('bagSell'));
+$('invRelease').addEventListener('click', () => bagAction('bagRelease'));
+$('invLoadout').addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  const g = b.dataset.gun;
+  const cur = loadoutGuns();
+  if (cur.includes(g)) settings.loadout = cur.filter((x) => x !== g);
+  else if (cur.length >= LOADOUT_MAX) { flashPrompt(`The hotbar holds ${LOADOUT_MAX} guns. Take one off first.`, '', 1600); return; } else settings.loadout = [...cur, g];
+  store.set('loonlake.settings', settings);
+  if (isGun(held) && !loadoutGuns().includes(held)) selectHold('fists', false);
+  hotbarSig = '';
+  sfx.ui();
+  renderInventory();
+});
+
 function buy(item) {
   socket.emit('buy', item, (res) => {
     if (!res) return;
-    if (res.ok) { sfx.coin(); if (res.gear) completeGoal('gear'); }
+    if (res.ok) {
+      sfx.coin();
+      if (res.gear) completeGoal('gear');
+      if (W.guns[item] && Array.isArray(settings.loadout) && settings.loadout.length < LOADOUT_MAX && !settings.loadout.includes(item)) {
+        settings.loadout.push(item);
+        store.set('loonlake.settings', settings);
+        hotbarSig = '';
+      }
+    }
     if (res.msg) flashPrompt(res.msg, res.ok ? 'good' : '', 1600);
     shopSig = '';
   });
@@ -2519,6 +2738,7 @@ function showCatchTag(res) {
   if (res.derbyLead) add('Leads the derby', 'derby');
   else if (res.derby) add('Weighed in for the derby', 'derby');
   if (res.hot) add('Hot spot');
+  if (res.streak > 1) add(`Streak ${res.streak}: x${res.mult.toFixed(1)}`, 'streak');
   if (res.xpGain) add(`+${res.xpGain} XP`);
   if (res.levelUp) add(`Level ${res.level}! +$${res.levelBonus}`, 'pb');
   for (const q of res.questDone || []) add(`Quest done: +$${q.reward}`, 'derby');
@@ -2535,6 +2755,7 @@ function syncSettingsUI() {
   $('setSens').value = settings.sens;
   $('setVol').value = settings.volume;
   $('setBright').value = settings.bright;
+  $('setFov').value = settings.fov;
   $('setInvert').checked = settings.invertY;
   $('setShake').checked = settings.shake;
   $('setBlood').checked = settings.blood;
@@ -2544,6 +2765,7 @@ function saveSettings() {
   settings.sens = Number($('setSens').value);
   settings.volume = Number($('setVol').value);
   settings.bright = Number($('setBright').value);
+  settings.fov = Number($('setFov').value);
   applyBrightness();
   settings.invertY = $('setInvert').checked;
   settings.shake = $('setShake').checked;
@@ -2554,7 +2776,7 @@ function saveSettings() {
   sfx.setVolume(settings.volume);
   store.set('loonlake.settings', settings);
 }
-['setSens', 'setVol', 'setBright', 'setInvert', 'setShake', 'setQuality', 'setBlood'].forEach((id) => $(id).addEventListener('input', saveSettings));
+['setSens', 'setVol', 'setBright', 'setFov', 'setInvert', 'setShake', 'setQuality', 'setBlood'].forEach((id) => $(id).addEventListener('input', saveSettings));
 
 // ---------- goals
 
@@ -2907,8 +3129,7 @@ function useDrug(name) {
 const GUN_ORDER = ['pistol', 'glock', 'deagle', 'arp', 'smg', 'draco', 'm4', 'lmg', 'shotgun', 'dbarrel', 'crossbow', 'rifle', 'sniper'];
 const SLOT_KEYS_LABEL = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '='];
 function hotbarList() {
-  const owned = myData && myData.guns ? GUN_ORDER.filter((g) => myData.guns[g]) : [];
-  return ['fists', 'knife', 'rod', 'bait', ...owned, ...DRUGS, 'bag'];
+  return ['fists', 'knife', 'rod', 'bait', ...loadoutGuns(), ...DRUGS, 'bag'];
 }
 let held = 'rod';
 
@@ -3084,8 +3305,17 @@ function updateLocal(m, dt) {
     world.collide(m, 0.35);
     pushOutOfBodies(m);
     if (!ok(m.x, m.z)) { m.x = ox; m.z = oz; }
-    // whatever stopped us (walls, bodies, the shoreline) takes the speed with it
-    if (dt > 0) { vel.x = (m.x - ox) / dt; vel.z = (m.z - oz) / dt; }
+    // whatever stopped us (walls, bodies, the shoreline) takes the speed with it. A collision can only slow you down:
+    // being pushed out of a tree or another player must not turn into a burst of speed that slides you metres away.
+    if (dt > 0) {
+      const want = Math.hypot(vel.x, vel.z);
+      let ax = (m.x - ox) / dt;
+      let az = (m.z - oz) / dt;
+      const got = Math.hypot(ax, az);
+      if (got > want) { const k = want / got; ax *= k; az *= k; }
+      vel.x = ax;
+      vel.z = az;
+    }
   }
   if (inBoat) {
     const sp = Math.hypot(m.x - ox, m.z - oz) / Math.max(dt, 1e-3);
@@ -3215,9 +3445,8 @@ function updateView(v, dt, t) {
   const isMe = v.data.id === myId;
   const aliveNow = v.data.alive !== false;
   if (!isMe) {
-    v.walking = Math.hypot(v.tx - v.x, v.tz - v.z) > 0.02;
-    v.x += (v.tx - v.x) * k;
-    v.z += (v.tz - v.z) * k;
+    v.walking = Math.hypot(v.vx || 0, v.vz || 0) > 0.4 || Math.hypot(v.tx - v.x, v.tz - v.z) > 0.05;
+    glide(v, k);
   }
   v.rot += angleDiff(v.trot, v.rot) * Math.min(1, dt * (isMe ? 16 : 12));
   const inBoat = isMe ? boating() : !!v.data.boat;
@@ -3417,10 +3646,9 @@ function updateNpc(v, dt, t) {
   const k = 1 - Math.exp(-12 * dt);
   const d = v.data;
   const aliveNow = d.alive !== false;
-  v.x += (v.tx - v.x) * k;
-  v.z += (v.tz - v.z) * k;
+  glide(v, k);
   v.rot += angleDiff(v.trot, v.rot) * k;
-  const moving = aliveNow && Math.hypot(v.tx - v.x, v.tz - v.z) > 0.02;
+  const moving = aliveNow && (Math.hypot(v.vx || 0, v.vz || 0) > 0.4 || Math.hypot(v.tx - v.x, v.tz - v.z) > 0.05);
   const combat = aliveNow && d.state === 'combat';
   v.group.rotation.y = v.rot;
   if (v.model) {
@@ -3472,8 +3700,16 @@ function updateFish(dt, t) {
     v.x += ((v.tx ?? v.x) - v.x) * k;
     v.z += ((v.tz ?? v.z) - v.z) * k;
     v.rot += angleDiff(v.trot ?? v.rot, v.rot) * k;
-    const y = v.alive ? WATER_Y - 0.2 + Math.sin(t * 2 + v.x) * 0.04 : WATER_Y + wave(v.x, v.z, t) + 0.02;
+    const surf = WATER_Y + wave(v.x, v.z, t);
+    const y = v.alive ? surf - 0.16 + Math.sin(t * 2 + v.x) * 0.035 : surf + 0.02;
     v.mesh.position.set(v.x, y, v.z);
+    if (v.mark) {
+      v.mark.visible = v.alive;
+      v.mark.position.set(v.x, surf + 0.025, v.z);
+      v.mark.rotation.y = v.rot;
+      const ring = v.mark.getObjectByName('ring');
+      if (ring) ring.material.opacity = 0.32 + 0.22 * Math.sin(t * 3);
+    }
     v.mesh.rotation.y = v.rot;
     v.mesh.rotation.z = v.alive ? (v.mesh.userData.mixer ? 0 : Math.sin(t * 6 + v.z) * 0.08) : 1.4;
     if (settings.blood && (v.hurt || !v.alive) && Math.random() < dt * (v.alive ? 5 : 1.5)) fx.waterBlood(v.x, v.z, 1);
@@ -3486,7 +3722,7 @@ function updatePickups(dt, t) {
   for (const v of pickupViews.values()) {
     v.x += ((v.tx ?? v.x) - v.x) * k;
     v.z += ((v.tz ?? v.z) - v.z) * k;
-    v.mesh.position.set(v.x, 0.4 + Math.sin(t * 3 + v.x) * 0.08, v.z);
+    v.mesh.position.set(v.x, 0.4 + Math.max(0, groundHeight(v.x, v.z)) + Math.sin(t * 3 + v.x) * 0.08, v.z);
     v.mesh.rotation.y = t * 1.6;
   }
 }
@@ -3587,10 +3823,21 @@ function updateCamera(m, dt, t) {
     const cp = Math.cos(cam.pitch);
     const moving = m.walking && jumpY === 0 && !boating();
     const bob = moving && !reducedMotion ? Math.abs(Math.sin(t * 9)) * 0.035 * Math.min(1, Math.hypot(vel.x, vel.z) / 6) : 0;
-    const eyeY = (m.y || 0) + (boating() ? 1.3 : m.swimming ? 1.45 : 1.63) + jumpY + bob;
+    // the ground under you is smoothed (hills and the dock edge don't jolt the view), a jump is not
+    const ground = (m.y || 0) + (boating() ? 1.3 : m.swimming ? 1.45 : 1.63);
+    cam.eyeGround = cam.eyeGround === undefined || Math.abs(cam.eyeGround - ground) > 1.5 ? ground : lerp(cam.eyeGround, ground, 1 - Math.exp(-dt * 18));
+    // a small dip when you land, harder after a longer fall
+    if (landedAt !== cam.seenLanding) { cam.seenLanding = landedAt; if (!reducedMotion) cam.dip = Math.min(0.11, 0.03 + (cam.lastFall || 0) * 0.012); }
+    if (jumpV < 0) cam.lastFall = -jumpV;
+    cam.dip = (cam.dip || 0) * Math.exp(-dt * 9);
+    const eyeY = cam.eyeGround + jumpY + bob - cam.dip;
     camera.position.set(m.x, eyeY, m.z);
     tmpB.set(m.x - sy * cp, eyeY - Math.sin(cam.pitch), m.z - cy * cp);
     camera.lookAt(tmpB);
+    // lean a touch into strafes
+    const lateral = vel.x * cy - vel.z * sy;
+    cam.roll = lerp(cam.roll || 0, reducedMotion ? 0 : clamp(-lateral * 0.0035, -0.035, 0.035), 1 - Math.exp(-dt * 8));
+    camera.rotation.z += cam.roll;
     const high = (myData && myData.high) || {};
     const sway = (high.weed ? 0.15 : 0) + (high.whiskey ? 0.32 : 0);
     if (sway && !reducedMotion) {
@@ -3606,7 +3853,7 @@ function updateCamera(m, dt, t) {
     cam.shake *= Math.exp(-dt * 8);
     const zoomFov = rifleOut ? gunOf(held).zoom : 45;
     const speedKick = clamp((Math.hypot(vel.x, vel.z) - 6.5) / 8, 0, 2.5) * 5 * (1 - cam.aim);
-    const fov = lerp(75, zoomFov, cam.aim) + (high.crank ? 7 : 0) + speedKick;
+    const fov = lerp(settings.fov || 75, zoomFov, cam.aim) + (high.crank ? 7 : 0) + speedKick;
     if (Math.abs(camera.fov - fov) > 0.05) {
       camera.fov += (fov - camera.fov) * Math.min(1, dt * 8);
       camera.updateProjectionMatrix();
@@ -3689,7 +3936,7 @@ let hotbarSig = '';
 function renderHotbar() {
   const d = myData;
   if (!d || !W) return;
-  const bagMax = W.bagMax;
+  const bagMax = d.bag.cap || W.bagMax;
   const gunSig = Object.keys(d.guns || {}).map((g) => `${d.guns[g] ? 1 : 0}${d.mag[g] || 0}`).join('') + JSON.stringify(d.att || 0);
   const sig = [held, d.rod, d.bait, gunSig, d.reloadGun, d.ammo, d.pocket.weed, d.pocket.whiskey, d.pocket.crank, d.bag.n, d.bag.value, d.highLeft.weed, d.highLeft.whiskey, d.highLeft.crank].join('|');
   if (sig === hotbarSig) return;
@@ -3699,7 +3946,7 @@ function renderHotbar() {
     { act: 'knife', art: 'knife', label: 'Hunting knife (stab from behind to finish them)' },
     { act: 'rod', art: 'rod', label: W.rods[d.rod].name, tier: [d.rod, W.rods.length], key: '2' },
     { act: 'bait', art: 'bait', label: W.baits[d.bait].name, tier: [d.bait, W.baits.length], key: '3' },
-    ...GUN_ORDER.filter((g) => d.guns[g]).map((g) => ({
+    ...loadoutGuns().map((g) => ({
       act: g, art: g, label: `${W.guns[g].name}, ${d.mag[g] || 0} loaded, ${d.ammo} spare`, count: d.mag[g] || 0,
     })),
     ...DRUGS.map((n, i) => ({ act: n, art: n, label: `${n}, ${d.pocket[n]} left`, count: d.pocket[n], empty: !d.pocket[n] && !d.high[n], on: d.high[n], timer: d.highLeft[n] / 30 })),
@@ -3794,7 +4041,15 @@ function renderVitals() {
   hp.classList.toggle('low', d.hp <= 34);
   hp.setAttribute('aria-valuenow', String(d.hp));
   $('cashLine').textContent = `$${d.cash}`;
-  $('bagLine').textContent = d.bag.n ? `${d.bag.n} fish in the bag, $${d.bag.value}` : 'Bag is empty';
+  $('bagLine').textContent = d.bag.n ? `${d.bag.n}/${d.bag.cap || W.bagMax} fish in the bag, $${d.bag.value}` : `Bag is empty (holds ${d.bag.cap || W.bagMax})`;
+  const sl = $('streakLine');
+  sl.hidden = !(d.streak > 1);
+  if (d.streak > 1) {
+    const mult = Math.min(W.streak.max, 1 + (d.streak - 1) * W.streak.step);
+    sl.textContent = `Catch streak ${d.streak}, fish sell for x${mult.toFixed(1)} · ${Math.ceil(d.streakLeft / 1000)}s`;
+    sl.classList.toggle('ending', d.streakLeft < 15000);
+  }
+  if (openPanel === 'inventory' && d.bag.rev !== inv.rev) openInventory();
   $('statusLine').textContent = status;
   if (d.level) {
     $('levelLine').textContent = `Angler level ${d.level}`;
@@ -3954,7 +4209,7 @@ function promptFor() {
   if (phase === 'idle' && m) {
     if (near(m, W.camp.dealer)) return [myData.bag.n ? (isTouch ? `Tap Moss to sell ${myData.bag.n} fish for $${myData.bag.value}` : `E to sell ${myData.bag.n} fish for $${myData.bag.value} and shop`) : (isTouch ? 'Tap Moss to trade' : 'E to trade with Moss'), 'good'];
     if (near(m, W.camp.shack)) return [isTouch ? 'Tap Shack to sit down' : 'E to sit down at the shack', ''];
-    if (myData.bag.n >= W.bagMax) return [isTouch ? 'Your bag is full. Sell to Moss or on your phone.' : 'Your bag is full. Sell to Moss, or press P and use the Market app.', ''];
+    if (myData.bag.n >= (myData.bag.cap || W.bagMax)) return [isTouch ? 'Your bag is full. Sell to Moss or on your phone.' : 'Your bag is full. Sell to Moss, or press P and use the Market app.', ''];
     if (boating() && nearLandEdge(m)) return [isTouch ? 'Tap Use to step ashore' : 'E to step ashore', ''];
     if (!boating() && myData.ownsBoat && nearWaterEdge(m)) return [isTouch ? 'Tap Use to launch your boat' : 'E to launch your boat', ''];
     if (!boating() && !myData.ownsBoat && onDock(m.x, m.z) && m.z < W.dock.minZ + 5) return [isTouch ? `Tap Use to rent a boat for $${W.boat.rent}` : `E to rent a boat for $${W.boat.rent}`, ''];

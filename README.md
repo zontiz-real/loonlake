@@ -18,9 +18,13 @@ Fish for cash, climb through better rods and bait, fill out your journal, and wi
 - **120 species** across common, uncommon, rare, epic, and legendary, plus junk and treasure: about 60 in the lake and canal and about 60 out in the big water, from bluegill to sturgeon to great white sharks. The ocean and canal have schools of fish you can see swimming. Walleye bite at dawn and dusk. Catfish and eelpout only come out at night. Sturgeon live in the deep middle, so you need a rod that casts far. Press J for the journal.
 - **Gear.** Seven rods (longer casts, more line strength, faster reel) and four baits (rarer fish), bought in order from Moss. Three boats (a rowboat, an aluminum skiff, and a sport cruiser), using the Kenney Watercraft models.
 - **Guns.** Revolver, Glock 19, Desert Eagle, hunting rifle, shotgun, double-barrel, SMG, AR pistol, Draco, M4, M249, crossbow and sniper rifle, each with its own magazine, reload, damage, spread and range. Moss sells attachments: a laser beam (tighter groups and a visible red beam), a drum mag (2.5x the rounds, slower reload), and an auto switch for the Glock and revolver (full auto, fast, sloppy). Shots you aim at the water splash where you aimed instead of flying off into the distance. Damage fades with range, some shots are critical hits, and Moss upgrades each gun from Mk I to Mk V (up to +60% damage). Kills throw the body with force that depends on the gun; casings bounce out and sink in the water; getting shot shoves you.
+- **Seeing fish.** About 40 fish swim the lake and 16 the canal, just under the surface. Each one casts a dark shape on the water, and uncommon, rare, epic and legendary fish have a pulsing ring in their rarity color. Dropped loot has a column of light over it (gold for cash, blue for fish, green for drugs).
 - **Hot spots.** Bubbling patches that drift around the lake. They bite faster and hold bigger fish. They show as gold rings on the minimap.
 - **Day and night.** A full day takes 12 minutes.
 - **Derbies.** Every 6 minutes a derby runs for 2.5 minutes. The heaviest fish takes the pot, which grows with each player who weighs in. If you log off, you still get paid.
+- **Bags.** You start with a wicker creel that holds 16 fish. Moss sells a tackle backpack (24, $150), a cooler (36, $450), a live well (50, $1,100) and an ice chest (75, $2,400).
+- **Inventory (I or Tab).** Every fish in your bag as a card, colored by rarity. Sort by value, weight, rarity or newest; pick fish and sell them (full price at Moss, 70% anywhere else) or release them. It also picks which four guns ride on your hotbar, so the hotbar stays one row however many guns you own, and shows your pockets.
+- **Catch streaks.** Land fish back to back, each within 90 seconds of the last, and every fish sells for 10% more per catch in the streak, up to double. The streak and its timer show under your bag.
 - **Selling.** Walk up to Moss and press E; the prompt shows what your bag is worth. Tapping the bag slot near Moss sells in one tap. Anywhere else, press P and use the Market app on your phone: a buyer comes to you and keeps 30%.
 - **Your phone (P).** Market, a map of the whole area, your boat, messages, a camera that saves a clean screenshot, the journal, and settings.
 - **Boats.** Buy one from Moss ($180) or rent for $15 a trip at the end of the dock. Press E at any shoreline to launch, and E near land to step ashore. You can fish and shoot from the boat.
@@ -35,7 +39,7 @@ Fish for cash, climb through better rods and bait, fill out your journal, and wi
 - **Phones.** Use the left thumb stick to move and drag on the right side to look. A Punch or Shoot button appears for whatever you're holding, with light aim assist. Tapping Cast switches to your rod automatically. Phones vibrate on bites and hits (Android). Tap Full screen on Android, or on iPhone use Share, then Add to Home Screen, to play without the browser bars. The layout works in portrait and landscape.
 - **Characters.** Pick one of four realistic rigged people (the default), with smooth-shaded skin and hair, glossy eyes and a soft sky-colored rim light, or the Roblox-style Blocky avatar (rounded blocks, hair and a smiley face, with a jump pose and a landing squash). Choose a skin tone and shirt color too. Your choices save.
 - **Graphics.** Hills around the lake, wind-blown grass, birches, maples with some fall color, bushes, low-poly rocks, a red barn for the shack, rowboats at the dock, a well and fence at camp, animated fish, sunlit cumulus clouds with high cirrus above them, and glow on firelight, lanterns, and sun glints. Help (H) has a Graphics setting. Auto picks High on computers and Low on phones.
-- **Settings.** Press H for controls, look speed, volume, brightness, invert Y, and camera shake.
+- **Settings.** Press H for controls, look speed, volume, brightness, field of view, invert Y, and camera shake.
 
 ## Controls
 
@@ -48,7 +52,7 @@ WASD to walk, Shift to run. Click the game to lock the mouse, Esc to release it.
 - **1-0, -, =** or the **scroll wheel** switch hotbar items: fists, knife, rod, bait, then whichever guns you own, then the drugs and your bag. Ctrl + wheel moves the camera.
 - **Q** reels your line in. **E** talks to Moss, sits at the shack, or launches/leaves your boat. **F** throws a punch.
 - Walk into the water to swim. You can't fish while swimming. Players are solid, so you can't walk through each other.
-- **P** phone, **J** journal, **H** help, **V** first/third person, **Enter** chat.
+- **P** phone, **J** journal, **I** or **Tab** inventory, **H** help, **V** first/third person, **Enter** chat.
 
 ## Debug commands
 
@@ -59,6 +63,7 @@ Start with `npm run debug` (works in any terminal; or set `LOON_DEBUG=1` yoursel
 - `/hour 22` sets the clock.
 - `/derby` starts or ends a derby now.
 - `/gear` maxes your rod, bait, and rifle.
+- `/fish 20` puts 20 random fish in your bag.
 - `/fast` makes bites come quickly.
 - `/boat` gives you a boat. `/channel` and `/sea` put you in it out on the water.
 

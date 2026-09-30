@@ -27,7 +27,17 @@ const WORLD = {
   moveSpeed: 6,
   sprint: 1.5,
   castMin: 4,
-  bagMax: 16,
+  bagMax: 16, // the starting bag; bigger ones are in `bags`
+  // bags you can buy from Moss, each one holding more fish
+  bags: [
+    { id: 'creel', name: 'Wicker creel', cap: 16, price: 0, desc: 'Holds 16 fish.' },
+    { id: 'backpack', name: 'Tackle backpack', cap: 24, price: 150, desc: 'Holds 24 fish.' },
+    { id: 'cooler', name: 'Cooler', cap: 36, price: 450, desc: 'Holds 36 fish on ice.' },
+    { id: 'livewell', name: 'Live well', cap: 50, price: 1100, desc: 'Holds 50 fish, still kicking.' },
+    { id: 'chest', name: 'Ice chest', cap: 75, price: 2400, desc: 'Holds 75 fish. A whole derby in one trip.' },
+  ],
+  // catch streak: land fish back to back (within `window` ms of each other) and each one sells for more
+  streak: { window: 90000, step: 0.1, max: 2 },
   dayMs: DAY_MS,
   // a channel runs south from the lake out to the big water
   channel: { minX: -4.5, maxX: 4.5, minZ: -124, maxZ: -26 },
@@ -431,7 +441,7 @@ function storeProfile(p) {
   if (!p || p.guest) return;
   profiles[p.token] = {
     name: p.name, color: p.color, look: p.look, skin: p.skin, cash: p.cash, rod: p.rod, bait: p.bait,
-    guns: p.guns, mag: p.mag, att: p.att, glvl: p.glvl, ammo: p.ammo, pocket: p.pocket, bag: p.bag, ownsBoat: !!p.ownsBoat, boatTier: p.boatTier,
+    guns: p.guns, mag: p.mag, att: p.att, glvl: p.glvl, ammo: p.ammo, pocket: p.pocket, bag: p.bag, bagTier: p.bagTier || 0, ownsBoat: !!p.ownsBoat, boatTier: p.boatTier,
     journal: p.journal, caught: p.caught, earned: p.earned, derbyWins: p.derbyWins,
     best: p.best, xp: p.xp, quests: p.quests, seen: nowMs(),
   };
@@ -682,13 +692,17 @@ function spawnPickup(kind, amount, x, z, name) {
   if (pickups.length > 48) pickups.shift();
 }
 
+const bagCap = (p) => (WORLD.bags[p.bagTier || 0] || WORLD.bags[0]).cap;
+const SPECIES_BY_NAME = new Map(SPECIES.map((s) => [s.name, s]));
 function giveFish(p, name, lbs, value) {
-  if (p.bag.length >= WORLD.bagMax) {
+  p.bagRev = (p.bagRev || 0) + 1;
+  if (p.bag.length >= bagCap(p)) {
     p.cash += value;
     p.earned += value;
     return false;
   }
-  p.bag.push({ id: 'b' + (bagSerial++), name, lbs, value });
+  const s = SPECIES_BY_NAME.get(name);
+  p.bag.push({ id: 'b' + (bagSerial++), name, lbs, value, sid: s ? s.id : null, rarity: s ? s.rarity : 'common', t: nowMs() });
   return true;
 }
 
@@ -1211,8 +1225,8 @@ function spawnSchoolFish(slot, area) {
   fish.hurtUntil = 0;
   return fish;
 }
-for (let i = 0; i < 22; i++) school.push(spawnSchoolFish(null, 'lake'));
-for (let i = 0; i < 10; i++) school.push(spawnSchoolFish(null, 'channel'));
+for (let i = 0; i < 40; i++) school.push(spawnSchoolFish(null, 'lake'));
+for (let i = 0; i < 16; i++) school.push(spawnSchoolFish(null, 'channel'));
 for (let i = 0; i < 60; i++) school.push(spawnSchoolFish(null, 'ocean'));
 
 function tickFish(dt) {
@@ -1302,7 +1316,8 @@ function privateState(p) {
   return {
     guns: p.guns, mag: p.mag, att: p.att, glvl: p.glvl, reloadGun: p.reloadGun, reloadLeft: p.reloadGun ? Math.max(0, p.reloadUntil - nowMs()) : 0, boatTier: p.boatTier,
     cash: p.cash, ammo: p.ammo, rod: p.rod, bait: p.bait, pocket: p.pocket,
-    bag: { n: p.bag.length, value: p.bag.reduce((s, f) => s + f.value, 0) },
+    bag: { n: p.bag.length, value: p.bag.reduce((s, f) => s + f.value, 0), cap: bagCap(p), tier: p.bagTier || 0, rev: p.bagRev || 0 },
+    streak: nowMs() < (p.streakUntil || 0) ? p.streak : 0, streakLeft: Math.max(0, (p.streakUntil || 0) - nowMs()),
     high: highFlags(p), highLeft: highLeft(p), moveMul: moveMul(p), hp: Math.max(0, p.hp),
     alive: p.alive, safe: inCamp(p) || nowMs() < p.safeUntil, state: p.state,
     xp: p.xp, level: levelOf(p.xp), xpLow: xpFloor(levelOf(p.xp)), xpNext: xpFloor(levelOf(p.xp) + 1), quests: p.quests, boat: !!p.boat, ownsBoat: !!p.ownsBoat,
@@ -1420,8 +1435,17 @@ function debugCommand(p, socket, text) {
     socket.emit('respawn', { x: p.x, z: p.z, rot: p.rot, hp: p.hp });
     return say('Out on the water.');
   }
+  if (cmd === 'fish') {
+    const n = Math.max(1, Math.min(80, Number(args[0]) || 10));
+    for (let i = 0; i < n; i++) {
+      const sp = SPECIES.filter((x) => x.base > 0)[Math.floor(Math.random() * SPECIES.filter((x) => x.base > 0).length)];
+      const lbs = Math.round(rand(sp.lbs[0], sp.lbs[1]) * 10) / 10;
+      giveFish(p, sp.name, lbs, Math.round(sp.base * (0.8 + Math.random() * 0.6)));
+    }
+    return say(`${n} fish in the bag.`);
+  }
   if (cmd === 'fast') { p.fastBite = !p.fastBite; return say(p.fastBite ? 'Fast bites on.' : 'Fast bites off.'); }
-  return say('Commands: /cash N, /tp moss|shack|camp|dock, /hour H, /derby, /gear, /fast, /boat, /sea, /channel');
+  return say('Commands: /cash N, /tp moss|shack|camp|dock, /hour H, /derby, /gear, /fast, /fish N, /boat, /sea, /channel');
 }
 
 // ---------------------------------------------------------------- sockets
@@ -1474,6 +1498,7 @@ io.on('connection', (socket) => {
         boatTier: Number.isInteger(prof.boatTier) ? Math.min(prof.boatTier, WORLD.boats.length - 1) : prof.ownsBoat ? 0 : -1,
         rod: Math.min(prof.rod || 0, WORLD.rods.length - 1), bait: Math.min(prof.bait || 0, WORLD.baits.length - 1),
         pocket: { ...freshPocket(), ...(prof.pocket || {}) }, bag: Array.isArray(prof.bag) ? prof.bag : [],
+        bagTier: Math.max(0, Math.min(WORLD.bags.length - 1, Number(prof.bagTier) || 0)),
         journal: prof.journal || {}, caught: prof.caught || 0, earned: prof.earned || 0,
         derbyWins: prof.derbyWins || 0, best: prof.best || null, ownsBoat: !!prof.ownsBoat,
         xp: Math.max(0, Number(prof.xp) || 0), quests: prof.quests,
@@ -1572,6 +1597,12 @@ io.on('connection', (socket) => {
     p.caught += 1;
     const rank = RARITY_RANK[s.rarity];
     if (rank >= 1 && s.rarity !== 'treasure' && (!p.best || f.lbs > p.best.lbs)) p.best = { name: s.name, lbs: f.lbs };
+    // back-to-back catches build a streak, and the streak multiplies what each fish is worth
+    const now = nowMs();
+    p.streak = now < (p.streakUntil || 0) ? (p.streak || 0) + 1 : 1;
+    p.streakUntil = now + WORLD.streak.window;
+    const mult = Math.min(WORLD.streak.max, 1 + (p.streak - 1) * WORLD.streak.step);
+    f.value = Math.round(f.value * mult);
     const bagged = giveFish(p, s.name, f.lbs, f.value);
     const levelBefore = levelOf(p.xp);
     const xpGain = (XP_BY_RARITY[s.rarity] || 5) + (first ? 20 : 0) + (pb ? 10 : 0) + (f.hot ? 5 : 0);
@@ -1593,7 +1624,7 @@ io.on('connection', (socket) => {
     resetLine(p);
     storeProfile(p);
     reply({
-      ok: true, id: s.id, name: s.name, rarity: s.rarity, lbs: f.lbs, value: f.value, bagged,
+      ok: true, id: s.id, name: s.name, rarity: s.rarity, lbs: f.lbs, value: f.value, bagged, streak: p.streak, mult,
       first, pb, hot: f.hot, derby: derbyEntry, derbyLead, journal: p.journal,
       xpGain: xpGain + questDone.reduce((n, q) => n + q.xp, 0), level, levelUp: levelBonus > 0, levelBonus, questDone,
     });
@@ -1621,6 +1652,16 @@ io.on('connection', (socket) => {
       feed(`${p.name} picked up ${list[next].name.toLowerCase()}`, 'shop');
       storeProfile(p);
       return reply({ ok: true, msg: `${list[next].name} is yours.`, gear: true });
+    }
+    if (item === 'bagup') {
+      const next = (p.bagTier || 0) + 1;
+      if (next >= WORLD.bags.length) return reply({ ok: false, msg: 'You already have the biggest bag there is.' });
+      const b = WORLD.bags[next];
+      if (!pay(b.price)) return reply({ ok: false, msg: `The ${b.name.toLowerCase()} is $${b.price}.` });
+      p.bagTier = next;
+      feed(`${p.name} bought a ${b.name.toLowerCase()}`, 'shop');
+      storeProfile(p);
+      return reply({ ok: true, msg: `The ${b.name.toLowerCase()} holds ${b.cap} fish.` });
     }
     if (item === 'boat') {
       const next = p.boatTier + 1;
@@ -1718,6 +1759,7 @@ io.on('connection', (socket) => {
     p.cash += total;
     p.earned += total;
     p.bag = [];
+    p.bagRev = (p.bagRev || 0) + 1;
     storeProfile(p);
     reply({ ok: true, total, count, msg: `Sold ${count} fish to the buyer for $${total}.` });
   });
@@ -1732,9 +1774,43 @@ io.on('connection', (socket) => {
     p.cash += total;
     p.earned += total;
     p.bag = [];
+    p.bagRev = (p.bagRev || 0) + 1;
     feed(`${p.name} sold ${count} fish for $${total}`, 'shop');
     storeProfile(p);
     reply({ ok: true, msg: `Sold ${count} fish for $${total}.`, total });
+  });
+
+  // inventory: the full bag list, and single-fish actions
+  socket.on('bagList', (_, ack) => {
+    const reply = replyFn(ack);
+    if (!p) return reply({ ok: false });
+    reply({ ok: true, items: p.bag, cap: bagCap(p), atMoss: atDealer(p), rate: WORLD.market.remote });
+  });
+  socket.on('bagSell', (body, ack) => {
+    const reply = replyFn(ack);
+    if (!p || !p.alive) return reply({ ok: false, msg: 'Not right now.' });
+    const ids = new Set(Array.isArray(body && body.ids) ? body.ids.map(String) : []);
+    const picked = p.bag.filter((f) => ids.has(String(f.id)));
+    if (!picked.length) return reply({ ok: false, msg: 'Pick some fish first.' });
+    // full price at Moss, the phone buyer's cut anywhere else
+    const rate = atDealer(p) && p.state === 'idle' ? 1 : WORLD.market.remote;
+    const total = Math.floor(picked.reduce((sum, f) => sum + f.value, 0) * rate);
+    p.bag = p.bag.filter((f) => !ids.has(String(f.id)));
+    p.bagRev = (p.bagRev || 0) + 1;
+    p.cash += total;
+    p.earned += total;
+    storeProfile(p);
+    reply({ ok: true, total, count: picked.length, items: p.bag, msg: `Sold ${picked.length} fish for $${total}${rate < 1 ? ' (the buyer kept 30%)' : ''}.` });
+  });
+  socket.on('bagRelease', (body, ack) => {
+    const reply = replyFn(ack);
+    if (!p || !p.alive) return reply({ ok: false });
+    const ids = new Set(Array.isArray(body && body.ids) ? body.ids.map(String) : []);
+    const before = p.bag.length;
+    p.bag = p.bag.filter((f) => !ids.has(String(f.id)));
+    p.bagRev = (p.bagRev || 0) + 1;
+    storeProfile(p);
+    reply({ ok: true, count: before - p.bag.length, items: p.bag });
   });
 
   socket.on('useDrug', (name, ack) => {
