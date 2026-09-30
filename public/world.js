@@ -17,6 +17,7 @@ export const wave = (x, z, t) => {
 // water outside the lake: the channel south and the big water past the beach
 export const CHANNEL = { minX: -4.5, maxX: 4.5, minZ: -124, maxZ: -26 };
 export const OCEAN_Z = -118;
+export const LAKE_DEPTH = 2.6;
 export const nearWaterArea = (x, z, pad = 0) =>
   z < OCEAN_Z + 16 + pad || (Math.abs(x) < CHANNEL.maxX + 3 + pad && z < CHANNEL.maxZ && z > CHANNEL.minZ - 6);
 
@@ -29,12 +30,15 @@ export function groundHeight(x, z) {
     const s = k * k * (3 - 2 * k);
     h = s * (10 + 5 * Math.sin(x * 0.045 + 1.3) + 4 * Math.cos(z * 0.052) + 3 * Math.sin((x - z) * 0.09));
   }
+  // the lake is a bowl: the bed slopes from the sand at the shore down to a flat floor in the middle
+  const lakeBed = -LAKE_DEPTH * sstep(31, 17, Math.hypot(x, z));
   const ax = Math.abs(x);
   if (z < -24) {
     // hills roll down into a valley around the channel, then the channel cuts through
     if (z > -130) h *= sstep(4.5, 18, ax);
     if (z > CHANNEL.minZ - 2) h = h * sstep(4.5, 5.3, ax) + -2.2 * (1 - sstep(4.5, 5.3, ax));
   }
+  h = Math.min(h, lakeBed);
   // hills flatten into a beach, and the beach drops under the big water
   h *= sstep(-106, -92, z);
   if (z < -106) h = Math.min(h, -3 * sstep(-106, OCEAN_Z, z));
@@ -52,8 +56,8 @@ function gridLines(lo, hi, zones, coarse) {
   for (const [a, b, step] of zones) for (let v = Math.ceil(a / step) * step; v <= b; v += step) add(v);
   return [...set].sort((p, q) => p - q);
 }
-const GRID_X = gridLines(GROUND.x0, GROUND.x1, [[-8, 8, 0.5], [-44, 44, 2]], 5);
-const GRID_Z = gridLines(GROUND.z0, GROUND.z1, [[-135, -18, 1.5]], 5);
+const GRID_X = gridLines(GROUND.x0, GROUND.x1, [[-8, 8, 0.5], [-36, 36, 1], [-44, 44, 2]], 5);
+const GRID_Z = gridLines(GROUND.z0, GROUND.z1, [[-135, -18, 1.5], [-36, 36, 1]], 5);
 // a slice of the shared grid, lifted by `lift`
 function gridGeometry(x0, x1, z0, z1, lift, withUv) {
   const xs = GRID_X.filter((v) => v >= x0 - 1e-6 && v <= x1 + 1e-6);
@@ -301,7 +305,7 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
         col += uSunColor * (pow(nh, 260.0) * 1.1 + pow(nh, 28.0) * 0.06);
         // sun glitter that twinkles across the ripples, and a soft glow from light in the water
         float twinkle = smoothstep(0.82, 1.0, vnoise(vWorld.xz * 5.5 + vec2(uTime * 1.6, uTime * 1.2)));
-        col += uSunColor * twinkle * pow(nh, 14.0) * 0.55;
+        col += uSunColor * twinkle * pow(nh, 22.0) * 0.4;
         col += uShallow * 0.1 * (1.0 - fres) * (1.0 - uNight * 0.8);
         float foam = uLake * smoothstep(0.93, 0.997, r) * (0.35 + 0.65 * vnoise(vWorld.xz * 1.8 + vec2(uTime * 0.5, -uTime * 0.35))) * (0.6 + 0.4 * sin(uTime * 1.6 + vWorld.x * 0.7 + vWorld.z * 0.4));
         if (uLake < 0.5) foam = smoothstep(0.55, 0.95, sin(vWorld.z * 0.12 + uTime * 0.8) * 0.5 + 0.5) * smoothstep(-126.0, -118.0, vWorld.z) * 0.6;
@@ -421,8 +425,30 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     const ground = new THREE.Mesh(groundGeo, new THREE.MeshStandardMaterial({ map: grass, roughness: 1 }));
     ground.receiveShadow = true;
     scene.add(ground);
-    flat(new THREE.Mesh(new THREE.RingGeometry(w.lakeRadius - 1.2, w.shoreRadius + 2.4, 128), new THREE.MeshStandardMaterial({ map: sand, roughness: 1 })), 0.02);
-    flat(new THREE.Mesh(new THREE.CircleGeometry(w.lakeRadius, 96), new THREE.MeshStandardMaterial({ color: 0x1A3A3E, roughness: 1 })), 0.015);
+    // the sand and the lake bed are one sheet that follows the ground (a hair above it), tinted from
+    // dark and silty in the deep middle to pale sand at the shore
+    const bedGeo = new THREE.RingGeometry(0.01, w.shoreRadius + 2.4, 160, 40);
+    bedGeo.rotateX(-Math.PI / 2);
+    const bp = bedGeo.attributes.position;
+    const bcol = new Float32Array(bp.count * 3);
+    const deepC = new THREE.Color(0x2C4A4C);
+    const shallowC = new THREE.Color(0xB9A98A);
+    const tmpC = new THREE.Color();
+    for (let i = 0; i < bp.count; i++) {
+      const bx = bp.getX(i);
+      const bz = bp.getZ(i);
+      const r = Math.hypot(bx, bz);
+      bp.setY(i, groundHeight(bx, bz) + 0.05);
+      // dark and silty in the middle, warming to plain sand by the waterline, with no seam
+      const t = sstep(13, 30.2, r);
+      tmpC.copy(deepC).lerp(shallowC, Math.min(1, t * 1.6)).lerp(WHITE, sstep(26, 30.4, r));
+      bcol[i * 3] = tmpC.r; bcol[i * 3 + 1] = tmpC.g; bcol[i * 3 + 2] = tmpC.b;
+    }
+    bedGeo.setAttribute('color', new THREE.BufferAttribute(bcol, 3));
+    bedGeo.computeVertexNormals();
+    const bedMesh = new THREE.Mesh(bedGeo, new THREE.MeshStandardMaterial({ map: sand, vertexColors: true, roughness: 1 }));
+    bedMesh.receiveShadow = true;
+    scene.add(bedMesh);
 
     const waterGeo = new THREE.RingGeometry(0.01, w.lakeRadius, 140, 34);
     waterGeo.rotateX(-Math.PI / 2);
@@ -439,11 +465,11 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     deck.position.set((d.minX + d.maxX) / 2, DOCK_Y - 0.1, (d.minZ + d.maxZ) / 2);
     deck.castShadow = deck.receiveShadow = true;
     scene.add(deck);
-    const postGeo = new THREE.CylinderGeometry(0.12, 0.12, 1.4, 8);
+    const postGeo = new THREE.CylinderGeometry(0.12, 0.12, 3.7, 8);
     for (let z = d.minZ + 0.3; z < d.maxZ; z += 3) {
       for (const x of [d.minX + 0.15, d.maxX - 0.15]) {
         const post = new THREE.Mesh(postGeo, wood);
-        post.position.set(x, DOCK_Y - 0.5, z);
+        post.position.set(x, DOCK_Y - 1.75, z);
         post.castShadow = true;
         scene.add(post);
       }

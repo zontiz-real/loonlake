@@ -127,7 +127,7 @@ let weatherKind = 'clear';
 // post: bloom makes the fire, lanterns, sun glints, and sparkles glow, then a soft vignette frames it
 const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType, samples: 4 }));
 composer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.3, 0.45, 0.93);
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.6, 0.4, 2.3); // threshold above sunlit white paint, so only fire, lanterns and glints glow
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
 const vignette = new ShaderPass({
@@ -266,6 +266,7 @@ function effGun(id) {
   return { ...base, mag, reload, cooldown, spread, auto, level, damage: base.damage * W.gunLevels.mul[level] };
 }
 const ownsGun = (h) => !!(myData && myData.guns && myData.guns[h]);
+const boatOk = (x, z) => inWater(x, z) && (Math.hypot(x, z) < W.lakeRadius - 2.2 || inChannel(x, z) || inOcean(x, z));
 const footOk = (x, z) => onLand(x, z) || inWater(x, z) || inChannel(x, z, 0.8) || Math.hypot(x, z) < W.shoreRadius;
 fx.setFloor((x, z) => surfaceAt(x, z, audioT), (x, z) => inWater(x, z));
 const boating = () => !!(myData && myData.boat);
@@ -1679,14 +1680,14 @@ function interact() {
 }
 
 function nearWaterEdge(m) {
-  for (let r = 1.4; r <= 4.4; r += 1) for (let k = 0; k < 12; k++) {
+  for (let r = 1.4; r <= 5.4; r += 1) for (let k = 0; k < 12; k++) {
     const a = (k / 12) * Math.PI * 2;
     if (inWater(m.x + Math.sin(a) * r, m.z + Math.cos(a) * r)) return true;
   }
   return false;
 }
 function nearLandEdge(m) {
-  for (let r = 0.8; r <= 4.4; r += 0.9) for (let k = 0; k < 12; k++) {
+  for (let r = 0.8; r <= 5.6; r += 0.8) for (let k = 0; k < 12; k++) {
     const a = (k / 12) * Math.PI * 2;
     if (onLand(m.x + Math.sin(a) * r, m.z + Math.cos(a) * r)) return true;
   }
@@ -2933,7 +2934,7 @@ function updateLocal(m, dt) {
   if (wlen > 1) { wx /= wlen; wz /= wlen; }
   const ox = m.x;
   const oz = m.z;
-  const ok = inBoat ? inWater : footOk;
+  const ok = inBoat ? boatOk : footOk;
   if (inBoat || m.swimming) {
     // boats and swimming move directly
     vel.x = 0; vel.z = 0;

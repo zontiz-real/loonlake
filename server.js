@@ -239,24 +239,26 @@ const onLand = (x, z) =>
   onDock(x, z) ||
   (Math.hypot(x, z) >= WORLD.shoreRadius && Math.abs(x) <= WORLD.bounds && Math.abs(z) <= WORLD.bounds && !inChannel(x, z, 0.8));
 const inWater = (x, z) => !onDock(x, z) && (Math.hypot(x, z) < WORLD.lakeRadius - 0.3 || inChannel(x, z) || inOcean(x, z));
+// boats stay a couple of metres off the beach so the hull never digs into the sand
+const boatOk = (x, z) => inWater(x, z) && (Math.hypot(x, z) < WORLD.lakeRadius - 2.2 || inChannel(x, z) || inOcean(x, z));
 // on foot you can also wade and swim: land, any water, or the shoreline strip between them
 const footOk = (x, z) => onLand(x, z) || inWater(x, z) || inChannel(x, z, 0.8) || Math.hypot(x, z) < WORLD.shoreRadius;
 const waterRegion = (x, z) => (inOcean(x, z) || (inChannel(x, z) && z < -80) ? 'ocean' : 'lake');
 
 // nearest open water to launch a boat into, and nearest dry ground to step back onto
 function nearWater(x, z) {
-  for (let r = 1.2; r <= 4.6; r += 0.4) {
+  for (let r = 1.2; r <= 5.6; r += 0.4) {
     for (let k = 0; k < 24; k++) {
       const a = (k / 24) * Math.PI * 2;
       const wx = x + Math.sin(a) * r;
       const wz = z + Math.cos(a) * r;
-      if ([[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].every(([ox, oz]) => inWater(wx + ox, wz + oz))) return { x: wx, z: wz, rot: a };
+      if (boatOk(wx, wz) && [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].every(([ox, oz]) => inWater(wx + ox, wz + oz))) return { x: wx, z: wz, rot: a };
     }
   }
   return null;
 }
 function nearLand(x, z) {
-  for (let r = 0.8; r <= 4.6; r += 0.4) {
+  for (let r = 0.8; r <= 5.6; r += 0.4) {
     for (let k = 0; k < 24; k++) {
       const a = (k / 24) * Math.PI * 2;
       const lx = x + Math.sin(a) * r;
@@ -1444,7 +1446,7 @@ io.on('connection', (socket) => {
     const z = Number(m.z);
     if (!Number.isFinite(x) || !Number.isFinite(z)) return;
     const step = Math.hypot(x - p.x, z - p.z);
-    if (step > p.budget + 0.05 || !(p.boat ? inWater(x, z) : footOk(x, z))) {
+    if (step > p.budget + 0.05 || !(p.boat ? boatOk(x, z) : footOk(x, z))) {
       socket.emit('correct', { x: p.x, z: p.z });
       return;
     }
