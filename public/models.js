@@ -139,6 +139,11 @@ export async function loadModels(onProgress) {
   let done = 0;
   await Promise.all(files.map(async (f) => {
     g[f] = await loader.loadAsync(`/models/${f}.glb`);
+    // the pack was exported with every material's emissive set to its base color, which makes leaves, skin, fish and
+    // barn trim glow on their own and ignore the tint we apply; light them properly instead
+    g[f].scene.traverse((o) => {
+      if (o.isMesh) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => { if (m.emissive) m.emissive.set(0); });
+    });
     mergeByMaterial(g[f].scene);
     if (LOOKS.some((l) => l.id === f)) smoothCharacter(g[f].scene);
     done++;
@@ -364,6 +369,19 @@ export async function loadModels(onProgress) {
       if ('metalness' in mat) { mat.metalness = Math.min(mat.metalness, 0.2); mat.roughness = Math.max(mat.roughness, 0.6); }
       if (name.startsWith('boat')) { mat.roughness = 0.42; mat.metalness = 0.08; } // painted hulls have a lacquer shine
       if (mat.name === 'Leaves' || mat.name === 'Rock') mat.flatShading = true;
+      if (mat.name === 'Leaves') {
+        // darker toward the bottom of the canopy, as if light struggles to get in there
+        mat.onBeforeCompile = (shader) => {
+          shader.uniforms.uCanopy = { value: height };
+          shader.vertexShader = shader.vertexShader
+            .replace('#include <common>', '#include <common>\nvarying float vCanopyY; uniform float uCanopy;')
+            .replace('#include <begin_vertex>', '#include <begin_vertex>\nvCanopyY = clamp(position.y / uCanopy, 0.0, 1.0);');
+          shader.fragmentShader = shader.fragmentShader
+            .replace('#include <common>', '#include <common>\nvarying float vCanopyY;')
+            .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb *= mix(0.55, 1.08, smoothstep(0.1, 0.85, vCanopyY));');
+        };
+        mat.customProgramCacheKey = () => 'leafcanopy';
+      }
       parts.push({ geometry: geo, material: mat });
     });
     const s = height / (box.max.y - box.min.y);

@@ -1,5 +1,6 @@
 // Loon Lake world: sky and day cycle, water, terrain, camp, forest, and loons.
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 export const WATER_Y = 0.2;
 export const DOCK_Y = 0.55;
@@ -346,6 +347,7 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
   const firePos = new THREE.Vector3();
   let fireLight = null;
   let pads = null;
+  let pineMat = null; // pines get a little ambient lift by day so their shaded sides stay green, not black
   let flowers = null;
   const padData = [];
   const loons = [];
@@ -607,26 +609,50 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     // forest, instanced
     const rnd = mulberry32(7);
     const treeCount = high ? 340 : 170;
-    const coneGeo = new THREE.ConeGeometry(1.5, 2.4, 7);
-    const trunkGeo = new THREE.CylinderGeometry(0.18, 0.28, 1.3, 6);
-    const pineA = new THREE.MeshStandardMaterial({ color: 0x2A4834, roughness: 0.86, flatShading: true });
-    const pineB = new THREE.MeshStandardMaterial({ color: 0x21392A, roughness: 0.9, flatShading: true });
-    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x5A4130, roughness: 0.95 });
-    const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, treeCount);
-    const low = new THREE.InstancedMesh(coneGeo, pineB, treeCount);
-    const mid = new THREE.InstancedMesh(coneGeo, pineA, treeCount);
-    const top = new THREE.InstancedMesh(coneGeo, pineA, treeCount);
-    [trunks, low, mid, top].forEach((im) => { im.castShadow = true; im.receiveShadow = true; });
+    // One merged pine (trunk plus five ragged, drooping tiers with a dark-to-light gradient), so every tree is one draw call
+    // and no two look the same once each instance gets its own scale, lean, turn and tint.
+    const pineGeo = (() => {
+      const paint = (geo, fn) => {
+        const p = geo.attributes.position;
+        const c = new Float32Array(p.count * 3);
+        const col = new THREE.Color();
+        for (let i = 0; i < p.count; i++) { fn(col, p.getY(i)); c.set([col.r, col.g, col.b], i * 3); }
+        geo.setAttribute('color', new THREE.BufferAttribute(c, 3));
+        return geo;
+      };
+      const parts = [];
+      const trunk = new THREE.CylinderGeometry(0.17, 0.3, 1.6, 6);
+      trunk.translate(0, 0.8, 0);
+      parts.push(paint(trunk, (c) => c.set('#4E3726')));
+      const dark = new THREE.Color('#1B4530');
+      const light = new THREE.Color('#3C7442');
+      const tiers = 5;
+      for (let t = 0; t < tiers; t++) {
+        const k = t / (tiers - 1);
+        const h = 2.15 - k * 0.75;
+        const baseY = 0.95 + t * 0.92;
+        const cone = new THREE.ConeGeometry(1.75 - k * 1.3, h, 9, 1);
+        const pos = cone.attributes.position;
+        for (let i = 0; i < pos.count; i++) {
+          const x = pos.getX(i);
+          const y = pos.getY(i);
+          const z = pos.getZ(i);
+          if (y > 0 || (x === 0 && z === 0)) continue; // apex and cap centre stay put; the rim gets ragged and droops
+          const ang = Math.atan2(z, x);
+          const j = 1 + 0.17 * Math.sin(ang * 3 + t * 1.7) + 0.1 * Math.sin(ang * 5 + t * 2.9);
+          pos.setXYZ(i, x * j, y - 0.14 * (0.5 + 0.5 * Math.sin(ang * 4 + t)), z * j);
+        }
+        cone.rotateY(t * 0.6);
+        cone.translate(0, baseY + h / 2, 0);
+        parts.push(paint(cone, (c, y) => c.copy(dark).lerp(light, Math.min(1, Math.max(0, (y - baseY) / h)) * 0.85 + k * 0.15)));
+      }
+      return mergeGeometries(parts, false);
+    })();
+    pineMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88, flatShading: true, emissive: 0x1E5A38, emissiveIntensity: 0.6 });
+    const pines = new THREE.InstancedMesh(pineGeo, pineMat, treeCount);
+    pines.castShadow = pines.receiveShadow = true;
     const dummy = new THREE.Object3D();
     const tint = new THREE.Color();
-    let groundY = 0;
-    const place = (im, i, x, y, z, s, sx) => {
-      dummy.position.set(x, groundY + y * s, z);
-      dummy.scale.set(s * sx, s, s * sx);
-      dummy.rotation.set(0, rnd() * Math.PI, 0);
-      dummy.updateMatrix();
-      im.setMatrixAt(i, dummy.matrix);
-    };
     for (let placed = 0; placed < treeCount;) {
       const spread = placed < treeCount * 0.45 ? w.bounds + 25 : 150;
       const x = (rnd() * 2 - 1) * spread;
@@ -638,17 +664,18 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
       if (Math.hypot(x - camp.shack.x, z - camp.shack.z) < 11) continue;
       if (Math.hypot(x - f.x, z - f.z) < 7) continue;
       const s = 0.7 + rnd() * 0.9;
-      groundY = groundHeight(x, z) - 0.1;
-      tint.setHSL(0.36 + (rnd() - 0.5) * 0.06, 0.9, 0.85 + rnd() * 0.3);
-      [low, mid, top].forEach((im) => im.setColorAt(placed, tint));
-      place(trunks, placed, x, 0.65, z, s, 1);
-      place(low, placed, x, 2.15, z, s, 1.15);
-      place(mid, placed, x, 3.15, z, s, 1);
-      place(top, placed, x, 4.15, z, s, 0.72);
+      const wide = 0.85 + rnd() * 0.3;
+      dummy.position.set(x, groundHeight(x, z) - 0.1, z);
+      dummy.scale.set(s * wide, s * (0.9 + rnd() * 0.25), s * wide);
+      dummy.rotation.set((rnd() - 0.5) * 0.08, rnd() * Math.PI * 2, (rnd() - 0.5) * 0.08);
+      dummy.updateMatrix();
+      pines.setMatrixAt(placed, dummy.matrix);
+      tint.setRGB(0.82 + rnd() * 0.3, 0.9 + rnd() * 0.22, 0.8 + rnd() * 0.3);
+      pines.setColorAt(placed, tint);
       if (Math.abs(x) <= w.bounds + 1 && Math.abs(z) <= w.bounds + 1) colliders.push({ x, z, r: 0.35 * s });
       placed++;
     }
-    scene.add(trunks, low, mid, top);
+    scene.add(pines);
 
     // birches along the shore, for a Minnesota treeline
     const birchN = high ? 44 : 22;
@@ -934,7 +961,7 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     // maples and oaks mixed into the pines, a few already turning for fall
     const mapleSets = [1, 2, 3, 4].map((n) => kit.instanced('maple' + n, 5.5, 30));
     const mapleCount = [0, 0, 0, 0];
-    const fall = ['#D9772B', '#C44A28', '#E0A92E', '#B8502A'];
+    const fall = ['#C9782F', '#B5522E', '#D2A23A', '#A85A32'];
     for (let tries = 0; tries < 1500 && mapleCount.reduce((a, b) => a + b) < (high ? 90 : 48); tries++) {
       const far = rnd() < 0.45;
       const a = rnd() * Math.PI * 2;
@@ -944,7 +971,7 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
       if (avoid(x, z, 2.2)) continue;
       const k = Math.floor(rnd() * 4);
       if (mapleCount[k] >= 30) continue;
-      if (rnd() < 0.3) tint.set(fall[Math.floor(rnd() * fall.length)]);
+      if (rnd() < 0.2) tint.set(fall[Math.floor(rnd() * fall.length)]);
       else tint.setHSL(0.25 + rnd() * 0.07, 0.45 + rnd() * 0.2, 0.25 + rnd() * 0.1, THREE.SRGBColorSpace);
       const s = 0.75 + rnd() * 0.6;
       place(mapleSets[k], mapleCount[k]++, x, z, s, rnd() * 6.3, { Leaves: tint, Tree: bark });
@@ -1078,6 +1105,7 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     waterU.uFogColor.value.copy(day.fog);
     waterU.uNight.value = day.night;
 
+    if (pineMat) { pineMat.emissiveIntensity = 0.6 * (1 - day.night * 0.9); pineMat.color.setScalar(1 - day.night * 0.6); }
     const glow = Math.max(0.12, day.night * 1.4 + (day.golden ? 0.2 : 0));
     emissives.forEach((mat) => { mat.emissiveIntensity = glow * 1.6; });
     lights.forEach(({ light, max }) => { light.intensity = max * Math.max(0, day.night - 0.1); });
