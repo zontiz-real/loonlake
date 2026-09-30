@@ -118,8 +118,17 @@ const SPECIES = [
   { id: 'bell', where: 'ocean', name: 'Shipwreck bell', rarity: 'treasure', w: 0.5, lbs: [40, 40], diff: 0.3, base: 400, color: '#B8913A', hint: 'From a freighter that never made port.' },
   { id: 'tacklebox', where: 'lake', name: 'Lost tackle box', rarity: 'treasure', w: 0.7, lbs: [4, 4], diff: 0.2, base: 120, color: '#3E6B4F', hint: 'Some unlucky angler dropped it.' },
 ];
+// the original species: which use the long fish model, and a few color/shape touches
+const LONG_IDS = new Set(['walleye', 'pike', 'muskie', 'eelpout', 'sturgeon', 'golden', 'catfish', 'bass', 'perch', 'cisco', 'whitefish', 'salmon', 'laketrout', 'pressie']);
+SPECIES.forEach((s) => { s.long = LONG_IDS.has(s.id); });
+SPECIES.push(...require('./species_extra'));
 const SPECIES_BY_ID = Object.fromEntries(SPECIES.map((s) => [s.id, s]));
+const FISHY = (s) => !['junk', 'treasure'].includes(s.rarity) && !s.when;
 const SWIMMERS = SPECIES.filter((s) => ['common', 'uncommon', 'rare'].includes(s.rarity) && !s.when && s.where === 'lake');
+// what you can see swimming in the big water: everything up to sharks
+const OCEAN_SWIMMERS = SPECIES.filter((s) => s.where === 'ocean' && FISHY(s) && s.rarity !== 'legendary');
+const CHANNEL_SWIMMERS = SWIMMERS.filter((s) => s.lbs[1] < 25);
+const FISH_HP = { common: 2, uncommon: 2, rare: 3, epic: 5, legendary: 8 };
 const RARITY_RANK = { junk: 0, common: 1, uncommon: 2, treasure: 3, rare: 3, epic: 4, legendary: 5 };
 
 const BAIT_MUL = {
@@ -146,7 +155,7 @@ const SLOT_WEIGHT = SLOT_SYMBOLS.reduce((s, x) => s + x.w, 0);
 const COLORS = ['#E0452B', '#F2B134', '#4FA3A5', '#9B6FC2', '#E8E3D3', '#6DBF67', '#3E7CC9', '#D9719B'];
 
 // what the client needs to draw the world, shop, and journal
-WORLD.species = SPECIES.map(({ id, name, rarity, lbs, color, hint, when, where }) => ({ id, name, rarity, lbs, color, hint, when, where }));
+WORLD.species = SPECIES.map(({ id, name, rarity, lbs, color, hint, when, where, long, prop, belly, fin, pattern }) => ({ id, name, rarity, lbs, color, hint, when, where, long, prop, belly, fin, pattern }));
 WORLD.colors = COLORS;
 
 // ---------------------------------------------------------------- server
@@ -532,7 +541,9 @@ function rollCatch(p) {
   const [lo, hi] = species.lbs;
   const skew = Math.max(0.9, 1.7 - p.bait * 0.2);
   const frac = hi > lo ? Math.pow(Math.random(), skew) : 0.5;
-  const lbs = Math.round((lo + (hi - lo) * frac) * 10) / 10;
+  const raw = lo + (hi - lo) * frac;
+  const places = hi < 1 ? 100 : 10; // small fish keep two decimals so an anchovy is not zero pounds
+  const lbs = Math.max(0.01, Math.round(raw * places) / places);
   const value = Math.round(species.base * (0.6 + 0.9 * frac));
   const difficulty = Math.min(0.98, species.diff + frac * 0.08);
   return { species, lbs, value, frac, difficulty, hot };
@@ -961,24 +972,42 @@ function tickNpc(n, dt) {
 
 // ---------------------------------------------------------------- the school
 
-function spawnSchoolFish(slot) {
-  const species = SWIMMERS[Math.floor(Math.random() * SWIMMERS.length)];
-  const a = Math.random() * Math.PI * 2;
-  const r = rand(4, WORLD.lakeRadius - 3);
+// fish live in one of three places: the lake, the canal, and the big water
+const FISH_AREAS = {
+  lake: { pool: () => SWIMMERS, place: () => { const a = Math.random() * Math.PI * 2; const r = rand(4, WORLD.lakeRadius - 3); return { x: Math.sin(a) * r, z: Math.cos(a) * r }; }, speed: 2.4 },
+  channel: { pool: () => CHANNEL_SWIMMERS, place: () => ({ x: rand(-3, 3), z: rand(-112, -34) }), speed: 2.2 },
+  ocean: { pool: () => OCEAN_SWIMMERS, place: () => ({ x: rand(-170, 170), z: rand(-135, -300) }), speed: 3.2 },
+};
+function inFishArea(area, x, z) {
+  if (area === 'lake') return Math.hypot(x, z) < WORLD.lakeRadius - 2.2;
+  if (area === 'channel') return Math.abs(x) < 3.6 && z < -34 && z > -114;
+  return Math.abs(x) < 180 && z < -128 && z > -310;
+}
+
+function spawnSchoolFish(slot, area) {
+  const a = (slot && slot.area) || area || 'lake';
+  const def = FISH_AREAS[a];
+  const pool = def.pool();
+  const species = pool[Math.floor(Math.random() * pool.length)];
   const fish = slot || { id: 'fish-' + (fishSerial++) };
+  const spot = def.place();
+  fish.area = a;
   fish.name = species.name;
   fish.sid = species.id;
   fish.base = species.base;
-  fish.x = Math.sin(a) * r;
-  fish.z = Math.cos(a) * r;
+  fish.x = spot.x;
+  fish.z = spot.z;
   fish.rot = Math.random() * Math.PI * 2;
   fish.alive = true;
   fish.floatUntil = 0;
-  fish.hp = 2;
+  fish.maxHp = FISH_HP[species.rarity] || 2;
+  fish.hp = fish.maxHp;
   fish.hurtUntil = 0;
   return fish;
 }
-for (let i = 0; i < 14; i++) school.push(spawnSchoolFish());
+for (let i = 0; i < 22; i++) school.push(spawnSchoolFish(null, 'lake'));
+for (let i = 0; i < 10; i++) school.push(spawnSchoolFish(null, 'channel'));
+for (let i = 0; i < 60; i++) school.push(spawnSchoolFish(null, 'ocean'));
 
 function tickFish(dt) {
   const now = nowMs();
@@ -988,10 +1017,15 @@ function tickFish(dt) {
       continue;
     }
     const fleeing = now < f.hurtUntil;
+    const speed = FISH_AREAS[f.area].speed;
     f.rot += rand(-1.2, 1.2) * dt * (fleeing ? 2.5 : 1);
-    f.x += Math.sin(f.rot) * (fleeing ? 5.5 : 2.4) * dt;
-    f.z += Math.cos(f.rot) * (fleeing ? 5.5 : 2.4) * dt;
-    if (Math.hypot(f.x, f.z) > WORLD.lakeRadius - 2.2) f.rot = Math.atan2(-f.x, -f.z);
+    f.x += Math.sin(f.rot) * (fleeing ? speed * 2.3 : speed) * dt;
+    f.z += Math.cos(f.rot) * (fleeing ? speed * 2.3 : speed) * dt;
+    if (!inFishArea(f.area, f.x, f.z)) {
+      // turn back toward the middle of the fish's water
+      const c = f.area === 'lake' ? { x: 0, z: 0 } : f.area === 'channel' ? { x: 0, z: -74 } : { x: 0, z: -215 };
+      f.rot = Math.atan2(c.x - f.x, c.z - f.z);
+    }
   }
 }
 
@@ -1038,7 +1072,7 @@ function snapshot() {
   return {
     hour: Math.round(hourNow() * 1000) / 1000,
     players: list,
-    fish: school.map((f) => ({ id: f.id, name: f.name, sid: f.sid, x: r2(f.x), z: r2(f.z), rot: r2(f.rot), alive: f.alive, hurt: f.alive && f.hp < 2 })),
+    fish: school.map((f) => ({ id: f.id, sid: f.sid, x: r2(f.x), z: r2(f.z), rot: r2(f.rot), alive: f.alive, hurt: f.alive && f.hp < f.maxHp })),
     npcs: npcs.map((n) => ({
       id: n.id, role: n.role, name: n.name, color: n.color,
       x: r2(n.x), z: r2(n.z), rot: r2(n.rot), hp: Math.max(0, n.hp), alive: n.alive,
@@ -1685,7 +1719,13 @@ setInterval(() => {
   npcs.forEach((n) => tickNpc(n, dt));
   tickRespawns();
   collectPickups();
-  io.emit('state', snapshot());
+  const snap = snapshot();
+  const allFish = snap.fish;
+  for (const sock of io.sockets.sockets.values()) {
+    // each connection only hears about the fish it could plausibly see (the join screen looks at the lake)
+    const at = players.get(sock.id) || { x: 0, z: 0 };
+    sock.emit('state', { ...snap, fish: allFish.filter((f) => Math.abs(f.x - at.x) < 110 && Math.abs(f.z - at.z) < 110) });
+  }
   for (const p of players.values()) {
     const sock = sockOf(p.id);
     if (sock) sock.emit('me', privateState(p));
@@ -1695,3 +1735,6 @@ setInterval(() => {
 server.listen(PORT, () => {
   console.log(`Loon Lake running at http://localhost:${PORT}${DEBUG ? ' (debug commands on)' : ''}`);
 });
+
+// exposed so the catch odds can be tested without a running lake
+module.exports = { SPECIES, pickSpecies, rollCatch, levelOf };

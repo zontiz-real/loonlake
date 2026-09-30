@@ -217,17 +217,22 @@ export async function loadModels(onProgress) {
   };
   const FISH_BELLY = { perch: '#F1E9A8', bluegill: '#F2B24A', salmon: '#EFD9D0', sturgeon: '#D8D0BC', bass: '#E4E0B4', pike: '#EEEBD0' };
   const FISH_FIN = { perch: '#E86A2A', salmon: '#B84A4A', bass: '#6E6A2E', golden: '#FFD36A', catfish: '#3A4448', bluegill: '#2D6E70', crappie: '#5E6B5E', pike: '#B0682C' };
-  kit.fish = (sid, hex) => {
-    const long = LONG_FISH.has(sid);
+  kit.fish = (sid, hex, spec) => {
+    const long = spec && spec.long !== undefined ? !!spec.long : LONG_FISH.has(sid);
     const src = g[long ? 'fish_long' : 'fish_round'];
     const root = SkeletonUtils.clone(src.scene);
     const box = new THREE.Box3().setFromObject(src.scene).getSize(tmpA);
     const len = Math.max(box.x, box.z);
-    root.scale.multiplyScalar((long ? 0.72 : 0.46) / len);
+    // bigger species are bigger fish: a minnow is a fraction of a bluegill, a whale shark is huge
+    const avg = spec && spec.lbs ? (spec.lbs[0] + spec.lbs[1]) / 2 : 3;
+    const sizeMul = Math.max(0.55, Math.min(3.6, Math.cbrt(avg / 4)));
+    root.scale.multiplyScalar(((long ? 0.72 : 0.46) * sizeMul) / len);
     const mats = cloneMats(root, true);
     const body = new THREE.Color(hex || '#4FA3A5');
-    const belly = FISH_BELLY[sid] ? new THREE.Color(FISH_BELLY[sid]) : body.clone().lerp(new THREE.Color('#F2EEDC'), 0.6);
-    const fin = FISH_FIN[sid] ? new THREE.Color(FISH_FIN[sid]) : body.clone().multiplyScalar(0.55);
+    const bellyHex = (spec && spec.belly) || FISH_BELLY[sid];
+    const finHex = (spec && spec.fin) || FISH_FIN[sid];
+    const belly = bellyHex ? new THREE.Color(bellyHex) : body.clone().lerp(new THREE.Color('#F2EEDC'), 0.6);
+    const fin = finHex ? new THREE.Color(finHex) : body.clone().multiplyScalar(0.55);
     if (long) {
       mats.Top?.color.copy(body);
       mats.Bottom?.color.copy(belly);
@@ -241,7 +246,8 @@ export async function loadModels(onProgress) {
     const group = new THREE.Group();
     const turn = new THREE.Group();
     turn.rotation.y = FISH_YAW;
-    if (FISH_SHAPE[sid]) turn.scale.set(...FISH_SHAPE[sid]);
+    const shape = (spec && spec.prop) || FISH_SHAPE[sid];
+    if (shape) turn.scale.set(...shape);
     turn.add(root);
     group.add(turn);
     const mixer = new THREE.AnimationMixer(root);

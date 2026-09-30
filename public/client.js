@@ -790,7 +790,7 @@ const LONG_FISH = new Set(['walleye', 'pike', 'muskie', 'eelpout', 'sturgeon', '
 
 function makeFish(sid) {
   if (kit && sid !== 'boot' && sid !== 'can' && sid !== 'tacklebox') {
-    const f = kit.fish(sid, (speciesById[sid] || {}).color);
+    const f = kit.fish(sid, (speciesById[sid] || {}).color, speciesById[sid]);
     f.userData.sid = sid;
     return f;
   }
@@ -1984,12 +1984,16 @@ function fishSvg(sid, color, missing) {
   if (sid === 'boot') return `<path d="M40 6h22v24l22 7c6 2 8 5 8 10v5H34V30z" fill="${missing ? fill : '#4A3A2A'}" stroke="${ink}" stroke-width="2"/>`;
   if (sid === 'can') return `<rect x="46" y="8" width="26" height="34" rx="4" fill="${missing ? fill : '#8A8680'}" stroke="${ink}" stroke-width="2"/><path d="M46 16h26M46 34h26" stroke="${ink}" stroke-width="1.5"/>`;
   if (sid === 'tacklebox') return `<rect x="30" y="16" width="60" height="28" rx="4" fill="${missing ? fill : '#3E6B4F'}" stroke="${ink}" stroke-width="2"/><path d="M50 16v-6h20v6" fill="none" stroke="${ink}" stroke-width="3"/><path d="M30 26h60" stroke="${ink}" stroke-width="1.5"/>`;
-  const long = LONG_FISH.has(sid);
+  const spec = speciesById[sid];
+  const long = spec && spec.long !== undefined ? spec.long : LONG_FISH.has(sid);
   const body = long
     ? 'M8 24 C 22 13, 60 12, 90 20 L 112 9 L 107 24 L 112 39 L 90 28 C 60 36, 22 35, 8 24 Z'
     : 'M14 24 C 26 5, 62 3, 84 17 L 106 7 L 100 24 L 106 41 L 84 31 C 62 45, 26 43, 14 24 Z';
   const fin = long ? 'M56 14 L 66 7 L 74 16 Z' : 'M44 9 L 58 2 L 70 12 Z';
   let extra = '';
+  if (!missing && spec && spec.pattern === 'spots') extra = '<g fill="#1D2A25" opacity=".55"><circle cx="36" cy="18" r="2"/><circle cx="48" cy="27" r="2"/><circle cx="58" cy="17" r="2"/><circle cx="70" cy="26" r="2"/><circle cx="80" cy="20" r="1.8"/></g>';
+  if (!missing && spec && spec.pattern === 'bars') extra = '<path d="M38 12v24M50 10v28M62 12v24M74 15v18" stroke="#1D2A25" stroke-width="3" opacity=".45"/>';
+  if (!missing && spec && spec.pattern === 'stripe') extra = '<path d="M22 24 C 44 22, 66 22, 92 24" stroke="#1D2A25" stroke-width="3" opacity=".5" fill="none"/>';
   if (!missing && sid === 'perch') extra = '<path d="M40 12v24M52 10v28M64 13v22" stroke="#5A4A10" stroke-width="3" opacity=".7"/>';
   if (!missing && (sid === 'muskie' || sid === 'pike')) extra = '<path d="M34 20h5M46 26h5M58 20h5M70 25h5" stroke="#EEF2EC" stroke-width="2.4" opacity=".7"/>';
   if (!missing && sid === 'catfish') extra = '<path d="M10 25 C 4 30, 2 36, 4 40M12 26 C 8 32, 8 38, 12 42" stroke="#1D2A25" stroke-width="1.6" fill="none"/>';
