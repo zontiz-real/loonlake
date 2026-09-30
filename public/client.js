@@ -1759,7 +1759,66 @@ function renderPhone() {
       box.append(note);
     }
   } else if (phoneApp === 'messages') renderMessages();
+  else if (phoneApp === 'friends') renderFriends();
 }
+function renderFriends() {
+  const list = $('friendList');
+  list.replaceChildren();
+  const others = [...views.values()].filter((v) => v.data.id !== myId);
+  const m = me();
+  $('friendNote').textContent = others.length ? 'Whisper is private. Gifts move real cash to them.' : 'Nobody else is here yet. Share the link and fish together.';
+  others.sort((a, b) => (b.data.level || 1) - (a.data.level || 1));
+  for (const v of others) {
+    const d = v.data;
+    const li = document.createElement('li');
+    li.className = 'friend';
+    const dot = document.createElement('span');
+    dot.className = 'dot';
+    dot.style.background = d.color;
+    const name = document.createElement('b');
+    name.textContent = d.name;
+    const meta = document.createElement('small');
+    const dist = m ? Math.round(Math.hypot(v.x - m.x, v.z - m.z)) : 0;
+    meta.textContent = `Level ${d.level || 1} · ${d.caught || 0} caught · ${dist} m away`;
+    const row = document.createElement('div');
+    row.className = 'frow';
+    const whisper = document.createElement('button');
+    whisper.type = 'button';
+    whisper.textContent = 'Whisper';
+    whisper.addEventListener('click', () => {
+      const text = prompt(`Message to ${d.name}:`);
+      if (!text) return;
+      socket.emit('whisper', { to: d.id, text }, (res) => {
+        if (res && res.ok) pushFeed(`To ${res.name}: ${text}`, 'mine');
+        else if (res && res.msg) flashPrompt(res.msg, '', 1500);
+      });
+    });
+    const gift = document.createElement('button');
+    gift.type = 'button';
+    gift.textContent = 'Gift $25';
+    gift.addEventListener('click', () => socket.emit('gift', { to: d.id, amount: 25 }, (res) => {
+      if (res && res.ok) sfx.coin();
+      if (res && res.msg) flashPrompt(res.msg, res.ok ? 'good' : '', 1600);
+    }));
+    row.append(whisper, gift);
+    li.append(dot, name, meta, row);
+    list.append(li);
+  }
+}
+
+socket.on('whisper', (w) => {
+  pushFeed(`${w.name} whispers: ${w.text}`, 'mine');
+  sfx.chat();
+  const v = views.get(w.from);
+  if (v) setBubble(v, '…');
+});
+socket.on('gifted', (g) => {
+  sfx.coin();
+  const m = me();
+  if (m) fx.floater(m.x, 2.3, m.z, `+$${g.amount}`, 'cash', 1.6);
+  flashPrompt(`${g.name} gave you $${g.amount}.`, 'good', 2600);
+});
+
 function renderMessages() {
   const list = $('msgList');
   list.replaceChildren();

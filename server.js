@@ -1883,6 +1883,41 @@ io.on('connection', (socket) => {
     reply({ ok: true, reels, payout, mult });
   });
 
+  // private messages and gifts between players
+  socket.on('whisper', (w, ack) => {
+    const reply = replyFn(ack);
+    if (!p || !w) return reply({ ok: false });
+    const target = players.get(w.to);
+    const text = String(w.text ?? '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 140);
+    if (!target || target.id === p.id) return reply({ ok: false, msg: 'They are not here.' });
+    if (!text) return reply({ ok: false });
+    const now = nowMs();
+    if (now - (p.lastWhisper || 0) < 500) return reply({ ok: false, msg: 'Slow down.' });
+    p.lastWhisper = now;
+    const tsock = sockOf(target.id);
+    if (tsock) tsock.emit('whisper', { from: p.id, name: p.name, color: p.color, text });
+    reply({ ok: true, name: target.name, color: target.color });
+  });
+
+  socket.on('gift', (g, ack) => {
+    const reply = replyFn(ack);
+    if (!p || !p.alive || !g) return reply({ ok: false });
+    const target = players.get(g.to);
+    const amount = Math.floor(Number(g.amount));
+    if (!target || !target.alive || target.id === p.id) return reply({ ok: false, msg: 'They are not here.' });
+    if (![25, 100, 500].includes(amount)) return reply({ ok: false, msg: 'Gift $25, $100, or $500.' });
+    if (p.cash < amount) return reply({ ok: false, msg: 'You do not have that much.' });
+    if (p.guest || target.guest) return reply({ ok: false, msg: 'Guests cannot trade.' });
+    p.cash -= amount;
+    target.cash += amount;
+    storeProfile(p);
+    storeProfile(target);
+    feed(`${p.name} gave ${target.name} $${amount}`, 'shop');
+    const tsock = sockOf(target.id);
+    if (tsock) tsock.emit('gifted', { name: p.name, amount });
+    reply({ ok: true, msg: `You gave ${target.name} $${amount}.` });
+  });
+
   socket.on('chat', (raw) => {
     if (!p) return;
     const now = nowMs();
