@@ -331,6 +331,8 @@ export async function loadModels(onProgress) {
       mat.name = (o.material.name || '').trim();
       if (paint[mat.name]) mat.color.set(paint[mat.name]);
       if ('metalness' in mat) { mat.metalness = Math.min(mat.metalness, 0.2); mat.roughness = Math.max(mat.roughness, 0.6); }
+      // the boat models are painted pure white, which blooms like a lamp; knock it back to a soft off-white
+      if (name.startsWith('boat_') && mat.map) mat.color.multiplyScalar(0.72);
       if (mat.name === 'Leaves' || mat.name === 'Rock') mat.flatShading = true;
       parts.push({ geometry: geo, material: mat });
     });
