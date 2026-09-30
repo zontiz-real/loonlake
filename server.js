@@ -336,6 +336,7 @@ function writeSaves() {
 function freshPocket() { return { weed: 0, whiskey: 0, crank: 0 }; }
 
 const GUN_IDS = Object.keys(WORLD.guns);
+const EMOTES = ['wave', 'dance', 'cheer', 'sit', 'point', 'laugh'];
 const HOLDABLE = new Set(['fists', 'rod', 'bait', ...GUN_IDS, 'weed', 'whiskey', 'crank', 'bag']);
 function ownsHold(p, held) {
   if (held === 'fists' || held === 'rod' || held === 'bait' || held === 'bag') return true;
@@ -1126,7 +1127,7 @@ function snapshot() {
   const list = [];
   for (const p of players.values()) {
     list.push({
-      id: p.id, name: p.name, color: p.color, look: p.look, skin: p.skin, x: r2(p.x), z: r2(p.z), rot: r2(p.rot), jy: r2(p.jy || 0), jg: p.jg === 0 ? 0 : 1, level: levelOf(p.xp),
+      id: p.id, name: p.name, color: p.color, look: p.look, skin: p.skin, x: r2(p.x), z: r2(p.z), rot: r2(p.rot), jy: r2(p.jy || 0), jg: p.jg === 0 ? 0 : 1, em: p.emote || null, level: levelOf(p.xp),
       state: p.state, bobber: p.bobber, cash: p.cash, hp: Math.max(0, p.hp), alive: p.alive,
       guns: p.guns, ga: GUN_IDS.includes(p.held) ? p.att[p.held] : null, lz: !!(GUN_IDS.includes(p.held) && p.att[p.held] && p.att[p.held].laser), rod: p.rod, held: p.held || 'rod', boat: !!p.boat, bt: Math.max(0, p.boatTier), swim: !!p.swim, high: highFlags(p), caught: p.caught, best: p.best,
     });
@@ -1383,16 +1384,29 @@ io.on('connection', (socket) => {
       socket.emit('correct', { x: p.x, z: p.z });
       return;
     }
+    if (p.emote && step > 0.04) p.emote = null; // walking away ends an emote or a sit
     p.budget -= step;
     p.x = x;
     p.z = z;
     p.swim = !p.boat && inWater(x, z);
   });
 
+  // emotes: wave, dance, cheer, sit, point, laugh. Moving, fishing or fighting ends them.
+  socket.on('emote', (name) => {
+    if (!p || !p.alive) return;
+    if (name === 'stop') { p.emote = null; return; }
+    if (!EMOTES.includes(name) || p.state !== 'idle' || p.boat || p.swim) return;
+    const now = nowMs();
+    if (now - (p.lastEmote || 0) < 350) return;
+    p.lastEmote = now;
+    p.emote = name;
+  });
+
   socket.on('cast', (c, ack) => {
     const reply = replyFn(ack);
     if (!p || !p.alive || p.state !== 'idle' || !c) return reply({ ok: false });
     if (p.swim) return reply({ ok: false, msg: 'Get out of the water to fish.' });
+    p.emote = null;
     const power = Math.max(0, Math.min(1, Number(c.power) || 0));
     if (Number.isFinite(c.rot)) p.rot = c.rot;
     const rod = WORLD.rods[p.rod];
@@ -1657,6 +1671,7 @@ io.on('connection', (socket) => {
 
   socket.on('punch', (body, ack) => {
     const reply = replyFn(ack);
+    if (p) p.emote = null;
     if (!p || !p.alive) return reply({ ok: false });
     if (p.state !== 'idle') return reply({ ok: false, msg: 'Reel in first.' });
     const t = nowMs();
@@ -1717,6 +1732,7 @@ io.on('connection', (socket) => {
 
   socket.on('shoot', (body, ack) => {
     const reply = replyFn(ack);
+    if (p) p.emote = null;
     if (!p || !p.alive) return reply({ ok: false, msg: 'You cannot shoot right now.' });
     if (p.state !== 'idle') return reply({ ok: false, msg: 'Reel in before you shoot.' });
     const gunId = body && WORLD.guns[body.gun] ? body.gun : GUN_IDS.includes(p.held) ? p.held : null;

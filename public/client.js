@@ -676,10 +676,29 @@ function disposeAvatar(v) {
   v.highMark.material.dispose();
 }
 
+// ---- emotes: Z wave, X dance, C cheer, V sit, B point, N laugh. Moving, fishing or fighting ends them.
+const EMOTE_KEYS = { KeyZ: 'wave', KeyX: 'dance', KeyC: 'cheer', KeyV: 'sit', KeyB: 'point', KeyN: 'laugh' };
+const EMOTE_TEXT = { wave: '*waves*', dance: '*dances*', cheer: 'Woo!', sit: '*sits down*', point: '*points*', laugh: 'Ha ha ha!' };
+let myEmote = null;
+function stopEmote() {
+  if (!myEmote) return;
+  myEmote = null;
+  socket.emit('emote', 'stop');
+}
+function doEmote(name) {
+  const m = me();
+  if (!m || !alive() || phase !== 'idle' || boating() || m.swimming || openPanel || chatOpen) return;
+  if (myEmote === name) { stopEmote(); return; }
+  myEmote = name;
+  socket.emit('emote', name);
+  setBubble(m, EMOTE_TEXT[name]);
+  sfx.ui();
+}
+
 function setBubble(v, text) {
   if (v.bubble) { v.group.remove(v.bubble); v.bubble.material.map.dispose(); v.bubble.material.dispose(); }
   v.bubble = makeBubble(text);
-  if (v.model) v.bubble.position.y = 2.52;
+  v.bubble.position.y = v.model ? 2.52 : 3.05;
   v.group.add(v.bubble);
   v.bubbleUntil = audioT + 6;
 }
@@ -1044,7 +1063,9 @@ socket.on('state', (s) => {
     let v = views.get(d.id);
     if (!v) { v = makeView(d); views.set(d.id, v); }
     const prevState = v.data.state;
+    const prevEm = v.data.em;
     v.data = d;
+    if (d.id !== myId && d.em && d.em !== prevEm) setBubble(v, EMOTE_TEXT[d.em] || '');
     if (d.id !== myId) {
       v.tx = d.x; v.tz = d.z; v.trot = d.rot; v.state = d.state; v.jy = d.jy || 0; v.jg = d.jg;
       if (d.bobber && !v.bobberPos) v.fly = { t: 0, from: v.tip.getWorldPosition(new THREE.Vector3()), remote: true };
@@ -1525,6 +1546,7 @@ addEventListener('keydown', (e) => {
       break;
     case 'KeyQ': if (!e.repeat) reelIn(); break;
     case 'KeyR': if (!e.repeat) reload(); break;
+    case 'KeyZ': case 'KeyX': case 'KeyC': case 'KeyV': case 'KeyB': case 'KeyN': if (!e.repeat) doEmote(EMOTE_KEYS[e.code]); break;
     case 'KeyE': if (!e.repeat) interact(); break;
     case 'KeyF': quickPunch(); break;
     case 'KeyJ': if (!e.repeat) togglePanel('journal'); break;
@@ -2886,6 +2908,7 @@ function updateLocal(m, dt) {
     if (sp > 1) { fx.wake(m.x - Math.sin(m.rot) * 1.4, m.z - Math.cos(m.rot) * 1.4, Math.sin(m.rot), Math.cos(m.rot), sp); sfx.motor(audioT, sp); }
   }
   m.walking = Math.hypot(m.x - ox, m.z - oz) > 0.001;
+  if (myEmote && (m.walking || !grounded || phase !== 'idle' || lmbHeld || m.swimming || inBoat)) stopEmote();
   stepSprint = sprint;
   if (m.walking && !inBoat && !m.swimming && grounded) {
     sfx.step(audioT, sprint);
@@ -2959,9 +2982,13 @@ function poseLimbs(v, t, moving, fast, pose = 'idle', dt = 0.016) {
   const L = v.limbs;
   const swing = moving ? Math.sin(t * (fast ? 14 : 11)) * (fast ? 0.95 : 0.75) : 0;
   const air = !!v.airborne;
+  const em = !moving && !air ? v.emoteNow : null;
+  const es = Math.sin(t * 8);
   const legKick = Math.min(1, dt * 18);
-  const lTarget = air ? -0.55 : swing;
-  const rTarget = air ? 0.4 : -swing;
+  let lTarget = air ? -0.55 : swing;
+  let rTarget = air ? 0.4 : -swing;
+  if (em === 'sit') { lTarget = -1.5; rTarget = -1.5; }
+  else if (em === 'dance') { lTarget = es * 0.5; rTarget = -es * 0.5; }
   L.legL.rotation.x += (lTarget - L.legL.rotation.x) * legKick;
   L.legR.rotation.x += (rTarget - L.legR.rotation.x) * legKick;
   const P = POSES[pose] || POSES.idle;
@@ -2972,6 +2999,15 @@ function poseLimbs(v, t, moving, fast, pose = 'idle', dt = 0.016) {
   let rz = P.rz;
   // jumping: arms fly up and out, like a Roblox jump
   if (air && pose === 'idle') { lx = -2.7; rx = -2.7; lz = -0.35; rz = 0.35; }
+  if (em && pose === 'idle') {
+    if (em === 'wave') { rx = -2.9; rz = -0.45 + Math.sin(t * 10) * 0.5; }
+    else if (em === 'point') { rx = -1.55; rz = 0; }
+    else if (em === 'cheer') { lx = -2.9; rx = -2.9; lz = -0.3 + Math.sin(t * 12) * 0.12; rz = 0.3 - Math.sin(t * 12) * 0.12; }
+    else if (em === 'dance') { lx = -2.4 + es * 0.9; rx = -2.4 - es * 0.9; lz = -0.3; rz = 0.3; }
+    else if (em === 'sit') { lx = -0.6; rx = -0.6; }
+    else if (em === 'laugh') { lx = -0.9; rx = -0.9; lz = 0.2; rz = -0.2; }
+  }
+  v.body.rotation.x = em === 'laugh' ? Math.sin(t * 15) * 0.1 : 0;
   if (pose === 'fists') {
     const bounce = Math.sin(t * (moving ? 10 : 4)) * 0.06;
     lx += bounce; rx -= bounce;
@@ -3051,6 +3087,7 @@ function updateView(v, dt, t) {
   v.group.rotation.x = inBoat ? 0 : v.swimLean || 0;
   if (!isMe) v.jyS = (v.jyS || 0) + ((v.jy || 0) - (v.jyS || 0)) * k;
   const jOff = isMe ? jumpY : v.jyS || 0;
+  const emNow = isMe ? myEmote : v.data.em || null;
   const wasAir = !!v.airborne;
   const onGround = isMe ? grounded : v.jg !== undefined ? v.jg !== 0 : jOff <= 0.06;
   v.airborne = jOff > 0.06 && !onGround && aliveNow;
@@ -3062,7 +3099,7 @@ function updateView(v, dt, t) {
   const state = isMe ? { charging: 'charging', casting: 'waiting', out: 'waiting', bite: 'bite', reeling: 'reeling' }[phase] || 'idle' : v.state;
   const inHand = isMe ? held : (v.data.held || 'rod');
   const fishing = state !== 'idle';
-  v.pivot.visible = aliveNow && (fishing || inHand === 'rod');
+  v.pivot.visible = aliveNow && (fishing || inHand === 'rod') && !(emNow && !fishing);
   const gunHeld = isGun(inHand) && !!(v.data.guns && v.data.guns[inHand]);
   v.rifle.visible = aliveNow && !fishing && gunHeld;
   if (gunHeld) {
@@ -3081,7 +3118,7 @@ function updateView(v, dt, t) {
   v.hand.visible = drug;
   for (const child of v.hand.children) child.visible = drug && child.name === inHand;
   v.label.visible = !isMe && aliveNow;
-  const pose = !aliveNow ? 'idle' : fishing || inHand === 'rod' ? 'rod' : gunHeld ? 'rifle' : inHand === 'fists' ? 'fists' : drug ? 'drug' : 'idle';
+  const pose = !aliveNow || (emNow && !fishing) ? 'idle' : fishing || inHand === 'rod' ? 'rod' : gunHeld ? 'rifle' : inHand === 'fists' ? 'fists' : drug ? 'drug' : 'idle';
   if (v.model) {
     const px = v.px ?? v.x;
     const pz = v.pz ?? v.z;
@@ -3089,10 +3126,12 @@ function updateView(v, dt, t) {
     v.px = v.x; v.pz = v.z;
     v.group.rotation.z = 0;
     v.group.position.set(v.x, v.y + jOff, v.z);
-    animateModel(v, dt, aliveNow && v.walking && !inBoat, isMe && stepSprint, pose, aliveNow, inBoat && aliveNow);
+    animateModel(v, dt, aliveNow && v.walking && !inBoat, isMe && stepSprint, pose, aliveNow, (inBoat || emNow === 'sit') && aliveNow);
   } else {
+    v.emoteNow = aliveNow && !inBoat ? emNow : null;
     const lunge = poseLimbs(v, t, aliveNow && v.walking, isMe && stepSprint, pose, dt);
-    v.group.position.set(v.x + Math.sin(v.rot) * lunge, v.y + bob + jOff + (aliveNow ? 0 : 0.35), v.z + Math.cos(v.rot) * lunge);
+    const emLift = emNow === 'sit' ? -0.5 : emNow === 'dance' ? Math.abs(Math.sin(t * 8)) * 0.12 : emNow === 'cheer' ? Math.abs(Math.sin(t * 6)) * 0.3 : 0;
+    v.group.position.set(v.x + Math.sin(v.rot) * lunge, v.y + bob + jOff + emLift + (aliveNow ? 0 : 0.35), v.z + Math.cos(v.rot) * lunge);
     const sq = v.squash || 0;
     v.group.scale.set(1 + 0.09 * sq, 1 - 0.15 * sq, 1 + 0.09 * sq);
   }
