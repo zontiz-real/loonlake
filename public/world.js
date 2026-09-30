@@ -245,6 +245,8 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     uDeep: { value: WATER_DAY.deep.clone() },
     uShallow: { value: WATER_DAY.shallow.clone() },
     uSky: { value: new THREE.Color() },
+    uTop: { value: new THREE.Color() },
+    uHor: { value: new THREE.Color() },
     uSunDir: { value: new THREE.Vector3(0, 1, 0) },
     uSunColor: { value: new THREE.Color() },
     uFogColor: { value: new THREE.Color() },
@@ -274,7 +276,7 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
       }`,
     fragmentShader: `
       uniform float uTime, uFogNear, uFogFar, uRadius, uNight, uLake;
-      uniform vec3 uDeep, uShallow, uSky, uSunDir, uSunColor, uFogColor;
+      uniform vec3 uDeep, uShallow, uSky, uTop, uHor, uSunDir, uSunColor, uFogColor;
       varying vec3 vWorld; varying vec3 vN;
       float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
       float vnoise(vec2 p){
@@ -289,7 +291,7 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
         vec3 n = normalize(vN + vec3((n1 - 0.5) * 0.32 + (n3 - 0.5) * 0.14, 0.0, (n2 - 0.5) * 0.32 + (n3 - 0.5) * 0.14));
         vec3 V = normalize(cameraPosition - vWorld);
         float fres = pow(1.0 - clamp(dot(n, V), 0.0, 1.0), 4.0);
-        vec3 base = mix(uDeep, uShallow, smoothstep(0.5, 1.0, r));
+        vec3 base = mix(uDeep, uShallow, smoothstep(0.5, 1.0, r + (n1 - 0.5) * 0.12));
         // the last few meters before the beach go a clear turquoise, like sunlit sand under shallow water
         base = mix(base, vec3(0.13, 0.46, 0.42) * (1.0 - uNight * 0.75), uLake * smoothstep(0.84, 1.0, r) * 0.6);
         if (uLake < 0.5) {
@@ -297,11 +299,21 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
           float open = smoothstep(-100.0, -150.0, vWorld.z);
           base = mix(uShallow * 0.9, mix(uDeep, vec3(0.02, 0.09, 0.16) * (1.0 - uNight * 0.7), 0.6), open);
         }
-        vec3 col = mix(base, uSky, 0.1 + fres * 0.65);
+        // mirror the same sky the dome draws: horizon to zenith, with drifting clouds, so the lake reflects the day
+        vec3 R = reflect(-V, n);
+        float ry = clamp(R.y, 0.0, 1.0);
+        vec3 refl = mix(uHor, uTop, pow(ry, 0.5));
+        float cl = smoothstep(0.52, 0.8, vnoise(R.xz / (ry + 0.18) * 1.6 + vec2(uTime * 0.01, uTime * 0.004)) * 0.6 + vnoise(R.xz / (ry + 0.18) * 3.7) * 0.4);
+        refl = mix(refl, mix(uHor, vec3(1.0), 0.6) * (1.0 - uNight * 0.62), cl * 0.55 * smoothstep(0.0, 0.25, ry));
+        vec3 col = mix(base, refl, 0.12 + fres * 0.7);
         vec3 H = normalize(normalize(uSunDir) + V);
         float nh = max(dot(n, H), 0.0);
         col += uSunColor * (pow(nh, 260.0) * 1.1 + pow(nh, 28.0) * 0.06);
         // sun glitter that twinkles across the ripples, and a soft glow from light in the water
+        // light netting on the sandy bottom of the shallows
+        float cA = 1.0 - abs(vnoise(vWorld.xz * 0.9 + vec2(uTime * 0.12, uTime * 0.08)) * 2.0 - 1.0);
+        float cB = 1.0 - abs(vnoise(vWorld.xz * 1.6 - vec2(uTime * 0.1, -uTime * 0.13)) * 2.0 - 1.0);
+        col += uSunColor * pow(cA * cB, 4.0) * uLake * smoothstep(0.62, 0.96, r) * (1.0 - fres) * (1.0 - uNight) * 0.45;
         float twinkle = smoothstep(0.82, 1.0, vnoise(vWorld.xz * 5.5 + vec2(uTime * 1.6, uTime * 1.2)));
         col += uSunColor * twinkle * pow(nh, 14.0) * 0.55;
         col += uShallow * 0.1 * (1.0 - fres) * (1.0 - uNight * 0.8);
@@ -1057,6 +1069,8 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
 
     waterU.uTime.value = t;
     waterU.uSky.value.copy(day.horizon).lerp(day.top, 0.35);
+    waterU.uTop.value.copy(day.top);
+    waterU.uHor.value.copy(day.horizon);
     waterU.uDeep.value.copy(WATER_DAY.deep).lerp(WATER_NIGHT.deep, day.night);
     waterU.uShallow.value.copy(WATER_DAY.shallow).lerp(WATER_NIGHT.shallow, day.night);
     waterU.uSunDir.value.copy(daytime ? sunDir : moonDir);
