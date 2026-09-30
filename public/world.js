@@ -41,6 +41,55 @@ export function groundHeight(x, z) {
   return h;
 }
 
+// The ground is one grid with fine spacing where the terrain has sharp features (the canal banks, the
+// beach, the ocean shelf) and wide spacing on the flat play area and far hills.
+export const GROUND = { x0: -310, x1: 310, z0: -220, z1: 220 };
+function gridLines(lo, hi, zones, coarse) {
+  const set = new Set();
+  const add = (v) => { if (v >= lo - 1e-6 && v <= hi + 1e-6) set.add(Math.round(v * 1000) / 1000); };
+  add(lo); add(hi);
+  for (let v = lo; v <= hi; v += coarse) add(v);
+  for (const [a, b, step] of zones) for (let v = Math.ceil(a / step) * step; v <= b; v += step) add(v);
+  return [...set].sort((p, q) => p - q);
+}
+const GRID_X = gridLines(GROUND.x0, GROUND.x1, [[-14, 14, 0.5], [-44, 44, 1.5]], 4);
+const GRID_Z = gridLines(GROUND.z0, GROUND.z1, [[-135, -18, 1]], 4);
+// a slice of the shared grid, lifted by `lift`
+function gridGeometry(x0, x1, z0, z1, lift, withUv) {
+  const xs = GRID_X.filter((v) => v >= x0 - 1e-6 && v <= x1 + 1e-6);
+  const zs = GRID_Z.filter((v) => v >= z0 - 1e-6 && v <= z1 + 1e-6);
+  const nx = xs.length;
+  const nz = zs.length;
+  const pos = new Float32Array(nx * nz * 3);
+  const uv = new Float32Array(nx * nz * 2);
+  for (let j = 0; j < nz; j++) {
+    for (let i = 0; i < nx; i++) {
+      const k = j * nx + i;
+      pos[k * 3] = xs[i];
+      pos[k * 3 + 1] = groundHeight(xs[i], zs[j]) + lift;
+      pos[k * 3 + 2] = zs[j];
+      uv[k * 2] = (xs[i] - GROUND.x0) / (GROUND.x1 - GROUND.x0);
+      uv[k * 2 + 1] = 1 - (zs[j] - GROUND.z0) / (GROUND.z1 - GROUND.z0);
+    }
+  }
+  const idx = [];
+  for (let j = 0; j < nz - 1; j++) {
+    for (let i = 0; i < nx - 1; i++) {
+      const a = j * nx + i;
+      const b = a + 1;
+      const c = a + nx;
+      const d = c + 1;
+      idx.push(a, c, b, b, c, d);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  if (withUv) g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
 // the barn model's doors face this way relative to the shack's front
 const BARN_YAW = Math.PI / 2;
 
@@ -367,14 +416,8 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
         g.stroke();
       }
     });
-    const land = 440;
-    grass.repeat.set(land / 22, land / 22);
-    const seg = high ? 150 : 90;
-    const groundGeo = new THREE.PlaneGeometry(land, land, seg, seg);
-    groundGeo.rotateX(-Math.PI / 2);
-    const gp = groundGeo.attributes.position;
-    for (let i = 0; i < gp.count; i++) gp.setY(i, groundHeight(gp.getX(i), gp.getZ(i)));
-    groundGeo.computeVertexNormals();
+    grass.repeat.set((GROUND.x1 - GROUND.x0) / 22, (GROUND.z1 - GROUND.z0) / 22);
+    const groundGeo = gridGeometry(GROUND.x0, GROUND.x1, GROUND.z0, GROUND.z1, 0, true);
     const ground = new THREE.Mesh(groundGeo, new THREE.MeshStandardMaterial({ map: grass, roughness: 1 }));
     ground.receiveShadow = true;
     scene.add(ground);
@@ -756,19 +799,15 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     scene.add(ocean);
     // sand: a strip that lines the channel bed and banks, and the beach along the big water
     const sandMat = new THREE.MeshStandardMaterial({ color: 0xD6C6A0, roughness: 1 });
-    const strip = (x0, x1, z0, z1, sx, sz) => {
-      const g = new THREE.PlaneGeometry(x1 - x0, z1 - z0, sx, sz);
-      g.rotateX(-Math.PI / 2);
-      g.translate((x0 + x1) / 2, 0, (z0 + z1) / 2);
-      const gp = g.attributes.position;
-      for (let i = 0; i < gp.count; i++) gp.setY(i, groundHeight(gp.getX(i), gp.getZ(i)) + 0.03);
-      g.computeVertexNormals();
+    // the sand shares the ground's grid lines, so it sits a hair above it everywhere and never pokes through
+    const strip = (x0, x1, z0, z1) => {
+      const g = gridGeometry(x0, x1, z0, z1, 0.035, false);
       const m = new THREE.Mesh(g, sandMat);
       m.receiveShadow = true;
       scene.add(m);
     };
-    strip(-7, 7, -122, -31, 14, 90);
-    strip(-310, 310, -126, -99, 160, 14);
+    strip(-7, 7, -122, -31);
+    strip(GROUND.x0, GROUND.x1, -126, -99);
     // a lighthouse where the channel meets the big water
     const lx = 13;
     const lz = -109;
