@@ -1,0 +1,15 @@
+3D models in this folder are by Quaternius (quaternius.com), released under
+CC0 1.0 Universal (public domain): https://creativecommons.org/publicdomain/zero/1.0/
+Converted from FBX to GLB for Loon Lake. Recolored in code.
+
+Packs used:
+- Animated Men Characters (Feb 2019): man_tee, man_flannel
+- Animated Women Characters (Feb 2019): woman_casual, woman_jacket
+- Fish Pack Animated (Apr 2018): fish_long, fish_round
+- Ship Pack (Feb 2018): rowboat
+- Farm Buildings (Sept 2018): barn, well, fence
+- Pirate Pack (Oct 2016): rifle
+- RPG Asset Pack (May 2017): barrel
+- Nature Pack Essentials vol.3 (Dec 2016): rock1-3, bush1-3, maple1-4
+
+Consider supporting Quaternius on Patreon: https://www.patreon.com/quaternius

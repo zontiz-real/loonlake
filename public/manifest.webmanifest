@@ -1,0 +1,10 @@
+{
+  "name": "Loon Lake",
+  "short_name": "Loon Lake",
+  "start_url": "/",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#16302A",
+  "theme_color": "#16302A",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

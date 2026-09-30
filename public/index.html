@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#16302A">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Loon Lake">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icon.svg">
+<title>Loon Lake</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎣</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Fredoka:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css?v=24">
+<script type="importmap">
+  { "imports": { "three": "/vendor/three/build/three.module.js", "three/addons/": "/vendor/three/examples/jsm/" } }
+</script>
+</head>
+<body>
+  <div id="game"></div>
+  <div id="haze"></div>
+  <div id="hurtFlash"></div>
+  <div id="floaters"></div>
+
+  <!-- join: a paper fishing license -->
+  <div id="join">
+    <form id="joinForm" class="tag license" autocomplete="off">
+      <span class="hole" aria-hidden="true"></span>
+      <h1>Loon Lake</h1>
+      <p class="lede">Fish for cash, win the derby, and spend it at Moss's stand or the shack.</p>
+      <p id="returning" hidden></p>
+      <label for="name">Name on the license</label>
+      <input id="name" maxlength="16" placeholder="Angler" spellcheck="false">
+      <fieldset class="picker">
+        <legend>Look</legend>
+        <div id="looks"></div>
+      </fieldset>
+      <fieldset class="picker">
+        <legend>Skin</legend>
+        <div id="skins"></div>
+      </fieldset>
+      <fieldset id="colors">
+        <legend>Shirt</legend>
+        <div id="swatches"></div>
+      </fieldset>
+      <button type="submit" id="joinBtn">Head to the lake</button>
+      <p class="fine">WASD to walk, mouse to look, hold left click to fish, Space to jump.</p>
+    </form>
+  </div>
+
+  <!-- top left: map, clock, health, cash -->
+  <aside id="vitals" hidden>
+    <canvas id="minimap" width="264" height="264" aria-label="Map"></canvas>
+    <div id="stats">
+      <p id="clockLine"></p>
+      <div id="hpBar" role="meter" aria-label="Health" aria-valuemin="0" aria-valuemax="100"><i></i></div>
+      <p id="cashLine"></p>
+      <p id="bagLine"></p>
+      <p id="statusLine"></p>
+    </div>
+  </aside>
+
+  <div id="derby" hidden></div>
+
+  <aside id="board" class="panel" hidden>
+    <ol id="boardList"></ol>
+    <p id="boardFoot"></p>
+  </aside>
+
+  <aside id="goal" class="panel" hidden>
+    <p id="goalCount"></p>
+    <p id="goalText"></p>
+  </aside>
+
+  <div id="bottomLeft">
+    <ul id="feed" aria-live="polite"></ul>
+    <form id="chatForm" hidden>
+      <input id="chatInput" maxlength="140" placeholder="Say something. Enter to send, Esc to cancel." autocomplete="off">
+    </form>
+  </div>
+
+  <div id="prompt" aria-live="assertive"></div>
+  <div id="lockHint" hidden>Click the game to look around with your mouse</div>
+
+  <div id="meters" class="panel" hidden>
+    <div id="powerMeter" class="meter">
+      <span id="powerLabel">Cast distance</span>
+      <div class="bar"><i id="powerFill"></i></div>
+    </div>
+    <div id="reelMeters">
+      <div class="meter">
+        <span id="tensionLabel">Line tension</span>
+        <div class="bar tension"><i id="tensionFill"></i><b class="redline"></b></div>
+      </div>
+      <div class="meter">
+        <span>Reeled in</span>
+        <div class="bar"><i id="progressFill"></i></div>
+      </div>
+      <div id="pull" aria-live="polite"><span id="pullL">◀</span><span id="pullText"></span><span id="pullR">▶</span></div>
+    </div>
+  </div>
+
+  <div id="hotbar" hidden><div id="slots"></div></div>
+
+  <div id="crosshair" hidden><i></i></div>
+  <div id="hitmark" hidden></div>
+
+  <!-- the trophy tag that slides in when you land something -->
+  <div id="catchTag" class="tag" hidden>
+    <span class="hole" aria-hidden="true"></span>
+    <span id="tagStamp"></span>
+    <svg id="tagFish" viewBox="0 0 120 48" aria-hidden="true"></svg>
+    <h2 id="tagName"></h2>
+    <p id="tagWeight"></p>
+    <p id="tagValue"></p>
+    <p id="tagFlags"></p>
+  </div>
+
+  <!-- panels -->
+  <section id="shop" class="sheet" hidden aria-label="Moss's bait and tackle">
+    <header><h2>Moss's Bait &amp; Tackle</h2><button type="button" class="x" data-close aria-label="Close">×</button></header>
+    <button type="button" id="sellBtn" class="primary wide"></button>
+    <div class="shopGrid">
+      <div>
+        <h3>Tackle</h3>
+        <div id="tackleList" class="items"></div>
+      </div>
+      <div>
+        <h3>Hardware</h3>
+        <div id="gearList" class="items"></div>
+        <h3>Under the counter</h3>
+        <div id="counterList" class="items"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="shack" class="sheet" hidden aria-label="The shack">
+    <header><h2>The Shack</h2><button type="button" class="x" data-close aria-label="Close">×</button></header>
+    <div class="shackGrid">
+      <div id="bj">
+        <h3>Blackjack</h3>
+        <div class="hand"><span>Inez</span><div id="dealerCards" class="cards"></div><b id="dealerTotal"></b></div>
+        <div class="hand"><span>You</span><div id="playerCards" class="cards"></div><b id="playerTotal"></b></div>
+        <p id="handResult">Blackjack pays 3 to 2. Dealer stands on 17.</p>
+        <div id="betRow" class="row">
+          <button type="button" data-bet="10">Bet $10</button>
+          <button type="button" data-bet="25">$25</button>
+          <button type="button" data-bet="50">$50</button>
+          <button type="button" data-bet="100">$100</button>
+        </div>
+        <div id="playRow" class="row" hidden>
+          <button type="button" id="hitBtn">Hit</button>
+          <button type="button" id="standBtn">Stand</button>
+          <button type="button" id="doubleBtn">Double</button>
+        </div>
+      </div>
+      <div id="slotMachine">
+        <h3>Slots</h3>
+        <div id="reels"><div class="reel"></div><div class="reel"></div><div class="reel"></div></div>
+        <p id="slotMsg">Three of a kind pays. Two of a kind gets your $10 back.</p>
+        <button type="button" id="spinBtn" class="primary">Spin for $10</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="journal" class="sheet" hidden aria-label="Journal">
+    <header><h2>Journal</h2><p id="journalCount"></p><button type="button" class="x" data-close aria-label="Close">×</button></header>
+    <div id="journalGrid"></div>
+  </section>
+
+  <section id="help" class="sheet" hidden aria-label="Controls and settings">
+    <header><h2>Controls</h2><button type="button" class="x" data-close aria-label="Close">×</button></header>
+    <div class="helpGrid">
+      <dl id="keys">
+        <div><dt>WASD</dt><dd>Walk. Hold Shift to run.</dd></div>
+        <div><dt>Mouse</dt><dd>Look. Click the game first to lock the mouse, Esc to let go.</dd></div>
+        <div><dt>Left click</dt><dd>Hold to charge a cast, release to throw. Click when the bobber dunks. Hold to reel. Shoots or punches when holding those.</dd></div>
+        <div><dt>Space</dt><dd>Jump.</dd></div>
+        <div><dt>A and D</dt><dd>While reeling, pull against the fish to ease the line.</dd></div>
+        <div><dt>Q</dt><dd>Reel your line back in.</dd></div>
+        <div><dt>E</dt><dd>Talk to Moss, sit down at the shack, launch your boat at the water, or step ashore.</dd></div>
+        <div><dt>Click</dt><dd>Punch with fists out, or shoot with the rifle. Hold right click to aim.</dd></div>
+        <div><dt>1–8</dt><dd>Hold that hotbar item. 1 is your fists. Press a drug again to take it.</dd></div>
+        <div><dt>F</dt><dd>Throw a punch. Every third punch in a row is a haymaker.</dd></div>
+        <div><dt>P</dt><dd>Your phone: sell fish anywhere, the map, your boat, messages, and the camera.</dd></div>
+        <div><dt>J</dt><dd>Journal of every species you've landed.</dd></div>
+        <div><dt>Enter</dt><dd>Chat.</dd></div>
+        <div><dt>H</dt><dd>This page.</dd></div>
+      </dl>
+      <div id="settings">
+        <h3>Settings</h3>
+        <label>Look speed <input type="range" id="setSens" min="0.3" max="2.5" step="0.05"></label>
+        <label>Volume <input type="range" id="setVol" min="0" max="1" step="0.05"></label>
+        <label class="check"><input type="checkbox" id="setInvert"> Invert look up and down</label>
+        <label class="check"><input type="checkbox" id="setShake"> Camera shake</label>
+        <label class="check"><input type="checkbox" id="setBlood"> Blood</label>
+        <label>Graphics
+          <select id="setQuality">
+            <option value="auto">Auto</option>
+            <option value="high">High, with glow and thick grass</option>
+            <option value="low">Low, for older phones</option>
+          </select>
+        </label>
+        <p id="qualityNote" hidden>Grass and trees change the next time you load the page.</p>
+        <h3>How the lake works</h3>
+        <p>A day passes every 12 minutes. Walleye bite best at dawn and dusk. Catfish and eelpout only come out after dark.</p>
+        <p>Bubbles on the water mark hot spots, which bite faster and hold bigger fish. The deep middle of the lake is where sturgeon live, so a longer rod pays off.</p>
+        <p>Every few minutes a derby starts. The heaviest fish landed before the horn wins the pot. Camp is a no-shooting zone for players.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- the phone: P to pull it out -->
+  <section id="phone" hidden aria-label="Phone">
+    <div class="handset">
+      <div class="notch"></div>
+      <div class="bar"><span id="phoneTime"></span><span>Loon Wireless</span></div>
+      <div class="screen">
+        <div class="app on" data-screen="home">
+          <div class="apps">
+            <button type="button" data-app="market"><i style="--c:#E0452B"><svg viewBox="0 0 24 24"><path d="M3 12c4-5 9-5 13-2 2 1 3 1 5-1-1 3-3 5-6 5-4 1-8-1-12-2z" fill="#fff"/></svg></i>Market</button>
+            <button type="button" data-app="map"><i style="--c:#2C8A86"><svg viewBox="0 0 24 24"><circle cx="12" cy="11" r="6" fill="none" stroke="#fff" stroke-width="2"/><path d="M12 17v4" stroke="#fff" stroke-width="2"/></svg></i>Map</button>
+            <button type="button" data-app="boat"><i style="--c:#3E7CC9"><svg viewBox="0 0 24 24"><path d="M3 14h18l-3 5H6z" fill="#fff"/><path d="M12 4v9M12 5l6 7h-6" fill="#fff" stroke="#fff" stroke-width="1.5"/></svg></i>Boat</button>
+            <button type="button" data-app="messages"><i style="--c:#4E9A48"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z" fill="#fff"/></svg></i>Messages</button>
+            <button type="button" data-app="camera"><i style="--c:#1D2A25"><svg viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="12" rx="2" fill="#fff"/><circle cx="12" cy="13" r="3.5" fill="#1D2A25"/><rect x="8" y="4" width="8" height="3" fill="#fff"/></svg></i>Camera</button>
+            <button type="button" data-app="journal"><i style="--c:#D8961B"><svg viewBox="0 0 24 24"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z" fill="#fff"/></svg></i>Journal</button>
+            <button type="button" data-app="settings"><i style="--c:#6A7A72"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2" fill="none" stroke="#fff" stroke-width="2.4"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/></svg></i>Settings</button>
+          </div>
+          <p class="tip" id="phoneTip">P puts the phone away</p>
+        </div>
+        <div class="app" data-screen="market">
+          <h3>Fish buyer</h3>
+          <p id="mkBag"></p>
+          <button type="button" id="mkSell" class="primary"></button>
+          <p class="small">Moss pays full price at his stand. The buyer drives out to wherever you are and keeps 30%.</p>
+        </div>
+        <div class="app" data-screen="map">
+          <canvas id="bigMap" width="480" height="640" aria-label="Map of the lake"></canvas>
+          <p class="small">Gold rings are hot spots. The channel south runs out to the big water.</p>
+        </div>
+        <div class="app" data-screen="boat">
+          <h3>Your boat</h3>
+          <p id="btStatus"></p>
+          <div id="btActions" class="stack"></div>
+          <p class="small">Launch from any shoreline or the end of the dock. Press E near land to step ashore. The big water is past the lighthouse, south down the channel.</p>
+        </div>
+        <div class="app" data-screen="messages">
+          <h3>Messages</h3>
+          <ul id="msgList"></ul>
+          <form id="msgForm"><input id="msgInput" maxlength="140" placeholder="Text the lake" autocomplete="off"><button type="submit" class="primary">Send</button></form>
+        </div>
+        <div class="app" data-screen="camera">
+          <h3>Camera</h3>
+          <p class="small">Takes a photo of the game without the HUD and saves it to your device.</p>
+          <button type="button" id="camShot" class="primary">Take photo</button>
+          <p id="camMsg" class="small"></p>
+        </div>
+      </div>
+      <button type="button" id="phoneHome" aria-label="Home"></button>
+    </div>
+  </section>
+  <div id="shutter" hidden></div>
+
+  <div id="death" hidden>
+    <h2 id="deathTitle"></h2>
+    <p id="deathText"></p>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script type="module" src="/client.js?v=24"></script>
+</body>
+</html>
