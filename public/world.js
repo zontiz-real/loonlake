@@ -872,13 +872,13 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
 
     // a rowboat tied to the dock and one pulled up on the beach
     const d = w.dock;
-    const moored = kit.prop('rowboat', 0.75);
-    const mSize = kit.baked('rowboat', 0.75).size;
+    const moored = kit.prop('boat_row', 0.75);
+    const mSize = kit.baked('boat_row', 0.75).size;
     const ms = 3.2 / Math.max(mSize.x, mSize.z);
     moored.scale.setScalar(ms);
     scene.add(moored);
     boats.push({ obj: moored, x: d.maxX + 1.5, z: d.minZ + 5, ry: 0.08, float: true });
-    const beached = kit.prop('rowboat', 0.75);
+    const beached = kit.prop('boat_row', 0.75);
     beached.scale.setScalar(ms);
     const ba = 2.5;
     beached.position.set(Math.sin(ba) * (w.shoreRadius + 0.6), 0.05, Math.cos(ba) * (w.shoreRadius + 0.6));

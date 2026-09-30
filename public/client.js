@@ -218,7 +218,7 @@ let deathUntil = 0;
 let aimRot = 0;
 let castInfo = { valid: false, hot: false };
 const cam = { yaw: 0, pitch: 0.34, dist: TUNING.camDist, aim: 0, shake: 0 };
-if (window.__loon) Object.assign(window.__loon, { cam, me: () => views.get(myId), npcViews: () => npcViews, ragStep: (id, n) => { const v = npcViews.get(id) || views.get(id); for (let i = 0; v && v.rag && i < n; i++) stepRagdoll(v, 1 / 60, audioT); } });
+if (window.__loon) Object.assign(window.__loon, { cam, hold: (h) => { held = h; hotbarSig = ''; }, data: () => myData, me: () => views.get(myId), npcViews: () => npcViews, ragStep: (id, n) => { const v = npcViews.get(id) || views.get(id); for (let i = 0; v && v.rag && i < n; i++) stepRagdoll(v, 1 / 60, audioT); } });
 let pointerLocked = false;
 // automated browsers can't hold pointer lock (it also blocks screenshots), so they use drag-to-look
 let noLock = isTouch || !!navigator.webdriver;
@@ -631,42 +631,29 @@ function setBubble(v, text) {
   v.bubbleUntil = audioT + 6;
 }
 
+const BOAT_MODELS = ['boat_row', 'boat_fish', 'boat_speed'];
 function makeBoatMesh(tier = 0) {
-  const def = (W && W.boats && W.boats[tier]) || { color: '#6A3A1C', scale: 1 };
+  const def = (W && W.boats && W.boats[tier]) || { scale: 1 };
   const g = new THREE.Group();
   if (kit) {
-    const hull = kit.prop('rowboat', 0.75);
-    const sz = kit.baked('rowboat', 0.75).size;
+    const name = BOAT_MODELS[tier] || BOAT_MODELS[0];
+    const hull = kit.prop(name, 0.75);
+    const sz = kit.baked(name, 0.75).size;
     hull.scale.setScalar((3.2 * def.scale) / Math.max(sz.x, sz.z));
     if (sz.x > sz.z) hull.rotation.y = Math.PI / 2;
-    if (tier > 0) {
-      const tint = new THREE.Color(def.color);
-      hull.traverse((o) => {
-        if (!o.isMesh) return;
-        o.material = o.material.clone();
-        o.material.color.lerp(tint, 0.75);
-      });
-    }
     g.add(hull);
   } else {
     const hull = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.4, 3), new THREE.MeshStandardMaterial({ color: 0x6A3A1C }));
     hull.position.y = 0.2;
     g.add(hull);
   }
-  const motor = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.5, 0.32), new THREE.MeshStandardMaterial({ color: 0x2B2F33, roughness: 0.5 }));
-  motor.scale.setScalar(1 + tier * 0.4);
-  motor.position.set(0, 0.45, -1.55 * def.scale);
-  const cowl = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.18, 0.36), new THREE.MeshStandardMaterial({ color: 0xE0452B, roughness: 0.5 }));
-  cowl.scale.setScalar(1 + tier * 0.4);
-  cowl.position.set(0, 0.75 + tier * 0.1, -1.55 * def.scale);
-  g.add(motor, cowl);
-  if (tier >= 2) {
-    const glass = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.5, 0.06), new THREE.MeshStandardMaterial({ color: 0x9FD3E8, transparent: true, opacity: 0.45, roughness: 0.1 }));
-    glass.position.set(0, 0.85, 0.6);
-    glass.rotation.x = -0.35;
-    const stripe = new THREE.Mesh(new THREE.BoxGeometry(1.25, 0.08, 3.6), new THREE.MeshStandardMaterial({ color: 0xF1F4EE, roughness: 0.5 }));
-    stripe.position.set(0, 0.42, 0);
-    g.add(glass, stripe);
+  if (tier === 0 || !kit) {
+    // the rowboat gets a little outboard; the fishing boat and speedboat come with their own
+    const motor = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.5, 0.32), new THREE.MeshStandardMaterial({ color: 0x2B2F33, roughness: 0.5 }));
+    motor.position.set(0, 0.45, -1.55 * def.scale);
+    const cowl = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.18, 0.36), new THREE.MeshStandardMaterial({ color: 0xE0452B, roughness: 0.5 }));
+    cowl.position.set(0, 0.75, -1.55 * def.scale);
+    g.add(motor, cowl);
   }
   g.traverse((o) => { if (o.isMesh) { o.castShadow = true; } });
   return g;

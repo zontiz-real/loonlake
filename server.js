@@ -1172,6 +1172,7 @@ function debugCommand(p, socket, text) {
   if (cmd === 'hour') { setHour(Number(args[0]) || 12); return say('Clock set.'); }
   if (cmd === 'derby') { if (derby.active) derby.endsAt = nowMs(); else derby.nextAt = nowMs(); return say('Derby toggled.'); }
   if (cmd === 'gear') { p.rod = WORLD.rods.length - 1; p.bait = WORLD.baits.length - 1; GUN_IDS.forEach((g) => { p.guns[g] = true; Object.keys(WORLD.attachments).forEach((k) => { p.att[g][k] = !WORLD.attachments[k].only || WORLD.attachments[k].only.includes(g); }); p.mag[g] = effGun(p, g).mag; }); p.ammo += 200; p.boatTier = WORLD.boats.length - 1; p.ownsBoat = true; return say('Maxed out.'); }
+  if (cmd === 'boattier') { p.boatTier = Math.max(0, Math.min(WORLD.boats.length - 1, Number(args[0]) || 0)); p.ownsBoat = true; return say(`Boat tier ${p.boatTier}.`); }
   if (cmd === 'boat') { p.ownsBoat = true; p.boatTier = Math.max(p.boatTier, 0); return say('You own a boat.'); }
   if (cmd === 'sea' || cmd === 'channel') {
     resetLine(p);

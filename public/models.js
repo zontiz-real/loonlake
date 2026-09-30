@@ -13,7 +13,7 @@ export const LOOKS = [
 ];
 export const SKINS = ['#F3CFA8', '#E2B07E', '#C68642', '#9E6639', '#744626', '#4B2C18'];
 
-const PROPS = ['fish_long', 'fish_round', 'rowboat', 'barn', 'well', 'fence', 'rifle', 'barrel',
+const PROPS = ['fish_long', 'fish_round', 'rowboat', 'boat_row', 'boat_fish', 'boat_speed', 'barn', 'well', 'fence', 'rifle', 'barrel',
   'rock1', 'rock2', 'rock3', 'bush1', 'bush2', 'bush3', 'maple1', 'maple2', 'maple3', 'maple4'];
 
 // the pack ships some props untextured, so paint them by material name
