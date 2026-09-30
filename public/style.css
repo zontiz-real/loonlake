@@ -613,3 +613,19 @@ button.mini:disabled { opacity: .4; }
 #friendList small { grid-column: 2; color: var(--muted); }
 #friendList .frow { grid-column: 1 / 3; display: flex; gap: 6px; margin-top: 4px; }
 #friendList .frow button { flex: 1; padding: 6px 4px; font-size: .8rem; border-radius: 8px; }
+
+/* ---------- phones: one scrolling hotbar row, buttons clear of it, menu buttons out of the stats box ---------- */
+body.touch #hotbar { left: 0; right: 0; transform: none; bottom: calc(8px + var(--safe-b)); padding: 0 8px; }
+body.touch #slots { flex-wrap: nowrap; overflow-x: auto; justify-content: flex-start; max-width: none; border-radius: 14px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+body.touch #slots::-webkit-scrollbar { display: none; }
+body.touch button.slot { flex: 0 0 44px; width: 44px; height: 44px; }
+body.touch #tButtons { bottom: calc(72px + var(--safe-b)); }
+body.touch #bottomLeft { bottom: calc(74px + var(--safe-b)); width: min(300px, 46vw); }
+body.touch #tTop { top: calc(14px + var(--safe-t)); left: auto; right: calc(12px + var(--safe-r)); flex-direction: column; align-items: flex-end; }
+body.touch #ammoHud { bottom: calc(160px + var(--safe-b)); right: calc(14px + var(--safe-r)); }
+body.touch #derby { top: auto; bottom: calc(140px + var(--safe-b)); left: 50%; transform: translateX(-50%); width: min(300px, 88vw); }
+body.touch #prompt { bottom: calc(34% + var(--safe-b)); }
+body.touch #derby { top: calc(158px + var(--safe-t)); bottom: auto; left: calc(12px + var(--safe-l)); transform: none; width: min(250px, 62vw); min-width: 0; padding: 7px 12px 8px; font-size: .8rem; }
+body.touch #derby small, body.touch #derby .trow:nth-of-type(n+3) { display: none; }
+body.touch #stats { max-width: min(170px, calc(100vw - 260px)); }
+body.touch #statusLine, body.touch #bagLine { white-space: normal; font-size: .82rem; }
