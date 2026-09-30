@@ -182,7 +182,7 @@ let myId = null;
 let myData = null;
 let joinInfo = null;
 let chosenColor = store.get('loonlake.color', null);
-let chosenLook = store.get('loonlake.look', LOOKS.length);
+let chosenLook = store.get('loonlake.look', 0); // a realistic person by default; Blocky is still there, last in the list
 let chosenSkin = store.get('loonlake.skin', 1);
 let journal = {};
 let hotspots = [];
@@ -1445,7 +1445,7 @@ function buildLookPickers() {
   blocky.dataset.look = String(LOOKS.length);
   blocky.setAttribute('role', 'radio');
   blocky.addEventListener('click', () => { chosenLook = LOOKS.length; markSwatch(); });
-  looks.prepend(blocky);
+  looks.append(blocky);
   const skins = $('skins');
   skins.replaceChildren();
   SKINS.forEach((c, i) => {
@@ -3708,6 +3708,7 @@ renderer.setAnimationLoop(() => {
     updateCastMarker(m, t);
   }
   world.update(dt, t, clockHour, focus, { ripple: (x, z, s) => fx.ripple(x, z, s, 1.4, 0.5) });
+  if (kit && kit.rim) kit.rim.copy(world.day.horizon).multiplyScalar(0.07 * (1 - world.day.night * 0.85)); // people pick up a little sky light on their edges
   if (W) updateAmbientFx(dt, t);
   fx.update(dt);
   const fireDist = m ? Math.hypot(m.x - world.firePos.x, m.z - world.firePos.z) : 99;

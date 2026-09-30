@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { mergeGeometries, toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
 
 export const LOOKS = [
   { id: 'man_tee', label: 'Tee', clips: 'man_tee', shirt: ['Shirt'] },
@@ -56,6 +56,30 @@ function cloneMats(root, shared) {
     o.material = arr ? list : list[0];
   });
   return mats;
+}
+
+// The models ship faceted. Smooth the soft parts (skin, hair) almost fully and clothing only across shallow
+// angles, so faces and limbs look round while folds and collars keep their edges.
+const CREASE_DEG = { Skin: 80, Hair: 70, HairBase: 70, Eyebrows: 80, Shirt: 50, LightJacket: 50, Jacket: 50, Pants: 50, Shoes: 45, Socks: 60 };
+function smoothCharacter(scene) {
+  scene.traverse((o) => {
+    if (!o.isMesh || Array.isArray(o.material)) return;
+    const deg = CREASE_DEG[(o.material.name || '').trim()];
+    if (deg) o.geometry = toCreasedNormals(o.geometry, (deg * Math.PI) / 180);
+  });
+}
+
+// a soft edge glow in the color of the sky, so people separate from the background and shadows are not dead
+const RIM = { value: new THREE.Color(0, 0, 0) };
+function applyRim(mat) {
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uRim = RIM;
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform vec3 uRim;')
+      .replace('#include <opaque_fragment>', 'outgoingLight += uRim * pow(1.0 - saturate(dot(normalize(normal), normalize(vViewPosition))), 4.0);\n#include <opaque_fragment>');
+  };
+  mat.customProgramCacheKey = () => 'charrim';
+  mat.needsUpdate = true;
 }
 
 // rotate a bone so the direction to its child points along dir (world space)
@@ -116,6 +140,7 @@ export async function loadModels(onProgress) {
   await Promise.all(files.map(async (f) => {
     g[f] = await loader.loadAsync(`/models/${f}.glb`);
     mergeByMaterial(g[f].scene);
+    if (LOOKS.some((l) => l.id === f)) smoothCharacter(g[f].scene);
     done++;
     if (onProgress) onProgress(done / files.length);
   }));
@@ -130,7 +155,7 @@ export async function loadModels(onProgress) {
     heights[l.id] = (headY - footY) * 1.16;
   }
 
-  const kit = { LOOKS, SKINS };
+  const kit = { LOOKS, SKINS, rim: RIM.value };
 
   // ---------- people
   kit.character = (look, shirtHex, skinHex) => {
@@ -143,6 +168,10 @@ export async function loadModels(onProgress) {
     const shirt = new THREE.Color(shirtHex || '#E0452B');
     L.shirt.forEach((n, i) => { if (mats[n]) mats[n].color.copy(shirt).multiplyScalar(i ? 0.72 : 1); });
     if (mats.Skin && skinHex) mats.Skin.color.set(skinHex);
+    if (mats.Skin) { mats.Skin.roughness = 0.62; mats.Skin.emissive.copy(mats.Skin.color).multiplyScalar(0.02); } // a faint warm lift, as if light scatters through skin
+    for (const n of ['Hair', 'HairBase']) if (mats[n]) mats[n].roughness = 0.45;
+    if (mats.Eyes) { mats.Eyes.roughness = 0.1; mats.Eyes.metalness = 0; } // wet, glinting eyes
+    Object.values(mats).forEach(applyRim);
     const mixer = new THREE.AnimationMixer(root);
     const actions = {};
     for (const clip of g[L.clips].animations) actions[clip.name] = mixer.clipAction(clip);
