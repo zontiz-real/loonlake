@@ -672,6 +672,113 @@ function makeBoatMesh(tier = 0) {
   return g;
 }
 
+// ---------- guns: each one built from parts, muzzle toward +z, grip at the origin
+const GM = {
+  steel: new THREE.MeshStandardMaterial({ color: 0x1B1D20, roughness: 0.35, metalness: 0.75 }),
+  poly: new THREE.MeshStandardMaterial({ color: 0x2A2C2F, roughness: 0.7, metalness: 0.1 }),
+  wood: new THREE.MeshStandardMaterial({ color: 0x7A4A28, roughness: 0.65, metalness: 0.05 }),
+  darkWood: new THREE.MeshStandardMaterial({ color: 0x4A2E1A, roughness: 0.7 }),
+  glass: new THREE.MeshStandardMaterial({ color: 0x24344E, roughness: 0.1, metalness: 0.6 }),
+  laser: new THREE.MeshStandardMaterial({ color: 0x552222, emissive: 0xFF2A2A, emissiveIntensity: 1.4, roughness: 0.4 }),
+  switchPlate: new THREE.MeshStandardMaterial({ color: 0xC9A227, roughness: 0.3, metalness: 0.8 }),
+};
+function buildGunModel(id, a = {}) {
+  const g = new THREE.Group();
+  const part = (geo, mat, x, y, z, rx = 0, rz = 0) => {
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(x, y, z);
+    m.rotation.set(rx, 0, rz);
+    m.castShadow = true;
+    g.add(m);
+    return m;
+  };
+  const box = (w, h, d, mat, x, y, z, rx = 0, rz = 0) => part(new THREE.BoxGeometry(w, h, d), mat, x, y, z, rx, rz);
+  const tube = (r, len, mat, x, y, z) => part(new THREE.CylinderGeometry(r, r, len, 10), mat, x, y, z, Math.PI / 2);
+  const drum = (r, y, z) => part(new THREE.CylinderGeometry(r, r, 0.07, 16), GM.poly, 0, y, z, 0, Math.PI / 2);
+  const grip = (h = 0.11, z = -0.01) => box(0.032, h, 0.05, GM.poly, 0, -h / 2 - 0.01, z, -0.2);
+  const guard = (z = 0.045) => box(0.02, 0.008, 0.06, GM.steel, 0, -0.03, z);
+  if (id === 'pistol') {
+    tube(0.012, 0.16, GM.steel, 0, 0.035, 0.14);
+    tube(0.03, 0.05, GM.steel, 0, 0.02, 0.055);
+    box(0.03, 0.05, 0.12, GM.steel, 0, 0.03, 0.0);
+    grip(0.11, -0.03);
+    box(0.02, 0.012, 0.03, GM.steel, 0, 0.065, -0.05);
+  } else if (id === 'glock') {
+    box(0.03, 0.038, 0.2, GM.steel, 0, 0.05, 0.07);
+    box(0.028, 0.022, 0.17, GM.poly, 0, 0.022, 0.06);
+    grip(0.115, -0.02);
+    guard(0.05);
+    if (a.drum) drum(0.055, -0.15, -0.035);
+    else box(0.024, 0.11, 0.036, GM.steel, 0, -0.14, -0.035, -0.2);
+    if (a.switch) box(0.022, 0.018, 0.03, GM.switchPlate, 0, 0.078, -0.03);
+    if (a.laser) { box(0.022, 0.02, 0.05, GM.poly, 0, 0.0, 0.14); box(0.012, 0.012, 0.012, GM.laser, 0, 0.0, 0.17); }
+  } else if (id === 'arp') {
+    box(0.04, 0.06, 0.2, GM.poly, 0, 0.03, 0.0);
+    box(0.034, 0.02, 0.2, GM.steel, 0, 0.075, 0.03);
+    tube(0.02, 0.24, GM.poly, 0, 0.045, 0.22);
+    tube(0.009, 0.08, GM.steel, 0, 0.045, 0.37);
+    tube(0.017, 0.14, GM.poly, 0, 0.02, -0.16);
+    grip(0.11, -0.03);
+    guard(0.03);
+    if (a.drum) drum(0.07, -0.13, 0.05);
+    else box(0.03, 0.13, 0.045, GM.steel, 0, -0.1, 0.06, 0.15);
+    if (a.laser) { box(0.02, 0.02, 0.05, GM.poly, 0.03, 0.03, 0.28); box(0.012, 0.012, 0.012, GM.laser, 0.03, 0.03, 0.31); }
+  } else if (id === 'draco') {
+    box(0.04, 0.07, 0.22, GM.steel, 0, 0.035, 0.0);
+    box(0.045, 0.05, 0.16, GM.wood, 0, 0.03, 0.2);
+    tube(0.012, 0.3, GM.steel, 0, 0.055, 0.32);
+    tube(0.02, 0.05, GM.steel, 0, 0.055, 0.46);
+    box(0.02, 0.02, 0.04, GM.steel, 0, 0.09, 0.4);
+    grip(0.1, -0.06);
+    guard(0.0);
+    if (a.drum) drum(0.09, -0.16, 0.06);
+    else box(0.034, 0.16, 0.05, GM.steel, 0, -0.11, 0.07, 0.35);
+    if (a.laser) { box(0.02, 0.02, 0.05, GM.poly, 0.032, 0.04, 0.3); box(0.012, 0.012, 0.012, GM.laser, 0.032, 0.04, 0.33); }
+  } else if (id === 'smg') {
+    box(0.045, 0.07, 0.26, GM.poly, 0, 0.04, 0.0);
+    tube(0.012, 0.16, GM.steel, 0, 0.05, 0.21);
+    box(0.02, 0.02, 0.04, GM.steel, 0, 0.09, 0.02);
+    grip(0.11, -0.05);
+    guard(0.0);
+    if (a.drum) drum(0.075, -0.15, 0.02);
+    else box(0.03, 0.15, 0.035, GM.steel, 0, -0.11, 0.06);
+    box(0.02, 0.03, 0.14, GM.steel, 0, 0.03, -0.2);
+    if (a.laser) { box(0.02, 0.02, 0.05, GM.poly, 0, 0.0, 0.2); box(0.012, 0.012, 0.012, GM.laser, 0, 0.0, 0.23); }
+  } else if (id === 'shotgun') {
+    tube(0.018, 0.62, GM.steel, 0, 0.055, 0.34);
+    tube(0.014, 0.44, GM.steel, 0, 0.02, 0.26);
+    box(0.05, 0.05, 0.16, GM.steel, 0, 0.03, 0.0);
+    box(0.045, 0.04, 0.16, GM.wood, 0, 0.005, 0.28);
+    box(0.05, 0.1, 0.26, GM.darkWood, 0, 0.0, -0.2, 0, 0);
+    grip(0.09, -0.06);
+    box(0.012, 0.012, 0.012, GM.steel, 0, 0.09, 0.64);
+  } else if (id === 'rifle') {
+    tube(0.011, 0.6, GM.steel, 0, 0.05, 0.4);
+    box(0.045, 0.06, 0.28, GM.steel, 0, 0.03, 0.06);
+    box(0.05, 0.11, 0.32, GM.wood, 0, 0.0, -0.22);
+    box(0.04, 0.04, 0.3, GM.wood, 0, 0.0, 0.3);
+    tube(0.016, 0.16, GM.glass, 0, 0.1, 0.06);
+    box(0.02, 0.03, 0.02, GM.steel, 0, 0.075, 0.03);
+    guard(0.02);
+  } else if (id === 'sniper') {
+    tube(0.014, 0.85, GM.steel, 0, 0.055, 0.55);
+    tube(0.02, 0.06, GM.steel, 0, 0.055, 0.98);
+    box(0.05, 0.065, 0.3, GM.poly, 0, 0.03, 0.05);
+    box(0.055, 0.12, 0.34, GM.poly, 0, 0.0, -0.25);
+    tube(0.03, 0.34, GM.poly, 0, 0.115, 0.08);
+    tube(0.033, 0.04, GM.glass, 0, 0.115, 0.27);
+    tube(0.033, 0.04, GM.glass, 0, 0.115, -0.1);
+    box(0.02, 0.05, 0.03, GM.steel, 0, 0.075, 0.08);
+    box(0.03, 0.09, 0.04, GM.steel, 0, -0.08, 0.06);
+    guard(0.0);
+  } else {
+    tube(0.012, 0.5, GM.steel, 0, 0.05, 0.3);
+    box(0.045, 0.07, 0.3, GM.poly, 0, 0.03, 0.0);
+    grip(0.1, -0.05);
+  }
+  return g;
+}
+
 function makeBeam() {
   const g = new THREE.Group();
   const mat = new THREE.MeshBasicMaterial({ color: 0xFF2A2A, transparent: true, opacity: 0.7, depthWrite: false, blending: THREE.AdditiveBlending });
@@ -2659,7 +2766,18 @@ function updateView(v, dt, t) {
   v.pivot.visible = aliveNow && (fishing || inHand === 'rod');
   const gunHeld = isGun(inHand) && !!(v.data.guns && v.data.guns[inHand]);
   v.rifle.visible = aliveNow && !fishing && gunHeld;
-  if (gunHeld) v.rifle.scale.setScalar(W.guns[inHand].look || 1);
+  if (gunHeld) {
+    const ga = (isMe ? myData && myData.att && myData.att[inHand] : v.data.ga) || {};
+    const key = `${inHand}|${ga.drum ? 'd' : ''}${ga.laser ? 'l' : ''}${ga.switch ? 's' : ''}`;
+    if (v.gunKey !== key) {
+      if (v.gunMesh) v.rifle.remove(v.gunMesh);
+      v.gunMesh = buildGunModel(inHand, ga);
+      v.rifle.add(v.gunMesh);
+      v.gunKey = key;
+      v.rifle.children.forEach((c) => { c.visible = c === v.gunMesh; });
+    }
+    v.rifle.scale.setScalar(1);
+  }
   const drug = !fishing && aliveNow && (inHand === 'weed' || inHand === 'whiskey' || inHand === 'crank');
   v.hand.visible = drug;
   for (const child of v.hand.children) child.visible = drug && child.name === inHand;
