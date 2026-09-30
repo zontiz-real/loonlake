@@ -238,6 +238,24 @@ export function createFx(scene, camera) {
     }
   }
 
+  // chunks: heavy, tumbling bits of whatever just came apart, that leave a splat where they land
+  const GIB = [0x7A1A1A, 0xA83A3A, 0x5A0A0A, 0xC96A5A, 0x3A2A2A];
+  function gibs(x, y, z, n = 14, power = 1) {
+    const base = floorAt(x, z);
+    const wet = isWater(x, z);
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = rand(1.5, 5) * power;
+      soft.spawn({
+        x, y: base + y, z,
+        vx: Math.sin(a) * sp, vy: rand(2.5, 7) * power, vz: Math.cos(a) * sp,
+        g: -16, life: rand(0.9, 1.6), size: rand(0.12, 0.26) * Math.sqrt(power), size1: 0.1,
+        color: GIB[Math.floor(Math.random() * GIB.length)], alpha: 1, floor: base + 0.03,
+        onFloor: wet ? null : (px, py, pz) => { if (!isWater(px, pz)) splat(px, floorAt(px, pz), pz, rand(0.2, 0.45)); },
+      });
+    }
+  }
+
   // ---------- blood splats on the ground: many small instanced decals that dry and fade
   const SPLAT_MAX = 420;
   const splatGeo = new THREE.PlaneGeometry(1, 1);
@@ -506,5 +524,5 @@ export function createFx(scene, camera) {
     }
   }
 
-  return { casing, setFloor: (fn, water) => { floorAt = fn; if (water) isWater = water; }, ripple, floater, tracer, splash, bubbles, puff, sparkle, fire, firefly, blood, bloodPool, waterBlood, splat, wake, update };
+  return { casing, setFloor: (fn, water) => { floorAt = fn; if (water) isWater = water; }, ripple, floater, tracer, splash, bubbles, puff, sparkle, fire, firefly, blood, gibs, bloodPool, waterBlood, splat, wake, update };
 }

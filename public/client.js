@@ -228,7 +228,7 @@ let deathUntil = 0;
 let aimRot = 0;
 let castInfo = { valid: false, hot: false };
 const cam = { yaw: 0, pitch: 0.34, dist: TUNING.camDist, aim: 0, shake: 0 };
-if (window.__loon) Object.assign(window.__loon, { cam, vel, fishViews: () => fishViews, makeFish, makeBoatMesh, makeAvatar, socket, fx, screenBlood, inv: () => inv, openInventory: () => openInventory(), panel: () => openPanel, species: () => speciesById, hold: (h) => { held = h; hotbarSig = ''; }, data: () => myData, me: () => views.get(myId), npcViews: () => npcViews, ragStep: (id, n) => { const v = npcViews.get(id) || views.get(id); for (let i = 0; v && v.rag && i < n; i++) stepRagdoll(v, 1 / 60, audioT); } });
+if (window.__loon) Object.assign(window.__loon, { cam, vel, fishViews: () => fishViews, makeFish, makeBoatMesh, makeAvatar, socket, fx, screenBlood, inv: () => inv, openInventory: () => openInventory(), panel: () => openPanel, makeMutant: (d) => makeMutant(d), species: () => speciesById, hold: (h) => { held = h; hotbarSig = ''; }, data: () => myData, me: () => views.get(myId), npcViews: () => npcViews, ragStep: (id, n) => { const v = npcViews.get(id) || views.get(id); for (let i = 0; v && v.rag && i < n; i++) stepRagdoll(v, 1 / 60, audioT); } });
 let pointerLocked = false;
 // automated browsers can't hold pointer lock (it also blocks screenshots), so they use drag-to-look
 let noLock = isTouch || !!navigator.webdriver;
@@ -1226,13 +1226,13 @@ function disposeGroup(g) {
 function makePickupMesh(it) {
   const g = makePickupModel(it);
   // a soft column of light over every pickup, colored by what it is, so loot is easy to find
-  const beam = new THREE.Mesh(BEAM_GEO, BEAM_MAT[it.kind === 'cash' ? 'cash' : it.kind === 'fish' ? 'fish' : 'drug']);
+  const beam = new THREE.Mesh(BEAM_GEO, BEAM_MAT[BEAM_MAT[it.kind] ? it.kind : 'drug']);
   beam.scale.setScalar(1 / (g.scale.x || 1));
   g.add(beam);
   return g;
 }
 const BEAM_GEO = (() => { const geo = new THREE.CylinderGeometry(0.07, 0.16, 3.2, 10, 1, true); geo.translate(0, 1.6, 0); return geo; })();
-const BEAM_MAT = Object.fromEntries(Object.entries({ cash: 0xFFC94A, fish: 0x6FC8FF, drug: 0x8DF08A }).map(([k, c]) => [k, new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 0.28, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide })]));
+const BEAM_MAT = Object.fromEntries(Object.entries({ cash: 0xFFC94A, fish: 0x6FC8FF, drug: 0x8DF08A, ammo: 0xFF9A3A, heal: 0xFF5A6A }).map(([k, c]) => [k, new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 0.28, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide })]));
 function makePickupModel(it) {
   let mesh;
   if (it.kind === 'cash') {
@@ -1240,6 +1240,23 @@ function makePickupModel(it) {
     mesh.rotation.x = Math.PI / 2;
     const g = new THREE.Group();
     g.add(mesh);
+    return g;
+  }
+  if (it.kind === 'ammo') {
+    const g = new THREE.Group();
+    g.add(new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.24, 0.26), new THREE.MeshStandardMaterial({ color: 0x4A5A2A, roughness: 0.7 })));
+    const lid = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.05, 0.28), new THREE.MeshStandardMaterial({ color: 0xC9A227, metalness: 0.7, roughness: 0.3 }));
+    lid.position.y = 0.14;
+    g.add(lid);
+    return g;
+  }
+  if (it.kind === 'heal') {
+    const g = new THREE.Group();
+    g.add(new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.28, 0.2), new THREE.MeshStandardMaterial({ color: 0xF4F1EA, roughness: 0.5 })));
+    const red = new THREE.MeshStandardMaterial({ color: 0xE0202A, emissive: 0x600000 });
+    const a = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.06, 0.21), red);
+    const b = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.2, 0.21), red);
+    g.add(a, b);
     return g;
   }
   if (it.kind === 'weed') mesh = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 6), new THREE.MeshStandardMaterial({ color: 0x6DBF67 }));
@@ -1396,6 +1413,8 @@ socket.on('state', (s) => {
   for (const [id, v] of views) if (!seen.has(id)) { removeView(v); views.delete(id); }
   syncNpcs(s.npcs || []);
   syncFish(s.fish || []);
+  syncMutants(s.mutants || []);
+  frenzyState = s.frenzy;
   syncPickups(s.pickups || []);
   if (myId) {
     const sig = s.players.map((p) => `${p.id}:${p.cash}:${p.alive}:${p.caught}:${p.best?.lbs}`).join('|');
@@ -1527,6 +1546,225 @@ function syncPickups(list) {
   }
   for (const [id, v] of pickupViews) if (!seen.has(id)) { scene.remove(v.mesh); disposeGroup(v.mesh); pickupViews.delete(id); }
 }
+
+
+// ================================================================ the frenzy: mutants, the boss, and the payoff
+
+const mutantViews = new Map();
+let frenzyState = null;
+const MUTANT_LOOK = {
+  leaper: { sid: 'walleye', len: 1.3, hop: 0.45 },
+  snapper: { sid: 'pike', len: 2.3, hop: 0.35 },
+  gulper: { sid: 'catfish', len: 3.0, hop: 0.22 },
+  boss: { sid: 'sturgeon', len: 10, hop: 0 },
+};
+const MUTANT_EYE = new THREE.MeshBasicMaterial({ color: 0xFF2A1A });
+const MUTANT_EYE_GEO = new THREE.SphereGeometry(1, 8, 6);
+function makeMutant(d) {
+  const look = MUTANT_LOOK[d.k] || MUTANT_LOOK.leaper;
+  const body = makeFish(look.sid);
+  const size = new THREE.Box3().setFromObject(body).getSize(new THREE.Vector3());
+  const s = look.len / Math.max(0.2, size.x, size.z);
+  body.scale.multiplyScalar(s);
+  // something is wrong with these fish: bruised dark scales and a red glow from inside
+  // (each fish already has its own materials; cloning would drop the belly-to-back shading some models use)
+  body.traverse((o) => {
+    if (!o.isMesh) return;
+    for (const mat of Array.isArray(o.material) ? o.material : [o.material]) {
+      if (mat.customProgramCacheKey && mat.customProgramCacheKey() === 'fishgrad') mat.color.set(0x5A2E3A);
+      else mat.color.lerp(new THREE.Color(0x2E1622), 0.6);
+      if (mat.emissive) { mat.emissive.set(0x5A0612); mat.emissiveIntensity = 0.3; }
+    }
+  });
+  const g = new THREE.Group();
+  g.add(body);
+  const h = size.y * s;
+  for (const side of [-1, 1]) {
+    const eye = new THREE.Mesh(MUTANT_EYE_GEO, MUTANT_EYE);
+    eye.scale.setScalar(look.len * 0.035);
+    eye.position.set(side * look.len * 0.07, h * 0.25, look.len * 0.38);
+    g.add(eye);
+  }
+  const hp = makeHpBar();
+  hp.sprite.position.y = h + 0.6;
+  hp.sprite.scale.multiplyScalar(d.k === 'boss' ? 0 : 1);
+  g.add(hp.sprite);
+  scene.add(g);
+  return { group: g, body, hp, look, k: d.k, x: d.x, z: d.z, rot: d.rot, leapT: 1, flash: 0, mats: [] };
+}
+function syncMutants(list) {
+  const seen = new Set();
+  for (const d of list) {
+    seen.add(d.id);
+    let v = mutantViews.get(d.id);
+    if (!v) { v = makeMutant(d); mutantViews.set(d.id, v); }
+    if (v.hpFrac !== undefined && d.hp < v.hpFrac) v.flash = 0.12;
+    v.hpFrac = d.hp;
+    v.st = d.st;
+    v.trot = d.rot;
+    setTarget(v, d.x, d.z);
+  }
+  for (const [id, v] of mutantViews) if (!seen.has(id)) removeMutant(id, v);
+}
+function removeMutant(id, v) {
+  scene.remove(v.group);
+  disposeGroup(v.group);
+  mutantViews.delete(id);
+}
+function updateMutants(dt, t) {
+  const k = 1 - Math.exp(-10 * dt);
+  let boss = null;
+  for (const v of mutantViews.values()) {
+    glide(v, k);
+    v.rot += angleDiff(v.trot ?? v.rot, v.rot) * k;
+    const wet = inWater(v.x, v.z);
+    const surf = WATER_Y + wave(v.x, v.z, t);
+    let y = wet ? surf - (v.k === 'boss' ? 0.9 : 0.12) : Math.max(0, groundHeight(v.x, v.z)) + 0.15 + Math.abs(Math.sin(t * 9 + v.x)) * v.look.hop;
+    let tilt = wet ? Math.sin(t * 5 + v.z) * 0.1 : Math.sin(t * 14 + v.x) * 0.5; // on land they flop
+    if (v.leapT < 1) { v.leapT += dt / 0.55; y += Math.sin(Math.min(1, v.leapT) * Math.PI) * 1.6; }
+    if (v.bossLeap) {
+      const L = v.bossLeap;
+      L.t += dt / 0.9;
+      const f = Math.min(1, L.t);
+      v.x = lerp(L.from.x, L.to.x, f);
+      v.z = lerp(L.from.z, L.to.z, f);
+      y = lerp(surf, Math.max(0, groundHeight(v.x, v.z)), f) + Math.sin(f * Math.PI) * 9;
+      v.rot = Math.atan2(L.to.x - L.from.x, L.to.z - L.from.z);
+      tilt = 0;
+      v.body.rotation.x = -0.6 + f * 1.2;
+      if (f >= 1) { v.bossLeap = null; v.body.rotation.x = 0; setTarget(v, v.x, v.z); }
+    }
+    const stag = v.st === 'stag';
+    if (stag) tilt = Math.PI * 0.45 + Math.sin(t * 20) * 0.1; // belly up and twitching
+    v.group.position.set(v.x, y, v.z);
+    v.group.rotation.set(0, v.rot, tilt);
+    if (v.body.userData.mixer) v.body.userData.mixer.update(dt * (wet ? 1.4 : 3));
+    // hit flash, and a pulsing orange glow while staggered (the cue to finish it with the knife)
+    v.flash = Math.max(0, v.flash - dt);
+    const glow = v.flash > 0 ? 0.7 : stag ? 0.45 + Math.sin(t * 16) * 0.25 : 0.3;
+    const col = v.flash > 0 ? 0xFF3A2A : stag ? 0xFF7A1A : 0x5A0612;
+    v.body.traverse((o) => { if (o.isMesh && o.material.emissive) { o.material.emissive.setHex(col); o.material.emissiveIntensity = glow; } });
+    if (v.k !== 'boss') {
+      v.hp.sprite.visible = v.hpFrac < 1;
+      if (v.hp.sprite.visible) drawHp(v.hp, Math.round(v.hpFrac * 100));
+    } else boss = v;
+    if (wet && Math.random() < dt * (v.k === 'boss' ? 6 : 1.5)) fx.ripple(v.x, v.z, v.look.len * 0.4, 1.2, 0.35);
+  }
+  // the boss gets a bar across the top of the screen
+  const bb = $('bossBar');
+  bb.hidden = !boss;
+  if (boss) bb.querySelector('i').style.width = `${Math.round(boss.hpFrac * 100)}%`;
+  // standing next to a staggered mutant: tell people what to do
+  const m = me();
+  let near = false;
+  if (m) for (const v of mutantViews.values()) if (v.st === 'stag' && Math.hypot(v.x - m.x, v.z - m.z) < 2.8) near = true;
+  $('gloryHint').hidden = !near;
+}
+
+// big words in the middle of the screen: FRENZY, DOUBLE KILL, GUTTED
+let bigTextTimer = null;
+function bigText(text, cls = '', ms = 1400) {
+  const el = $('bigText');
+  el.textContent = text;
+  el.className = cls;
+  el.hidden = false;
+  void el.offsetWidth; // restart the pop animation
+  el.classList.add('pop');
+  clearTimeout(bigTextTimer);
+  bigTextTimer = setTimeout(() => { el.hidden = true; }, ms);
+}
+
+// kills close together build a multi-kill
+const multi = { n: 0, at: 0 };
+const MULTI_WORDS = ['', '', 'DOUBLE KILL', 'TRIPLE KILL', 'MULTI KILL', 'RAMPAGE', 'MASSACRE'];
+function countKill() {
+  const now = performance.now();
+  multi.n = now - multi.at < 2600 ? multi.n + 1 : 1;
+  multi.at = now;
+  if (multi.n >= 2) { bigText(MULTI_WORDS[Math.min(multi.n, MULTI_WORDS.length - 1)], 'multi', 1100); sfx.kill(); }
+}
+
+function renderFrenzy() {
+  const f = frenzyState;
+  const el = $('frenzy');
+  const on = !!(f && f.active && myId);
+  el.hidden = !on;
+  document.body.classList.toggle('frenzyOn', on);
+  if (!on) return;
+  const mine = f.top.find((e) => e.id === myId);
+  const lead = f.top[0];
+  el.replaceChildren();
+  const b = document.createElement('b');
+  b.textContent = 'FRENZY';
+  const time = document.createElement('span');
+  time.className = 'time';
+  time.textContent = fmtTime(f.endsIn);
+  el.append(b, time, document.createTextNode(`Fish pay x2.5 · ${mine ? `you ${mine.score}` : 'score by killing and catching'}${lead && lead.id !== myId ? ` · top: ${lead.name} ${lead.score}` : ''}`));
+}
+
+socket.on('frenzy', (e) => {
+  if (e.type === 'start') {
+    sfx.horn();
+    bigText('FRENZY', 'frenzy', 2600);
+    flashPrompt('The lake is boiling. Fish bite fast and pay x2.5. Things are coming out of the water.', 'good', 4200);
+  } else {
+    const myName = views.get(myId) && views.get(myId).data.name;
+    const mine = (e.top || []).findIndex((x) => x.name === myName);
+    bigText('THE LAKE SETTLES', 'calm', 2200);
+    if (e.top && e.top.length) flashPrompt(`Frenzy over. ${e.top.map((x, i) => `${i + 1}. ${x.name} ${x.score}`).join('  ')}`, 'good', 4500);
+    if (mine >= 0) sfx.coin();
+  }
+});
+socket.on('mutantRise', (p) => {
+  fx.splash(p.x, p.z, p.boss ? 60 : 16, p.boss ? 3 : 1);
+  if (p.boss) { bigText('THE OLD ONE', 'frenzy', 2600); sfx.horn(); cam.shake += 0.4; }
+  else if (camera.position.distanceTo(tmpA.set(p.x, 0, p.z)) < 30) sfx.splash(1.2);
+});
+socket.on('mutantLeap', (p) => {
+  const v = mutantViews.get(p.id);
+  if (v) v.leapT = 0;
+  fx.splash(p.x, p.z, 12, 0.9);
+});
+socket.on('mutantBite', (p) => {
+  if (p.hit && settings.blood) fx.blood(p.x, 1.1, p.z, 0, 0, 10, 0.7);
+  if (camera.position.distanceTo(tmpA.set(p.x, 1, p.z)) < 20) sfx.thud(true, 0.7);
+});
+socket.on('bossLeap', (p) => {
+  const v = mutantViews.get(p.id);
+  if (v) v.bossLeap = { from: p.from, to: p.to, t: 0 };
+  fx.splash(p.from.x, p.from.z, 26, 2);
+});
+socket.on('bossSlam', (p) => {
+  fx.puff(p.x, 0.4, p.z, 0x8A7A5A, 22);
+  fx.splash(p.x, p.z, 18, 1.6);
+  const m = me();
+  if (m && Math.hypot(m.x - p.x, m.z - p.z) < 14) cam.shake += 0.9;
+});
+socket.on('bossShare', (p) => {
+  const m = me();
+  bigText(`+$${p.share}`, 'cash', 2400);
+  if (m) fx.floater(m.x, 2.4, m.z, `${p.pct}% of the damage`, 'info', 2);
+});
+socket.on('mutantDie', (p) => {
+  const v = mutantViews.get(p.id);
+  const look = MUTANT_LOOK[p.k] || MUTANT_LOOK.leaper;
+  if (v) removeMutant(p.id, v);
+  if (p.fled) { fx.splash(p.x, p.z, 8, 0.6); return; }
+  // it comes apart
+  const wet = inWater(p.x, p.z);
+  if (settings.blood) {
+    fx.gibs(p.x, wet ? 0.3 : 0.6, p.z, Math.round(10 + look.len * 6), Math.min(3, 0.8 + look.len * 0.25));
+    fx.blood(p.x, wet ? 0.3 : 0.8, p.z, 0, 0, Math.round(20 + look.len * 10), 1.4);
+    if (wet) fx.waterBlood(p.x, p.z, 8);
+  } else fx.puff(p.x, 0.8, p.z, 0xF2EEE4, 20);
+  if (wet) fx.splash(p.x, p.z, 20 + look.len * 6, 1 + look.len * 0.2);
+  const mine = p.by === myId;
+  if (camera.position.distanceTo(tmpA.set(p.x, 1, p.z)) < 30) sfx.splat(1);
+  if (mine) {
+    countKill();
+    if (p.glory) { bigText('GUTTED', 'glory', 1300); cam.shake += 0.3; }
+  }
+});
 
 // ================================================================ server events
 
@@ -1725,7 +1963,7 @@ socket.on('died', (d) => {
   const lost = [];
   if (d.dropped) lost.push(`$${d.dropped}`);
   if (d.bag) lost.push(`${d.bag} fish`);
-  $('death').dataset.lost = lost.length ? `You dropped ${lost.join(' and ')} where you fell.` : 'You had nothing on you worth dropping.';
+  $('death').dataset.lost = d.eaten ? `They ate ${d.eaten} fish out of your bag. You kept your cash.` : lost.length ? `You dropped ${lost.join(' and ')} where you fell.` : 'You had nothing on you worth dropping.';
   $('death').hidden = false;
 });
 
@@ -1745,6 +1983,8 @@ socket.on('loot', (it) => {
   const y = 1.4;
   if (it.kind === 'cash') { fx.floater(it.x, y, it.z, `+$${it.amount}`, 'cash'); sfx.coin(); }
   else if (it.kind === 'fish') fx.floater(it.x, y, it.z, String(it.name).toLowerCase(), 'info');
+  else if (it.kind === 'ammo') fx.floater(it.x, y, it.z, `+${it.amount} ammo`, 'cash');
+  else if (it.kind === 'heal') fx.floater(it.x, y, it.z, `+${it.amount} health`, 'info');
   else fx.floater(it.x, y, it.z, `+1 ${it.kind}`, 'info');
 });
 
@@ -2738,6 +2978,7 @@ function showCatchTag(res) {
   if (res.derbyLead) add('Leads the derby', 'derby');
   else if (res.derby) add('Weighed in for the derby', 'derby');
   if (res.hot) add('Hot spot');
+  if (res.frenzy) add('Frenzy x2.5', 'streak');
   if (res.streak > 1) add(`Streak ${res.streak}: x${res.mult.toFixed(1)}`, 'streak');
   if (res.xpGain) add(`+${res.xpGain} XP`);
   if (res.levelUp) add(`Level ${res.level}! +$${res.levelBonus}`, 'pb');
@@ -3031,7 +3272,8 @@ function tryPunch() {
   socket.emit('punch', { rot, knife }, (res) => {
     if (!res || !res.ok) { if (res && res.msg) flashPrompt(res.msg, '', 1300); return; }
     if (res.hit === 'safe') { flashPrompt('Camp is a no-fighting zone.', '', 1500); return; }
-    if (res.hit === 'player' || res.hit === 'npc') {
+    if (res.hit === 'mutant' && res.killed && res.bounty) fx.floater(res.x, 2.4, res.z, `+$${res.bounty * (res.glory ? 2 : 1)}`, 'cash', 1.3);
+    if (res.hit === 'player' || res.hit === 'npc' || res.hit === 'mutant') {
       sfx.thud(res.heavy);
       if (res.killed) sfx.kill();
       showHitmark(res.killed);
@@ -3094,8 +3336,15 @@ function tryShoot() {
     if (res.reloading && myData && !myData.reloadGun) { myData.reloadGun = gun; myData.reloadLeft = g.reload; sfx.reload(); }
     if (res.hit === 'safe') { flashPrompt('Camp is a no-shooting zone.', '', 1500); return; }
     if (res.msg) flashPrompt(res.msg, '', 1500);
-    if (res.hit === 'player' || res.hit === 'npc' || res.hit === 'fish') {
+    if (res.hit === 'fish' && res.killed && res.scraps) {
+      fx.floater(res.x, 1, res.z, `scraps $${res.scraps}`, 'info', 1.2);
+      if (!scrapsTipShown) { scrapsTipShown = true; flashPrompt('A shot fish is worth scraps, and gunfire scares the rest away. Catch them with the rod. Save the guns for the frenzy.', '', 5200); }
+    }
+    if (res.hit === 'mutant' && res.stagger && !res.killed) flashPrompt('It\'s staggered! Knife it to gut it for health and double loot.', 'good', 1800);
+    if (res.hit === 'mutant' && res.killed && res.bounty) fx.floater(res.x, 2.4, res.z, `+$${res.bounty}`, 'cash', 1.3);
+    if (res.hit === 'player' || res.hit === 'npc' || res.hit === 'fish' || res.hit === 'mutant') {
       showHitmark(res.killed);
+      if (res.hit === 'mutant') cam.shake += res.killed ? 0.18 : 0.04;
       if (res.dmg > 0 && res.x != null && res.hit !== 'fish') fx.floater(res.x, 2.1, res.z, res.crit ? `${res.dmg}!` : String(res.dmg), 'dmg', res.crit ? 1.15 : res.killed ? 1 : 0.8);
       buzz(20);
       if (res.killed) sfx.kill(); else sfx.hitmark();
@@ -3105,6 +3354,7 @@ function tryShoot() {
   });
 }
 
+let scrapsTipShown = false;
 let hitmarkTimer = null;
 function showHitmark(kill) {
   const el = $('hitmark');
@@ -4303,6 +4553,7 @@ function updateHud(dt, t) {
   renderVitals();
   renderHotbar();
   renderDerby();
+  renderFrenzy();
   if (openPanel === 'shop') renderShop();
   if (openPanel === 'phone') { renderPhone(); if (phoneApp === 'map') drawBigMap(); }
   if (openPanel === 'shack') renderShack();
@@ -4359,6 +4610,7 @@ renderer.setAnimationLoop(() => {
   for (const v of npcViews.values()) updateNpc(v, dt, t);
   for (const v of views.values()) updateView(v, dt, t);
   updateFish(dt, t);
+  updateMutants(dt, t);
   updatePickups(dt, t);
   updateLeaps(dt);
   updateCamera(m, dt, t);

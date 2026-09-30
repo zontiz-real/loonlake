@@ -554,6 +554,217 @@ function tickDerby() {
   else if (derby.active && now >= derby.endsAt) finishDerby();
 }
 
+// ---------------------------------------------------------------- the frenzy
+//
+// The game's spine: the rod makes you money, the gun keeps you alive. Every few minutes the lake boils. Mutant fish
+// leap out and hunt anyone near the water, and a boss surfaces near the end. Fish bite almost at once and are worth
+// far more, so the best money in the game is fishing while things are trying to eat you. Mutants drop ammo and health,
+// so the fight pays for itself. A badly hurt mutant staggers; finish it with the knife for health and a bigger drop.
+
+const FRENZY = {
+  firstIn: 3 * 60 * 1000, every: 7 * 60 * 1000, length: 110 * 1000, bossAt: 70 * 1000,
+  fishMul: 2.5, // what rod-caught fish are worth during a frenzy
+  biteScale: 0.25, // how much faster fish bite
+  topBonus: [400, 200, 100], // paid to the top three scorers at the end
+};
+const MUTANT = {
+  leaper: { name: 'Leaper', sid: 'walleye', hp: 40, speed: 5.0, bite: 6, reach: 1.5, bounty: 12, score: 10, radius: 0.5 },
+  snapper: { name: 'Snapper', sid: 'pike', hp: 95, speed: 3.9, bite: 16, reach: 1.9, bounty: 30, score: 25, radius: 0.7 },
+  gulper: { name: 'Gulper', sid: 'catfish', hp: 230, speed: 2.7, bite: 28, reach: 2.3, bounty: 80, score: 60, radius: 1.1 },
+  boss: { name: 'The Old One', sid: 'sturgeon', hp: 2600, speed: 3.2, bite: 40, reach: 4, bounty: 1200, score: 500, radius: 3 },
+};
+const frenzy = { active: false, endsAt: 0, nextAt: nowMs() + FRENZY.firstIn, bossSpawned: false, scores: new Map(), nextSpawn: 0 };
+const mutants = [];
+let mutantSerial = 1;
+// gunfire spooks the fish nearby for a while: bites slow down around it
+const spooks = [];
+
+function startFrenzy() {
+  Object.assign(frenzy, { active: true, endsAt: nowMs() + FRENZY.length, bossSpawned: false, nextSpawn: nowMs() + 3000 });
+  frenzy.scores.clear();
+  io.emit('frenzy', { type: 'start', length: FRENZY.length });
+  feed('The lake is boiling. FRENZY! Fish bite fast and pay x2.5, and something is coming out of the water.', 'derby');
+}
+
+function endFrenzy() {
+  frenzy.active = false;
+  frenzy.nextAt = nowMs() + FRENZY.every;
+  // whatever is still out there sinks back down
+  for (const m of mutants) io.emit('mutantDie', { id: m.id, x: m.x, z: m.z, k: m.kind, fled: true });
+  mutants.length = 0;
+  const top = [...frenzy.scores.values()].sort((a, b) => b.score - a.score).slice(0, 3);
+  top.forEach((e, i) => {
+    const p = players.get(e.id);
+    if (!p) return;
+    p.cash += FRENZY.topBonus[i];
+    p.earned += FRENZY.topBonus[i];
+    storeProfile(p);
+  });
+  if (top.length) feed(`The frenzy is over. ${top.map((e, i) => `${i + 1}. ${e.name} (${e.score})`).join(', ')}.`, 'derby');
+  else feed('The frenzy is over. The lake settles.', 'derby');
+  io.emit('frenzy', { type: 'end', top: top.map((e, i) => ({ name: e.name, score: e.score, kills: e.kills, bonus: FRENZY.topBonus[i] })) });
+}
+
+function frenzyScore(p, add, kill) {
+  const e = frenzy.scores.get(p.id) || { id: p.id, name: p.name, score: 0, kills: 0 };
+  e.score += add;
+  if (kill) e.kills += 1;
+  frenzy.scores.set(p.id, e);
+}
+
+// a spot in the water near a player, so mutants come at people who are fishing
+function waterNear(x, z, minR, maxR) {
+  for (let i = 0; i < 20; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const r = rand(minR, maxR);
+    const px = x + Math.sin(a) * r;
+    const pz = z + Math.cos(a) * r;
+    if (inWater(px, pz)) return { x: px, z: pz };
+  }
+  return null;
+}
+
+function spawnMutant(kind, at) {
+  const def = MUTANT[kind];
+  const m = { id: 'mu' + (mutantSerial++), kind, x: at.x, z: at.z, rot: 0, hp: def.hp, maxHp: def.hp, target: null, nextBite: 0, staggerUntil: 0, leapAt: 0, born: nowMs(), hitBy: new Map() };
+  mutants.push(m);
+  return m;
+}
+
+const nearFire = (x, z) => Math.hypot(x - WORLD.camp.fire.x, z - WORLD.camp.fire.z) < 7;
+
+function tickFrenzy(dt) {
+  const now = nowMs();
+  if (!frenzy.active) { if (now >= frenzy.nextAt) startFrenzy(); return; }
+  if (now >= frenzy.endsAt) { endFrenzy(); return; }
+  const hunters = [...players.values()].filter((p) => p.alive);
+  // keep the pressure up: more mutants the more people there are, spawned in the water near someone
+  // it ramps up: a few at first, a crowd by the end
+  const ramp = 1 - (frenzy.endsAt - now) / FRENZY.length;
+  const cap = Math.round(2 + hunters.length * (1.5 + ramp * 2.5));
+  if (now >= frenzy.nextSpawn && mutants.length < cap && hunters.length) {
+    frenzy.nextSpawn = now + rand(900, 2200);
+    const p = hunters[Math.floor(Math.random() * hunters.length)];
+    const spot = waterNear(p.x, p.z, 8, 22);
+    if (spot) {
+      const r = Math.random();
+      spawnMutant(r < 0.62 ? 'leaper' : r < 0.9 ? 'snapper' : 'gulper', spot);
+      io.emit('mutantRise', spot);
+    }
+  }
+  if (!frenzy.bossSpawned && now >= frenzy.endsAt - FRENZY.length + FRENZY.bossAt) {
+    frenzy.bossSpawned = true;
+    spawnMutant('boss', { x: 0, z: 0 });
+    io.emit('mutantRise', { x: 0, z: 0, boss: true });
+    feed('THE OLD ONE has surfaced in the middle of the lake. Kill it before the frenzy ends.', 'legendary');
+  }
+  for (let i = mutants.length - 1; i >= 0; i--) {
+    const m = mutants[i];
+    const def = MUTANT[m.kind];
+    if (now < m.staggerUntil) continue; // staggered: wide open for a knife
+    // hunt the closest living player, ignoring anyone by the campfire (they hate the fire)
+    let best = null;
+    for (const p of hunters) {
+      if (nearFire(p.x, p.z) && m.kind !== 'boss') continue;
+      const d = Math.hypot(p.x - m.x, p.z - m.z);
+      if (!best || d < best.d) best = { p, d };
+    }
+    if (!best) { m.rot += dt; continue; }
+    const t = best.p;
+    m.target = t.id;
+    const toward = Math.atan2(t.x - m.x, t.z - m.z);
+    if (m.kind === 'boss') {
+      // the boss circles the lake and every few seconds hurls itself at the nearest player on the shore
+      if (now >= m.leapAt + 5200 && best.d < 45) {
+        m.leapAt = now;
+        m.leapFrom = { x: m.x, z: m.z };
+        m.leapTo = { x: t.x, z: t.z };
+        io.emit('bossLeap', { id: m.id, from: m.leapFrom, to: m.leapTo });
+        setTimeout(() => {
+          if (!mutants.includes(m)) return;
+          io.emit('bossSlam', { x: m.leapTo.x, z: m.leapTo.z });
+          for (const p of players.values()) {
+            if (p.alive && Math.hypot(p.x - m.leapTo.x, p.z - m.leapTo.z) < 4.5) hurtPlayer(p, def.bite, { name: def.name, id: m.id, x: m.leapTo.x, z: m.leapTo.z }, 'crushed');
+          }
+        }, 900);
+      }
+      const ang = Math.atan2(m.z, m.x) + dt * 0.18;
+      const r = WORLD.lakeRadius * 0.55;
+      m.x += (Math.cos(ang) * r - m.x) * Math.min(1, dt * 0.6);
+      m.z += (Math.sin(ang) * r - m.z) * Math.min(1, dt * 0.6);
+      m.rot = ang + Math.PI / 2;
+      continue;
+    }
+    m.rot = toward;
+    if (best.d > def.reach * 0.8) {
+      const step = def.speed * dt;
+      const nx = m.x + Math.sin(toward) * step;
+      const nz = m.z + Math.cos(toward) * step;
+      if (!nearFire(nx, nz) && (onLand(nx, nz) || inWater(nx, nz) || Math.hypot(nx, nz) < WORLD.shoreRadius + 0.5)) {
+        const wasWater = inWater(m.x, m.z);
+        m.x = nx; m.z = nz;
+        if (wasWater && !inWater(nx, nz)) io.emit('mutantLeap', { id: m.id, x: nx, z: nz });
+      }
+    }
+    if (best.d < def.reach && now >= m.nextBite) {
+      m.nextBite = now + rand(1200, 1700);
+      const res = hurtPlayer(t, def.bite, { name: `A ${def.name.toLowerCase()}`, id: m.id, x: m.x, z: m.z }, 'ate');
+      io.emit('mutantBite', { id: m.id, x: t.x, z: t.z, hit: !!res });
+    }
+  }
+  // old spooks fade
+  for (let i = spooks.length - 1; i >= 0; i--) if (now > spooks[i].until) spooks.splice(i, 1);
+}
+
+// damage to a mutant from a player's gun or knife; returns what the shooter should see
+function hitMutant(m, dmg, p, knife) {
+  const def = MUTANT[m.kind];
+  const now = nowMs();
+  // a staggered mutant finished with the knife: a glory kill
+  const glory = knife && now < m.staggerUntil && m.kind !== 'boss';
+  if (glory) dmg = m.hp;
+  m.hp -= dmg;
+  if (p) m.hitBy.set(p.id, (m.hitBy.get(p.id) || 0) + Math.min(dmg, m.hp + dmg));
+  if (m.hp > 0) {
+    if (m.kind !== 'boss' && m.hp < m.maxHp * 0.25 && !m.staggered) {
+      m.staggered = true;
+      m.staggerUntil = now + 3200;
+    }
+    return { hit: 'mutant', killed: false, x: m.x, z: m.z, dmg: Math.round(dmg), stagger: now < m.staggerUntil };
+  }
+  mutants.splice(mutants.indexOf(m), 1);
+  const out = { hit: 'mutant', killed: true, x: m.x, z: m.z, dmg: Math.round(dmg), glory, kind: m.kind, bounty: def.bounty };
+  if (m.kind === 'boss') {
+    // everyone who hurt it gets a share of the bounty by damage done
+    const total = [...m.hitBy.values()].reduce((a, b) => a + b, 0) || 1;
+    for (const [id, d] of m.hitBy) {
+      const q = players.get(id);
+      if (!q) continue;
+      const share = Math.round(def.bounty * (d / total));
+      q.cash += share;
+      q.earned += share;
+      frenzyScore(q, Math.round(def.score * (d / total)), id === (p && p.id));
+      q.xp += 150;
+      const sock = sockOf(id);
+      if (sock) sock.emit('bossShare', { share, pct: Math.round((d / total) * 100) });
+    }
+    for (let i = 0; i < 6; i++) spawnPickup(i % 2 ? 'ammo' : 'heal', i % 2 ? 30 : 40, m.x + rand(-3, 3), m.z + rand(-3, 3));
+    feed(`${p ? p.name : 'Someone'} landed the killing blow on THE OLD ONE.`, 'legendary');
+  } else if (p) {
+    p.cash += def.bounty * (glory ? 2 : 1);
+    p.earned += def.bounty * (glory ? 2 : 1);
+    p.xp += Math.round(def.score / 2);
+    frenzyScore(p, def.score * (glory ? 2 : 1), true);
+    if (glory) p.hp = Math.min(COMBAT.hp, p.hp + 25);
+    // the fight pays for itself: ammo and health fall out of what you kill
+    const r = Math.random();
+    if (glory || r < 0.45) spawnPickup('ammo', Math.round((m.kind === 'gulper' ? 20 : m.kind === 'snapper' ? 12 : 6) * (glory ? 2 : 1)), m.x, m.z);
+    if (glory || r > 0.72) spawnPickup('heal', m.kind === 'gulper' ? 35 : 15, m.x + 0.6, m.z);
+  }
+  io.emit('mutantDie', { id: m.id, x: m.x, z: m.z, k: m.kind, glory, by: p ? p.id : null });
+  return out;
+}
+
 // ---------------------------------------------------------------- fishing
 
 function pickSpecies(p) {
@@ -663,6 +874,8 @@ function scheduleBite(p, socket) {
   let scale = h.weed ? 0.55 : 1;
   if (p.bobber && hotspotAt(p.bobber.x, p.bobber.z)) scale *= 0.45;
   if (isGolden()) scale *= 0.75;
+  if (frenzy.active) scale *= FRENZY.biteScale;
+  else if (p.bobber && spooks.some((sp) => Math.hypot(sp.x - p.bobber.x, sp.z - p.bobber.z) < 24)) scale *= 2.2; // gunfire nearby
   p.biteWindow = TIMING.biteWindow * (h.whiskey ? 0.7 : 1);
   const wait = Math.max(1200, rand(TIMING.biteMin, TIMING.biteMax) * scale * (p.fastBite ? 0.15 : 1));
   p.biteTimer = setTimeout(() => {
@@ -752,6 +965,18 @@ function killPlayer(p, byName, verb = 'shot', from) {
   p.respawnAt = nowMs() + COMBAT.respawn;
   resetLine(p);
   p.high = { weed: 0, whiskey: 0, crank: 0 };
+  // eaten in a frenzy: you keep your cash, but they get half your bag
+  if (from && String(from.id || '').startsWith('mu')) {
+    const eaten = Math.ceil(p.bag.length / 2);
+    p.bag.sort(() => Math.random() - 0.5).splice(0, eaten);
+    p.bagRev = (p.bagRev || 0) + 1;
+    if (p.bj && p.bj.status === 'play') p.bj = null;
+    feed(`${byName} ${verb} ${p.name}`, 'combat');
+    const s = sockOf(p.id);
+    if (s) s.emit('died', { by: byName, verb, dropped: 0, bag: 0, eaten, sank: false, respawn: COMBAT.respawn });
+    storeProfile(p);
+    return;
+  }
   const drop = Math.floor(p.cash * COMBAT.dropCash);
   const bagCount = p.bag.length;
   if (drop > 0) {
@@ -813,19 +1038,20 @@ function pointAlong(x, z, rot, dist) {
 
 function firstHit(ox, oz, rot, cone, range, skipId) {
   let best = null;
-  const consider = (kind, id, x, z, alive) => {
+  const consider = (kind, id, x, z, alive, radius = 0.45) => {
     if (!alive || id === skipId) return;
     const dist = Math.hypot(x - ox, z - oz);
-    if (dist < 0.35 || dist > range) return;
+    if (dist < 0.35 || dist > range + radius) return;
     const ang = Math.atan2(x - ox, z - oz);
-    // wider angular tolerance up close so point-blank shots register
-    const tol = Math.max(cone, Math.atan2(0.45, dist));
+    // wider angular tolerance up close so point-blank shots register, and for big bodies
+    const tol = Math.max(cone, Math.atan2(radius, dist));
     if (Math.abs(angleDiff(ang, rot)) > tol) return;
     if (!best || dist < best.dist) best = { kind, id, dist, x, z };
   };
   school.forEach((f) => consider('fish', f.id, f.x, f.z, f.alive));
   players.forEach((o) => consider('player', o.id, o.x, o.z, o.alive));
   npcs.forEach((n) => consider('npc', n.id, n.x, n.z, n.alive));
+  mutants.forEach((m) => consider('mutant', m.id, m.x, m.z, true, MUTANT[m.kind].radius));
   return best;
 }
 
@@ -843,18 +1069,21 @@ function applyHit(hit, shooter, dmg = COMBAT.damage) {
     }
     f.alive = false;
     f.floatUntil = nowMs() + 7000;
-    const pay = Math.max(1, Math.round(f.base * 0.45));
-    if (shooter.bag) {
-      const stored = giveFish(shooter, f.name, null, pay);
-      feed(stored ? `${shooter.name} bagged a shot ${f.name.toLowerCase()}` : `${shooter.name} shot a ${f.name.toLowerCase()} for $${pay}`, 'combat');
-    }
-    return { hit: 'fish', killed: true, x: f.x, z: f.z };
+    // a fish full of lead is worth scraps: no bag, no journal, no XP. The rod is how you make money.
+    const pay = Math.max(1, Math.round(f.base * 0.12));
+    if (shooter.bag) { shooter.cash += pay; shooter.earned += pay; }
+    return { hit: 'fish', killed: true, x: f.x, z: f.z, scraps: pay };
   }
   if (hit.kind === 'player') {
     const t = players.get(hit.id);
     const res = hurtPlayer(t, dmg, shooter);
     if (res === 'hit' && players.has(shooter.id)) feed(`${shooter.name} hit ${t.name}`, 'combat');
     return { hit: res === 'safe' ? 'safe' : 'player', killed: res === 'kill', x: hit.x, z: hit.z, dmg: res === 'safe' ? 0 : dmg };
+  }
+  if (hit.kind === 'mutant') {
+    const m = mutants.find((x) => x.id === hit.id);
+    if (!m) return { hit: null };
+    return hitMutant(m, dmg, players.get(shooter.id), false);
   }
   const n = npcs.find((x) => x.id === hit.id);
   if (!n || !n.alive) return { hit: null };
@@ -911,7 +1140,11 @@ function playerFire(p, aimRot, aiming, g, aimDist) {
     }
   }
   p.hitForce = 0;
-  if (!g.silent) { alertAnglers(p, aimRot); hearShot(p); }
+  if (!g.silent) {
+    alertAnglers(p, aimRot);
+    hearShot(p);
+    if (!frenzy.active) spooks.push({ x: p.x, z: p.z, until: nowMs() + 15000 });
+  }
   return { ...out, dmg: Math.round(out.dmg), ammo: p.ammo };
 }
 
@@ -1269,6 +1502,8 @@ function collectPickups() {
       if (it.kind === 'cash') p.cash += it.amount;
       else if (it.kind === 'fish') giveFish(p, it.name, null, it.amount);
       else if (DRUGS.includes(it.kind)) p.pocket[it.kind] += it.amount;
+      else if (it.kind === 'ammo') p.ammo += it.amount;
+      else if (it.kind === 'heal') p.hp = Math.min(COMBAT.hp, p.hp + it.amount);
       pickups.splice(i, 1);
       const sock = sockOf(p.id);
       if (sock) sock.emit('loot', { kind: it.kind, amount: it.amount, name: it.name, x: it.x, z: it.z });
@@ -1298,6 +1533,8 @@ function snapshot() {
       x: r2(n.x), z: r2(n.z), rot: r2(n.rot), hp: Math.max(0, n.hp), alive: n.alive,
       state: n.state, bobber: n.bobber,
     })),
+    mutants: mutants.map((m) => ({ id: m.id, k: m.kind, x: r2(m.x), z: r2(m.z), rot: r2(m.rot), hp: Math.max(0, m.hp) / m.maxHp, st: now < m.staggerUntil ? 'stag' : inWater(m.x, m.z) ? 'swim' : 'land' })),
+    frenzy: { active: frenzy.active, endsIn: frenzy.active ? frenzy.endsAt - now : 0, nextIn: frenzy.active ? 0 : frenzy.nextAt - now, top: [...frenzy.scores.values()].sort((a, b) => b.score - a.score).slice(0, 3).map((e) => ({ name: e.name, score: e.score, id: e.id })) },
     pickups: pickups.map((it) => ({ id: it.id, kind: it.kind, name: it.name, amount: it.amount, x: r2(it.x), z: r2(it.z) })),
     hotspots: hotspots.map((h) => ({ id: h.id, x: r2(h.x), z: r2(h.z), r: h.r, age: now - h.born, left: h.until - now })),
     derby: {
@@ -1425,6 +1662,11 @@ function debugCommand(p, socket, text) {
     return say('Moved.');
   }
   if (cmd === 'hour') { setHour(Number(args[0]) || 12); return say('Clock set.'); }
+  if (cmd === 'frenzy') {
+    if (args[0] === 'boss') { if (!frenzy.active) startFrenzy(); frenzy.endsAt = nowMs() + FRENZY.length - FRENZY.bossAt; return say('The boss is coming.'); }
+    if (frenzy.active) frenzy.endsAt = nowMs(); else frenzy.nextAt = nowMs();
+    return say('Frenzy toggled.');
+  }
   if (cmd === 'derby') { if (derby.active) derby.endsAt = nowMs(); else derby.nextAt = nowMs(); return say('Derby toggled.'); }
   if (cmd === 'gear') { p.rod = WORLD.rods.length - 1; p.bait = WORLD.baits.length - 1; GUN_IDS.forEach((g) => { p.guns[g] = true; Object.keys(WORLD.attachments).forEach((k) => { p.att[g][k] = !WORLD.attachments[k].only || WORLD.attachments[k].only.includes(g); }); p.mag[g] = effGun(p, g).mag; }); GUN_IDS.forEach((g) => { p.glvl[g] = WORLD.gunLevels.names.length - 1; }); p.ammo += 200; p.boatTier = WORLD.boats.length - 1; p.ownsBoat = true; return say('Maxed out.'); }
   if (cmd === 'boattier') { p.boatTier = Math.max(0, Math.min(WORLD.boats.length - 1, Number(args[0]) || 0)); p.ownsBoat = true; return say(`Boat tier ${p.boatTier}.`); }
@@ -1445,7 +1687,7 @@ function debugCommand(p, socket, text) {
     return say(`${n} fish in the bag.`);
   }
   if (cmd === 'fast') { p.fastBite = !p.fastBite; return say(p.fastBite ? 'Fast bites on.' : 'Fast bites off.'); }
-  return say('Commands: /cash N, /tp moss|shack|camp|dock, /hour H, /derby, /gear, /fast, /fish N, /boat, /sea, /channel');
+  return say('Commands: /cash N, /tp moss|shack|camp|dock, /hour H, /derby, /gear, /fast, /fish N, /frenzy, /boat, /sea, /channel');
 }
 
 // ---------------------------------------------------------------- sockets
@@ -1602,7 +1844,8 @@ io.on('connection', (socket) => {
     p.streak = now < (p.streakUntil || 0) ? (p.streak || 0) + 1 : 1;
     p.streakUntil = now + WORLD.streak.window;
     const mult = Math.min(WORLD.streak.max, 1 + (p.streak - 1) * WORLD.streak.step);
-    f.value = Math.round(f.value * mult);
+    f.value = Math.round(f.value * mult * (frenzy.active ? FRENZY.fishMul : 1));
+    if (frenzy.active) frenzyScore(p, Math.max(5, Math.round(f.value / 4)), false);
     const bagged = giveFish(p, s.name, f.lbs, f.value);
     const levelBefore = levelOf(p.xp);
     const xpGain = (XP_BY_RARITY[s.rarity] || 5) + (first ? 20 : 0) + (pb ? 10 : 0) + (f.hot ? 5 : 0);
@@ -1624,7 +1867,7 @@ io.on('connection', (socket) => {
     resetLine(p);
     storeProfile(p);
     reply({
-      ok: true, id: s.id, name: s.name, rarity: s.rarity, lbs: f.lbs, value: f.value, bagged, streak: p.streak, mult,
+      ok: true, id: s.id, name: s.name, rarity: s.rarity, lbs: f.lbs, value: f.value, bagged, streak: p.streak, mult, frenzy: frenzy.active,
       first, pb, hot: f.hot, derby: derbyEntry, derbyLead, journal: p.journal,
       xpGain: xpGain + questDone.reduce((n, q) => n + q.xp, 0), level, levelUp: levelBonus > 0, levelBonus, questDone,
     });
@@ -1850,6 +2093,7 @@ io.on('connection', (socket) => {
     };
     players.forEach((o) => consider('player', o));
     npcs.forEach((n) => consider('npc', n));
+    mutants.forEach((m) => { m.alive = true; consider('mutant', m); });
     const out = { ok: true, hit: null, heavy, combo: p.combo, knife };
     if (best) {
       const o = best.o;
@@ -1861,7 +2105,10 @@ io.on('connection', (socket) => {
       out.dmg = dmg;
       const kx = Math.sin(rot) * knock;
       const kz = Math.cos(rot) * knock;
-      if (best.kind === 'player') {
+      if (best.kind === 'mutant') {
+        const res = hitMutant(o, knife ? KNIFE.damage : dmg, p, knife);
+        Object.assign(out, { hit: 'mutant', killed: res.killed, glory: res.glory, stagger: res.stagger, bounty: res.bounty, dmg: res.dmg });
+      } else if (best.kind === 'player') {
         const res = hurtPlayer(o, dmg, p, knife ? 'stabbed' : 'knocked out');
         if (res === 'safe') out.hit = 'safe';
         else {
@@ -1887,7 +2134,7 @@ io.on('connection', (socket) => {
       out.x = o.x;
       out.z = o.z;
     }
-    io.emit('punch', { id: p.id, rot, heavy, knife, backstab: !!out.backstab, side: knife || heavy || p.combo === 1 ? 'r' : 'l', hit: out.hit === 'player' || out.hit === 'npc', x: out.x, z: out.z });
+    io.emit('punch', { id: p.id, rot, heavy, knife, backstab: !!out.backstab, side: knife || heavy || p.combo === 1 ? 'r' : 'l', hit: out.hit === 'player' || out.hit === 'npc' || out.hit === 'mutant', x: out.x, z: out.z });
     reply(out);
   });
 
@@ -2022,6 +2269,7 @@ setInterval(() => {
   tickFish(dt);
   tickHotspots();
   tickDerby();
+  tickFrenzy(dt);
   npcs.forEach((n) => tickNpc(n, dt));
   tickRespawns();
   collectPickups();
