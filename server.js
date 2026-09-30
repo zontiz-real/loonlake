@@ -158,6 +158,7 @@ const FISHY = (s) => !['junk', 'treasure'].includes(s.rarity) && !s.when;
 const SWIMMERS = SPECIES.filter((s) => ['common', 'uncommon', 'rare'].includes(s.rarity) && !s.when && s.where === 'lake');
 // what you can see swimming in the big water: everything up to sharks
 const OCEAN_SWIMMERS = SPECIES.filter((s) => s.where === 'ocean' && FISHY(s) && s.rarity !== 'legendary');
+const LAKE_RARE = SPECIES.filter((s) => s.where === 'lake' && !s.when && (s.rarity === 'epic' || s.rarity === 'legendary') && !s.boss);
 const CHANNEL_SWIMMERS = SWIMMERS.filter((s) => s.lbs[1] < 25);
 const FISH_HP = { common: 2, uncommon: 2, rare: 3, epic: 5, legendary: 8 };
 const RARITY_RANK = { junk: 0, common: 1, uncommon: 2, treasure: 3, rare: 3, epic: 4, legendary: 5 };
@@ -552,6 +553,59 @@ function tickDerby() {
   const now = nowMs();
   if (!derby.active && now >= derby.nextAt) startDerby();
   else if (derby.active && now >= derby.endsAt) finishDerby();
+}
+
+// Everything that happens when a fish is landed, whether on the rod or with a gun: journal, best, streak, value,
+// bag, XP, quests and level. `opts.rod` is true for a rod catch (the derby is rod-only).
+function recordCatch(p, s, lbs, value, opts = {}) {
+  const entry = p.journal[s.id] || (p.journal[s.id] = { n: 0, best: 0 });
+  const first = entry.n === 0;
+  const pb = !first && lbs > entry.best;
+  entry.n += 1;
+  entry.best = Math.max(entry.best, lbs);
+  if (opts.rod) { entry.rod = (entry.rod || 0) + 1; }
+  p.caught += 1;
+  const rank = RARITY_RANK[s.rarity];
+  if (rank >= 1 && s.rarity !== 'treasure' && (!p.best || lbs > p.best.lbs)) p.best = { name: s.name, lbs };
+  // back-to-back catches build a streak, and the streak multiplies what each fish is worth
+  const now = nowMs();
+  p.streak = now < (p.streakUntil || 0) ? (p.streak || 0) + 1 : 1;
+  p.streakUntil = now + WORLD.streak.window;
+  const mult = Math.min(WORLD.streak.max, 1 + (p.streak - 1) * WORLD.streak.step);
+  // a rod catch of a species for the first time pays a bonus of its own: the rod is how you fill the journal properly
+  const rodFirst = !!opts.rod && (entry.rod || 0) === 1;
+  value = Math.round(value * mult * (frenzy.active ? FRENZY.fishMul : 1) * (opts.valueMul || 1));
+  if (frenzy.active) frenzyScore(p, Math.max(5, Math.round(value / 4)), false);
+  const bagged = giveFish(p, s.name, lbs, value);
+  const levelBefore = levelOf(p.xp);
+  const xpGain = (XP_BY_RARITY[s.rarity] || 5) + (first ? 20 : 0) + (pb ? 10 : 0) + (opts.hot ? 5 : 0) + (opts.xpBonus || 0);
+  p.xp += xpGain;
+  const questDone = advanceQuests(p, s, opts.hot);
+  const level = levelOf(p.xp);
+  const levelBonus = level > levelBefore ? 25 * level : 0;
+  if (levelBonus) {
+    p.cash += levelBonus;
+    feed(`${p.name} reached angler level ${level}`, 'join');
+  }
+  const derbyEntry = !!opts.rod && derby.active && s.rarity !== 'junk' && s.rarity !== 'treasure';
+  const derbyLead = opts.rod ? derbyWeighIn(p, s, lbs) : false;
+  if (rank >= 3) {
+    const article = /^[aeiou]/i.test(s.name) ? 'an' : 'a';
+    feed(`${p.name} ${opts.rod ? 'landed' : 'shot'} ${article} ${lbs} lb ${s.name.toLowerCase()}`, s.rarity);
+  }
+  return {
+    value, bagged, streak: p.streak, mult, frenzy: frenzy.active, first, pb, rodFirst, hot: !!opts.hot, derby: derbyEntry, derbyLead,
+    xpGain: xpGain + questDone.reduce((n, q) => n + q.xp, 0), level, levelUp: levelBonus > 0, levelBonus, questDone,
+  };
+}
+
+// a fish taken by a gun: it is smaller than the trophy end of its range, but it pays and counts like any other catch
+function rollShotFish(s) {
+  const [lo, hi] = s.lbs;
+  const frac = hi > lo ? Math.pow(Math.random(), 1.3) * 0.65 : 0.5;
+  const places = hi < 1 ? 100 : 10;
+  const lbs = Math.max(0.01, Math.round((lo + (hi - lo) * frac) * places) / places);
+  return { lbs, value: Math.round(s.base * (0.6 + 0.9 * frac)) };
 }
 
 // ---------------------------------------------------------------- the frenzy
@@ -1060,19 +1114,28 @@ function applyHit(hit, shooter, dmg = COMBAT.damage) {
   if (hit.kind === 'fish') {
     const f = school.find((x) => x.id === hit.id);
     if (!f || !f.alive) return { hit: null };
-    f.hp -= 1;
+    const over = dmg - f.hp; // damage past what it took to kill it
+    f.hp -= dmg;
+    // wounding it first, and blowing it apart, both cost value: 12% per extra hit and up to 30% for pure overkill
+    f.spoil = Math.min(0.6, (f.spoil || 0) + 0.12);
+    if (f.hp <= 0 && over > f.maxHp * 1.2) f.spoil += Math.min(0.3, (over / f.maxHp) * 0.12);
+    const spSp = SPECIES.find((x) => x.id === f.sid);
+    const loss = spSp ? Math.max(1, Math.round(spSp.base * 0.12)) : 0;
     if (f.hp > 0) {
       // wounded: it bolts and bleeds, one more round finishes it
       f.hurtUntil = nowMs() + 5000;
       f.rot += Math.PI * (0.6 + Math.random() * 0.8);
-      return { hit: 'fish', killed: false, x: f.x, z: f.z };
+      return { hit: 'fish', killed: false, x: f.x, z: f.z, dmg: Math.round(dmg), loss };
     }
     f.alive = false;
     f.floatUntil = nowMs() + 7000;
-    // a fish full of lead is worth scraps: no bag, no journal, no XP. The rod is how you make money.
-    const pay = Math.max(1, Math.round(f.base * 0.12));
-    if (shooter.bag) { shooter.cash += pay; shooter.earned += pay; }
-    return { hit: 'fish', killed: true, x: f.x, z: f.z, scraps: pay };
+    // a shot fish is a real catch: bag, journal, XP, quests and streak all count. Only the derby and the trophy end of the
+    // weight range are the rod's.
+    const sp = SPECIES.find((x) => x.id === f.sid);
+    if (!shooter.bag || !sp) return { hit: 'fish', killed: true, x: f.x, z: f.z };
+    const shot = rollShotFish(sp);
+    const rec = recordCatch(shooter, sp, shot.lbs, shot.value, { rod: false, valueMul: Math.max(0.4, 1 - (f.spoil || 0) + 0.12) });
+    return { hit: 'fish', killed: true, x: f.x, z: f.z, dmg: Math.round(dmg), loss: 0, catch: { name: sp.name, sid: sp.id, rarity: sp.rarity, lbs: shot.lbs, ...rec } };
   }
   if (hit.kind === 'player') {
     const t = players.get(hit.id);
@@ -1441,7 +1504,9 @@ function spawnSchoolFish(slot, area) {
   const a = (slot && slot.area) || area || 'lake';
   const def = FISH_AREAS[a];
   const pool = def.pool();
-  const species = pool[Math.floor(Math.random() * pool.length)];
+  let species = pool[Math.floor(Math.random() * pool.length)];
+  // now and then something big is in the school: epic and legendary fish can be shot too (they take real firepower)
+  if (a === 'lake' && LAKE_RARE.length && Math.random() < 0.035) species = LAKE_RARE[Math.floor(Math.random() * LAKE_RARE.length)];
   const fish = slot || { id: 'fish-' + (fishSerial++) };
   const spot = def.place();
   fish.area = a;
@@ -1453,9 +1518,10 @@ function spawnSchoolFish(slot, area) {
   fish.rot = Math.random() * Math.PI * 2;
   fish.alive = true;
   fish.floatUntil = 0;
-  fish.maxHp = FISH_HP[species.rarity] || 2;
+  fish.maxHp = (FISH_HP[species.rarity] || 2) * 22; // damage, not hits: a legendary takes about 170
   fish.hp = fish.maxHp;
   fish.hurtUntil = 0;
+  fish.spoil = 0;
   return fish;
 }
 for (let i = 0; i < 40; i++) school.push(spawnSchoolFish(null, 'lake'));
@@ -1831,46 +1897,11 @@ io.on('connection', (socket) => {
     }
     const s = f.species;
     const where = p.bobber ? { ...p.bobber } : { x: p.x, z: p.z };
-    const entry = p.journal[s.id] || (p.journal[s.id] = { n: 0, best: 0 });
-    const first = entry.n === 0;
-    const pb = !first && f.lbs > entry.best;
-    entry.n += 1;
-    entry.best = Math.max(entry.best, f.lbs);
-    p.caught += 1;
-    const rank = RARITY_RANK[s.rarity];
-    if (rank >= 1 && s.rarity !== 'treasure' && (!p.best || f.lbs > p.best.lbs)) p.best = { name: s.name, lbs: f.lbs };
-    // back-to-back catches build a streak, and the streak multiplies what each fish is worth
-    const now = nowMs();
-    p.streak = now < (p.streakUntil || 0) ? (p.streak || 0) + 1 : 1;
-    p.streakUntil = now + WORLD.streak.window;
-    const mult = Math.min(WORLD.streak.max, 1 + (p.streak - 1) * WORLD.streak.step);
-    f.value = Math.round(f.value * mult * (frenzy.active ? FRENZY.fishMul : 1));
-    if (frenzy.active) frenzyScore(p, Math.max(5, Math.round(f.value / 4)), false);
-    const bagged = giveFish(p, s.name, f.lbs, f.value);
-    const levelBefore = levelOf(p.xp);
-    const xpGain = (XP_BY_RARITY[s.rarity] || 5) + (first ? 20 : 0) + (pb ? 10 : 0) + (f.hot ? 5 : 0);
-    p.xp += xpGain;
-    const questDone = advanceQuests(p, s, f.hot);
-    const level = levelOf(p.xp);
-    const levelBonus = level > levelBefore ? 25 * level : 0;
-    if (levelBonus) {
-      p.cash += levelBonus;
-      feed(`${p.name} reached angler level ${level}`, 'join');
-    }
-    const derbyEntry = derby.active && s.rarity !== 'junk' && s.rarity !== 'treasure';
-    const derbyLead = derbyWeighIn(p, s, f.lbs);
+    const rec = recordCatch(p, s, f.lbs, f.value, { hot: f.hot, rod: true });
     io.emit('caught', { id: p.id, sid: s.id, name: s.name, lbs: f.lbs, rarity: s.rarity, x: where.x, z: where.z });
-    if (rank >= 3) {
-      const article = /^[aeiou]/i.test(s.name) ? 'an' : 'a';
-      feed(`${p.name} landed ${article} ${f.lbs} lb ${s.name.toLowerCase()}`, s.rarity);
-    }
     resetLine(p);
     storeProfile(p);
-    reply({
-      ok: true, id: s.id, name: s.name, rarity: s.rarity, lbs: f.lbs, value: f.value, bagged, streak: p.streak, mult, frenzy: frenzy.active,
-      first, pb, hot: f.hot, derby: derbyEntry, derbyLead, journal: p.journal,
-      xpGain: xpGain + questDone.reduce((n, q) => n + q.xp, 0), level, levelUp: levelBonus > 0, levelBonus, questDone,
-    });
+    reply({ ok: true, id: s.id, name: s.name, rarity: s.rarity, lbs: f.lbs, journal: p.journal, ...rec });
   });
 
   socket.on('lost', () => { if (p && p.state === 'reeling') resetLine(p); });

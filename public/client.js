@@ -2973,6 +2973,8 @@ function showCatchTag(res) {
   const flags = $('tagFlags');
   flags.replaceChildren();
   const add = (text, cls) => { const f = document.createElement('span'); f.textContent = text; if (cls) f.className = cls; flags.append(f); };
+  if (res.shot) add('Shot', 'derby');
+  if (res.rodFirst) add('First on the rod', 'pb');
   if (res.first) add(`First ${res.name.toLowerCase()}`);
   if (res.pb) add('Personal best', 'pb');
   if (res.derbyLead) add('Leads the derby', 'derby');
@@ -3336,16 +3338,22 @@ function tryShoot() {
     if (res.reloading && myData && !myData.reloadGun) { myData.reloadGun = gun; myData.reloadLeft = g.reload; sfx.reload(); }
     if (res.hit === 'safe') { flashPrompt('Camp is a no-shooting zone.', '', 1500); return; }
     if (res.msg) flashPrompt(res.msg, '', 1500);
-    if (res.hit === 'fish' && res.killed && res.scraps) {
-      fx.floater(res.x, 1, res.z, `scraps $${res.scraps}`, 'info', 1.2);
-      if (!scrapsTipShown) { scrapsTipShown = true; flashPrompt('A shot fish is worth scraps, and gunfire scares the rest away. Catch them with the rod. Save the guns for the frenzy.', '', 5200); }
+    if (res.hit === 'fish' && res.killed && res.catch) {
+      const c = res.catch;
+      if (RARITY_RANK[c.rarity] >= 3 || c.first) { c.shot = true; showCatchTag(c); sfx.land(c.rarity); } else fx.floater(res.x, 1, res.z, `${c.name} +$${c.value}`, 'cash', 1.4);
+      if (RARITY_RANK[c.rarity] >= 4) cam.shake += 0.25;
+      if (c.levelUp) fx.floater(res.x, 2.4, res.z, `Level ${c.level}!`, 'cash', 2);
+      if (c.mult > 1) fx.floater(res.x, 1.6, res.z, `streak x${c.mult.toFixed(1)}`, 'info', 1.2);
+      if (openPanel === 'journal') { journal[c.sid] = journal[c.sid] || { n: 0, best: 0 }; journal[c.sid].n++; journal[c.sid].best = Math.max(journal[c.sid].best, c.lbs); renderJournal(); }
     }
     if (res.hit === 'mutant' && res.stagger && !res.killed) flashPrompt('It\'s staggered! Knife it to gut it for health and double loot.', 'good', 1800);
     if (res.hit === 'mutant' && res.killed && res.bounty) fx.floater(res.x, 2.4, res.z, `+$${res.bounty}`, 'cash', 1.3);
     if (res.hit === 'player' || res.hit === 'npc' || res.hit === 'fish' || res.hit === 'mutant') {
       showHitmark(res.killed);
       if (res.hit === 'mutant') cam.shake += res.killed ? 0.18 : 0.04;
-      if (res.dmg > 0 && res.x != null && res.hit !== 'fish') fx.floater(res.x, 2.1, res.z, res.crit ? `${res.dmg}!` : String(res.dmg), 'dmg', res.crit ? 1.15 : res.killed ? 1 : 0.8);
+      if (res.dmg > 0 && res.x != null) fx.floater(res.x, res.hit === 'fish' ? 0.9 : 2.1, res.z, res.crit ? `${res.dmg}!` : String(res.dmg), res.hit === 'fish' ? 'info' : 'dmg', res.crit ? 1.15 : res.killed ? 1 : 0.8);
+      // overkill spoils a fish: show what that hit cost you
+      if (res.hit === 'fish' && res.loss > 0) fx.floater(res.x + 0.4, 0.4, res.z, `-$${res.loss}`, 'dmg', 1.1);
       buzz(20);
       if (res.killed) sfx.kill(); else sfx.hitmark();
       if (res.hit === 'fish') fx.splash(res.x, res.z, 10, 0.7);
@@ -3354,7 +3362,6 @@ function tryShoot() {
   });
 }
 
-let scrapsTipShown = false;
 let hitmarkTimer = null;
 function showHitmark(kill) {
   const el = $('hitmark');
