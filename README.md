@@ -49,7 +49,7 @@ WASD to walk, Shift to run. Click the game to lock the mouse, Esc to release it.
 
 ## Debug commands
 
-Start with `LOON_DEBUG=1 npm start` and type these into chat:
+Start with `npm run debug` (works in any terminal; or set `LOON_DEBUG=1` yourself) and type these into chat:
 
 - `/cash 500` adds cash.
 - `/tp moss`, `/tp shack`, `/tp camp`, `/tp dock`, or `/tp x z` moves you.
