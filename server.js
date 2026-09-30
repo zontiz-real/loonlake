@@ -59,12 +59,17 @@ const WORLD = {
     arp: { name: 'AR pistol', price: 520, mag: 30, reload: 1900, damage: 17, cooldown: 82, spread: 0.062, pellets: 1, range: 52, auto: true, start: 90, zoom: 50, look: 0.8, recoil: 0.01, sound: 'smg', desc: 'Rifle round, pistol size. Full auto.' },
     draco: { name: 'Draco', price: 720, mag: 30, reload: 2100, damage: 28, cooldown: 115, spread: 0.07, pellets: 1, range: 58, auto: true, start: 90, zoom: 48, look: 0.85, recoil: 0.018, sound: 'rifle', desc: 'AK pistol. Hits hard, kicks harder. Takes a drum.' },
     sniper: { name: 'Sniper rifle', price: 900, mag: 4, reload: 3000, damage: 90, cooldown: 1300, spread: 0.006, pellets: 1, range: 110, auto: false, start: 8, zoom: 18, look: 1.25, recoil: 0.06, sound: 'sniper', desc: 'One or two shots at any distance.' },
+    deagle: { name: 'Desert Eagle', price: 450, mag: 7, reload: 1700, damage: 52, cooldown: 430, spread: 0.03, pellets: 1, range: 55, auto: false, start: 21, zoom: 48, look: 0.65, recoil: 0.05, sound: 'deagle', desc: 'A hand cannon. Seven rounds that each hit like a rifle.' },
+    dbarrel: { name: 'Double-barrel', price: 300, mag: 2, reload: 1900, damage: 15, cooldown: 220, spread: 0.15, pellets: 10, range: 20, auto: false, start: 16, zoom: 56, look: 1, recoil: 0.07, sound: 'shotgun', desc: 'Two shells, fired as fast as you can pull. Nothing survives both up close.' },
+    m4: { name: 'M4 carbine', price: 1100, mag: 30, reload: 2000, damage: 24, cooldown: 85, spread: 0.042, pellets: 1, range: 78, auto: true, start: 90, zoom: 40, look: 0.9, recoil: 0.011, sound: 'rifle', desc: 'Accurate full-auto rifle. Takes a drum and a laser.' },
+    lmg: { name: 'M249 LMG', price: 1700, mag: 100, reload: 4600, damage: 21, cooldown: 72, spread: 0.085, pellets: 1, range: 70, auto: true, start: 200, zoom: 46, look: 1.15, recoil: 0.009, sound: 'lmg', desc: 'A hundred-round belt. Slow to reload, slow to stop.' },
+    crossbow: { name: 'Crossbow', price: 650, mag: 1, reload: 1300, damage: 75, cooldown: 400, spread: 0.008, pellets: 1, range: 85, auto: false, start: 12, zoom: 30, look: 1, recoil: 0.02, sound: 'bow', silent: true, desc: 'Silent. Nobody hears it, so nobody comes running.' },
   },
   // gun upgrades: each level adds damage; the price is a share of the gun's own price
   gunLevels: { names: ['Mk I', 'Mk II', 'Mk III', 'Mk IV', 'Mk V'], mul: [1, 1.12, 1.25, 1.4, 1.6], price: [0, 0.6, 1, 1.6, 2.4] },
   attachments: {
     laser: { name: 'Laser beam', price: 90, spreadMul: 0.55, desc: 'A red beam shows where it points, and shots group tighter.', only: null },
-    drum: { name: 'Drum mag', price: 180, magMul: 2.5, reloadAdd: 700, desc: 'Two and a half times the rounds. Slower to reload.', only: ['glock', 'smg', 'arp', 'draco'] },
+    drum: { name: 'Drum mag', price: 180, magMul: 2.5, reloadAdd: 700, desc: 'Two and a half times the rounds. Slower to reload.', only: ['glock', 'smg', 'arp', 'draco', 'm4'] },
     switch: { name: 'Auto switch', price: 320, cooldownMul: 0.3, spreadMul: 1.5, desc: 'Turns it full auto. Burns through the mag.', only: ['glock', 'pistol'] },
   },
   rods: [
@@ -368,9 +373,9 @@ function advanceQuests(p, species, hot) {
 // ---------------------------------------------------------------- guns
 
 // critical hit chance per gun, and how hard a kill shot shoves the body
-const CRIT = { pistol: 0.1, glock: 0.08, rifle: 0.12, shotgun: 0.05, smg: 0.05, arp: 0.07, draco: 0.09, sniper: 0.3 };
-const CRIT_MUL = { sniper: 2 };
-const KICK = { pistol: 7, glock: 6, rifle: 11, shotgun: 16, smg: 6, arp: 8, draco: 11, sniper: 22 };
+const CRIT = { pistol: 0.1, glock: 0.08, rifle: 0.12, shotgun: 0.05, smg: 0.05, arp: 0.07, draco: 0.09, sniper: 0.3, deagle: 0.15, dbarrel: 0.05, m4: 0.08, lmg: 0.06, crossbow: 0.35 };
+const CRIT_MUL = { sniper: 2, crossbow: 2 };
+const KICK = { pistol: 7, glock: 6, rifle: 11, shotgun: 16, smg: 6, arp: 8, draco: 11, sniper: 22, deagle: 13, dbarrel: 20, m4: 9, lmg: 9, crossbow: 14 };
 // full damage up close, fading to 55% at the end of a gun's range
 function falloff(dist, range) {
   const near = range * 0.4;
@@ -757,6 +762,7 @@ function hurtPlayer(target, dmg, shooter, verb) {
   if (byPlayer && (inCamp(target) || nowMs() < target.safeUntil)) return 'safe';
   target.hp -= dmg;
   resetLine(target);
+  if (byPlayer) witness(players.get(shooter.id), target);
   const sock = sockOf(target.id);
   if (sock) sock.emit('lineCut');
   if (target.hp <= 0) {
@@ -839,10 +845,8 @@ function applyHit(hit, shooter, dmg = COMBAT.damage) {
   const n = npcs.find((x) => x.id === hit.id);
   if (!n || !n.alive) return { hit: null };
   n.hp -= dmg;
-  if (shooter.id && players.has(shooter.id)) {
-    n.aggro = shooter.id;
-    n.aggroUntil = nowMs() + 9000;
-  }
+  n.lastHurt = nowMs();
+  if (shooter.id && players.has(shooter.id)) provoke(n, players.get(shooter.id), 'I\'m hit!');
   const killed = n.hp <= 0;
   if (killed) killNpc(n, shooter.name, undefined, shooter);
   return { hit: 'npc', killed, x: hit.x, z: hit.z, dmg };
@@ -866,10 +870,7 @@ function alertAnglers(p, rot) {
     const dist = Math.hypot(n.x - p.x, n.z - p.z);
     if (dist > 30) return;
     const ang = Math.atan2(n.x - p.x, n.z - p.z);
-    if (Math.abs(angleDiff(ang, rot)) < 0.3) {
-      n.aggro = p.id;
-      n.aggroUntil = now + 6000;
-    }
+    if (Math.abs(angleDiff(ang, rot)) < 0.3) provoke(n, p, 'Watch it!');
   });
 }
 
@@ -896,16 +897,75 @@ function playerFire(p, aimRot, aiming, g, aimDist) {
     }
   }
   p.hitForce = 0;
-  alertAnglers(p, aimRot);
+  if (!g.silent) { alertAnglers(p, aimRot); hearShot(p); }
   return { ...out, dmg: Math.round(out.dmg), ammo: p.ammo };
 }
 
+// NPCs fire short bursts. Their aim is good against someone standing still and falls apart against someone moving fast
+// (so bunny hopping is a real defence), and it tightens the longer they stay on the same target.
+const NPC_GUN = { damage: 12, range: 60, mag: 8, reload: 2300, burst: [2, 4], burstGap: 170, pause: [900, 1700], baseSpread: 0.065 };
 function npcFire(n, target) {
-  const rot = Math.atan2(target.x - n.x, target.z - n.z) + (Math.random() - 0.5) * 0.18;
+  const dist = Math.hypot(target.x - n.x, target.z - n.z);
+  const tspeed = target.speed || 0;
+  const focus = Math.min(1, (n.onTarget || 0) / 4);
+  const spread = NPC_GUN.baseSpread + tspeed * 0.012 + (n.moving ? 0.03 : 0) + dist * 0.0006 - focus * 0.025;
+  const rot = Math.atan2(target.x - n.x, target.z - n.z) + (Math.random() - 0.5) * 2 * Math.max(0.01, spread);
   n.rot = rot;
-  const hit = firstHit(n.x, n.z, rot, COMBAT.cone + 0.04, COMBAT.range, n.id);
-  const res = hit ? applyHit(hit, { name: n.name, id: n.id, x: n.x, z: n.z }) : null;
+  const hit = firstHit(n.x, n.z, rot, COMBAT.cone * 0.7, NPC_GUN.range, n.id);
+  const dmg = hit ? NPC_GUN.damage * falloff(hit.dist, NPC_GUN.range) : 0;
+  const res = hit ? applyHit(hit, { name: n.name, id: n.id, x: n.x, z: n.z }, dmg) : null;
   emitShot(n, rot, hit, n.id, res);
+}
+
+function npcSay(n, text) {
+  const now = nowMs();
+  if (now < (n.saidAt || 0) + 2500) return;
+  n.saidAt = now;
+  io.emit('npcSay', { id: n.id, text });
+}
+
+// turn an NPC on a player, and bring nearby anglers in after a short reaction delay
+function provoke(n, p, line) {
+  if (!n || !n.alive || !p || !p.alive) return;
+  const now = nowMs();
+  const fresh = n.aggro !== p.id;
+  n.aggro = p.id;
+  n.aggroUntil = now + 14000;
+  n.lastSeen = { x: p.x, z: p.z, t: now };
+  if (n.mode !== 'flee') n.mode = 'fight';
+  if (fresh && line) npcSay(n, line);
+  if (!fresh) return;
+  npcs.forEach((o) => {
+    if (o === n || !o.alive || o.role !== 'angler' || o.aggro) return;
+    if (Math.hypot(o.x - n.x, o.z - n.z) > 30) return;
+    o.joinAt = now + rand(400, 1300);
+    o.joinId = p.id;
+  });
+  if (n.role === 'angler') npcSay(n, fresh ? (line || 'Help! Over here!') : line);
+}
+
+// gunfire carries: anglers within earshot stop fishing and look toward it, and come to check it out
+function hearShot(p) {
+  const now = nowMs();
+  npcs.forEach((n) => {
+    if (!n.alive || n.role !== 'angler' || n.aggro) return;
+    const d = Math.hypot(n.x - p.x, n.z - p.z);
+    if (d > 45) return;
+    n.mode = 'alert';
+    n.alertUntil = now + rand(5000, 8000);
+    n.lastSeen = { x: p.x, z: p.z, t: now };
+    n.bobber = null;
+    if (d < 20 && Math.random() < 0.5) npcSay(n, 'What was that?');
+  });
+}
+
+// anglers who watch a player hurt someone close by step in
+function witness(p, victim) {
+  if (!p || !victim) return;
+  npcs.forEach((n) => {
+    if (!n.alive || n.role !== 'angler' || n.aggro || n === victim) return;
+    if (Math.hypot(n.x - victim.x, n.z - victim.z) < 14 && Math.random() < 0.6) provoke(n, p, 'Leave them alone!');
+  });
 }
 
 // ---------------------------------------------------------------- NPCs
@@ -945,6 +1005,22 @@ function respawnNpc(n) {
   n.z = n.homeZ;
   n.aggro = null;
   n.bobber = null;
+  n.mode = 'calm';
+  n.mag = NPC_GUN.mag;
+  n.joinAt = 0;
+  n.lastSeen = null;
+}
+
+// move an NPC along a heading, sliding along the shore instead of stopping dead
+function npcStep(n, rot, speed, dt, strict = false) {
+  const step = speed * dt;
+  const nx = n.x + Math.sin(rot) * step;
+  const nz = n.z + Math.cos(rot) * step;
+  if (onLand(nx, nz)) { n.x = nx; n.z = nz; return true; }
+  if (strict) return false;
+  if (onLand(nx, n.z)) { n.x = nx; return true; }
+  if (onLand(n.x, nz)) { n.z = nz; return true; }
+  return false;
 }
 
 function tickNpc(n, dt) {
@@ -953,34 +1029,124 @@ function tickNpc(n, dt) {
     if (now >= n.respawnAt) respawnNpc(n);
     return;
   }
+  n.moving = false;
+  if (n.mag === undefined) n.mag = NPC_GUN.mag;
+  // a friend called for help a moment ago
+  if (n.joinAt && now >= n.joinAt) {
+    const p = players.get(n.joinId);
+    n.joinAt = 0;
+    if (p && p.alive && !n.aggro) provoke(n, p, 'I got your back!');
+  }
   let threat = null;
   if (n.aggro && now < n.aggroUntil) {
     const p = players.get(n.aggro);
     if (p && p.alive) threat = p;
   }
-  if (!threat) n.aggro = null;
+  if (!threat && n.aggro) {
+    // lost them: go look where they were last seen, then give up
+    n.aggro = null;
+    n.onTarget = 0;
+    if (n.lastSeen && n.role === 'angler') { n.mode = 'search'; n.searchUntil = now + 9000; }
+  }
+  // heal slowly once things have been quiet for a while
+  if (!threat && n.hp < COMBAT.hp && now - (n.lastHurt || 0) > 6000) n.hp = Math.min(COMBAT.hp, n.hp + 5 * dt);
   if (threat) {
-    n.state = 'combat';
-    n.bobber = null;
-    n.rot = Math.atan2(threat.x - n.x, threat.z - n.z);
     const dist = Math.hypot(threat.x - n.x, threat.z - n.z);
-    if (n.role === 'angler' && dist > 9 && dist < 34) {
-      const step = 3.1 * dt;
-      const nx = n.x + Math.sin(n.rot) * step;
-      const nz = n.z + Math.cos(n.rot) * step;
-      if (onLand(nx, nz)) { n.x = nx; n.z = nz; }
+    const toward = Math.atan2(threat.x - n.x, threat.z - n.z);
+    n.lastSeen = { x: threat.x, z: threat.z, t: now };
+    n.onTarget = (n.onTarget || 0) + dt;
+    n.bobber = null;
+    n.state = 'combat';
+    // aggro stays fresh while they're close; far off, it runs out and they search instead
+    if (dist < 40) n.aggroUntil = Math.max(n.aggroUntil, now + 4000);
+    // badly hurt: break off and run, then come back once healed a bit
+    // (once per scrape: if they're cornered again soon after, they fight it out)
+    if (n.role === 'angler' && n.hp < 30 && n.mode !== 'flee' && now - (n.fledAt || -1e9) > 20000) {
+      n.mode = 'flee';
+      n.fledAt = now;
+      n.fleeUntil = now + 7000;
+      npcSay(n, 'I\'m out of here!');
     }
-    if (now >= n.nextShot && dist < COMBAT.range) {
-      n.nextShot = now + (n.role === 'angler' ? 1300 : 1000);
+    if (n.mode === 'flee') {
+      if (now < n.fleeUntil) {
+        n.state = 'flee';
+        // run away from the threat; if the shore is in the way, veer off to either side until there's ground
+        const away = toward + Math.PI + Math.sin(now / 900) * 0.3;
+        for (const off of [0, 0.7, -0.7, 1.4, -1.4, 2.1, -2.1]) {
+          if (npcStep(n, away + off, 5.2, dt, true)) { n.rot = away + off; n.moving = true; break; }
+        }
+        return;
+      }
+      n.mode = 'fight';
+    }
+    // up close they use a knife instead of the gun
+    if (dist < 2.2) {
+      n.rot = toward;
+      if (now >= (n.nextStab || 0)) {
+        n.nextStab = now + 900;
+        const res = hurtPlayer(threat, 20, { name: n.name, id: n.id, x: n.x, z: n.z }, 'stabbed');
+        io.emit('punch', { id: n.id, rot: toward, heavy: false, knife: true, side: 'r', hit: !!res && res !== 'safe', x: threat.x, z: threat.z });
+      }
+      return;
+    }
+    if (n.role === 'angler') {
+      // keep a fighting distance: close in when far, back off when crowded, otherwise strafe
+      if (now >= (n.strafeFlip || 0)) { n.strafe = Math.random() < 0.5 ? -1 : 1; n.strafeFlip = now + rand(900, 2400); }
+      let move = null;
+      let speed = 3.4;
+      if (dist > 20) { move = toward; speed = 4.6; } else if (dist < 8) { move = toward + Math.PI + n.strafe * 0.5; speed = 3.8; } else move = toward + (Math.PI / 2) * n.strafe;
+      if (move !== null) n.moving = npcStep(n, move, speed, dt);
+      if (!n.moving) n.strafe = -n.strafe;
+    }
+    n.rot = toward;
+    // bursts, reloads
+    if (now < (n.reloadUntil || 0)) return;
+    if (n.mag <= 0) { n.mag = NPC_GUN.mag; n.reloadUntil = now + NPC_GUN.reload; if (Math.random() < 0.6) npcSay(n, 'Reloading!'); return; }
+    if (now >= n.nextShot && dist < NPC_GUN.range) {
+      if (!n.burstLeft) n.burstLeft = Math.floor(rand(NPC_GUN.burst[0], NPC_GUN.burst[1] + 1));
       npcFire(n, threat);
+      n.mag -= 1;
+      n.burstLeft -= 1;
+      n.nextShot = now + (n.burstLeft > 0 ? NPC_GUN.burstGap : rand(NPC_GUN.pause[0], NPC_GUN.pause[1]) * (n.role === 'angler' ? 1 : 0.8));
     }
     return;
   }
+  n.onTarget = 0;
   if (n.role !== 'angler') {
     n.state = 'idle';
     n.x += (n.homeX - n.x) * Math.min(1, dt * 2);
     n.z += (n.homeZ - n.z) * Math.min(1, dt * 2);
     n.rot += angleDiff(Math.PI, n.rot) * Math.min(1, dt * 3);
+    return;
+  }
+  // heard something: look that way, and walk over if it was close
+  if (n.mode === 'alert' || n.mode === 'search') {
+    const until = n.mode === 'alert' ? n.alertUntil : n.searchUntil;
+    if (now < until && n.lastSeen) {
+      n.state = 'combat';
+      const d = Math.hypot(n.lastSeen.x - n.x, n.lastSeen.z - n.z);
+      n.rot = Math.atan2(n.lastSeen.x - n.x, n.lastSeen.z - n.z);
+      if (d > 3 && (n.mode === 'search' || d < 25)) n.moving = npcStep(n, n.rot, n.mode === 'search' ? 3.6 : 2.4, dt);
+      // spot a player with a gun out close to where the trouble was
+      if (n.mode === 'alert') {
+        players.forEach((p) => {
+          if (!p.alive || n.aggro) return;
+          const dp = Math.hypot(p.x - n.x, p.z - n.z);
+          if (dp < 12 && GUN_IDS.includes(p.held) && Math.hypot(p.x - n.lastSeen.x, p.z - n.lastSeen.z) < 6) provoke(n, p, 'Drop it!');
+        });
+      }
+      return;
+    }
+    n.mode = 'calm';
+    n.state = 'idle';
+    n.wander = Math.atan2(n.homeX - n.x, n.homeZ - n.z);
+  }
+  // wandered far from home during a fight: head back first
+  if (Math.hypot(n.homeX - n.x, n.homeZ - n.z) > 9) {
+    n.state = 'idle';
+    n.bobber = null;
+    n.rot = Math.atan2(n.homeX - n.x, n.homeZ - n.z);
+    n.moving = npcStep(n, n.rot, 2.4, dt);
     return;
   }
   if (now > n.nextThink) {
@@ -1348,6 +1514,8 @@ io.on('connection', (socket) => {
       return;
     }
     p.budget -= step;
+    // how fast they're moving, smoothed: NPCs have a harder time hitting a fast target
+    p.speed = (p.speed || 0) * 0.7 + (dt > 0 ? step / Math.max(dt, 0.03) : 0) * 0.3;
     p.x = x;
     p.z = z;
     p.swim = !p.boat && inWater(x, z);
@@ -1633,8 +1801,8 @@ io.on('connection', (socket) => {
         }
       } else {
         o.hp -= dmg;
-        o.aggro = p.id;
-        o.aggroUntil = t + 9000;
+        o.lastHurt = t;
+        provoke(o, p, 'Hey!');
         if (onLand(o.x + kx, o.z + kz)) { o.x += kx; o.z += kz; }
         out.hit = 'npc';
         out.killed = o.hp <= 0;

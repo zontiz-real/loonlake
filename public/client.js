@@ -787,6 +787,10 @@ const GM = {
   glass: new THREE.MeshStandardMaterial({ color: 0x24344E, roughness: 0.1, metalness: 0.6 }),
   laser: new THREE.MeshStandardMaterial({ color: 0x552222, emissive: 0xFF2A2A, emissiveIntensity: 1.4, roughness: 0.4 }),
   switchPlate: new THREE.MeshStandardMaterial({ color: 0xC9A227, roughness: 0.3, metalness: 0.8 }),
+  chrome: new THREE.MeshStandardMaterial({ color: 0xA7ADB3, roughness: 0.28, metalness: 0.9 }),
+  tan: new THREE.MeshStandardMaterial({ color: 0x9A8466, roughness: 0.7, metalness: 0.05 }),
+  string: new THREE.MeshStandardMaterial({ color: 0x2A2A2A, roughness: 0.9 }),
+  fletch: new THREE.MeshStandardMaterial({ color: 0xD8362A, roughness: 0.8 }),
   sight: new THREE.MeshStandardMaterial({ color: 0xF2F4EE, emissive: 0x9CFF6A, emissiveIntensity: 0.6, roughness: 0.4 }),
 };
 Object.values(GM).forEach((m) => { m.envMap = gearEnv; m.envMapIntensity = 0.4; });
@@ -880,19 +884,82 @@ function buildGunModel(id, a = {}) {
     box(0.02, 0.05, 0.03, GM.steel, 0, 0.075, 0.08);
     box(0.03, 0.09, 0.04, GM.steel, 0, -0.08, 0.06);
     guard(0.0);
+  } else if (id === 'deagle') {
+    // big polished slide over a triangular-profile barrel
+    box(0.036, 0.05, 0.25, GM.chrome, 0, 0.05, 0.07);
+    box(0.034, 0.028, 0.2, GM.chrome, 0, 0.018, 0.08);
+    tube(0.009, 0.02, GM.steel, 0, 0.05, 0.2);
+    grip(0.12, -0.02);
+    guard(0.05);
+    box(0.02, 0.012, 0.06, GM.steel, 0, 0.078, -0.03);
+  } else if (id === 'm4') {
+    box(0.046, 0.07, 0.24, GM.poly, 0, 0.03, 0.0); // receiver
+    box(0.03, 0.022, 0.26, GM.steel, 0, 0.074, 0.05); // flat-top rail
+    box(0.05, 0.055, 0.22, GM.poly, 0, 0.035, 0.24); // handguard
+    tube(0.011, 0.2, GM.steel, 0, 0.04, 0.44);
+    tube(0.016, 0.04, GM.steel, 0, 0.04, 0.55); // flash hider
+    box(0.012, 0.04, 0.02, GM.steel, 0, 0.08, 0.34); // front sight post
+    box(0.04, 0.06, 0.2, GM.poly, 0, 0.01, -0.22); // stock
+    tube(0.014, 0.12, GM.steel, 0, 0.03, -0.1);
+    box(0.028, 0.14, 0.045, GM.steel, 0, -0.1, 0.07, 0.18); // mag
+    grip(0.1, -0.05);
+    guard(0.0);
+    if (a.drum) drum(0.08, -0.14, 0.07);
+    if (a.laser) { box(0.02, 0.02, 0.05, GM.poly, 0.032, 0.04, 0.3); box(0.012, 0.012, 0.012, GM.laser, 0.032, 0.04, 0.33); }
+  } else if (id === 'lmg') {
+    box(0.07, 0.09, 0.34, GM.poly, 0, 0.03, 0.0);
+    box(0.06, 0.03, 0.2, GM.steel, 0, 0.09, 0.02); // feed cover
+    tube(0.016, 0.5, GM.steel, 0, 0.04, 0.42);
+    box(0.045, 0.04, 0.26, GM.steel, 0, 0.065, 0.3); // heat shield
+    box(0.03, 0.02, 0.1, GM.steel, 0, 0.13, 0.04); // carry handle
+    box(0.09, 0.1, 0.12, GM.tan, -0.06, -0.08, 0.06); // ammo box
+    box(0.05, 0.08, 0.26, GM.poly, 0, 0.0, -0.28); // stock
+    box(0.01, 0.2, 0.01, GM.steel, -0.03, -0.06, 0.55, 0.5, 0.25); // bipod
+    box(0.01, 0.2, 0.01, GM.steel, 0.03, -0.06, 0.55, 0.5, -0.25);
+    grip(0.1, -0.08);
+    guard(-0.04);
+  } else if (id === 'dbarrel') {
+    tube(0.017, 0.56, GM.steel, -0.018, 0.045, 0.3);
+    tube(0.017, 0.56, GM.steel, 0.018, 0.045, 0.3);
+    box(0.07, 0.05, 0.12, GM.steel, 0, 0.03, 0.0); // breech
+    box(0.05, 0.035, 0.2, GM.wood, 0, 0.012, 0.16); // fore end
+    box(0.05, 0.1, 0.3, GM.wood, 0, -0.01, -0.22); // stock
+    box(0.008, 0.008, 0.008, GM.chrome, 0, 0.068, 0.57); // bead
+    grip(0.08, -0.07);
+  } else if (id === 'crossbow') {
+    box(0.04, 0.05, 0.56, GM.wood, 0, 0.0, 0.08); // stock and rail
+    box(0.05, 0.09, 0.2, GM.wood, 0, -0.02, -0.24);
+    // the bow: an arc across the front, and a string from each tip back to the latch
+    const arc = Math.PI * 0.62;
+    const limbs = part(new THREE.TorusGeometry(0.28, 0.012, 6, 20, arc), GM.poly, 0, 0.02, 0.36);
+    limbs.rotation.set(-Math.PI / 2, 0, -Math.PI / 2 - arc / 2); // centred on +z, tips swept back
+    for (const side of [-1, 1]) {
+      const tip = new THREE.Vector3(Math.sin(arc / 2) * 0.28 * side, 0.03, 0.36 + Math.cos(arc / 2) * 0.28);
+      const latch = new THREE.Vector3(0, 0.03, 0.02);
+      const len = tip.distanceTo(latch);
+      const str = part(new THREE.CylinderGeometry(0.002, 0.002, len, 3), GM.string, (tip.x + latch.x) / 2, 0.03, (tip.z + latch.z) / 2);
+      str.rotation.set(Math.PI / 2, 0, 0);
+      str.rotation.y = Math.atan2(tip.x - latch.x, tip.z - latch.z);
+      str.rotation.order = 'YXZ';
+    }
+    tube(0.004, 0.4, GM.chrome, 0, 0.04, 0.2); // bolt
+    box(0.002, 0.018, 0.04, GM.fletch, 0, 0.052, 0.03);
+    tube(0.014, 0.12, GM.poly, 0, 0.085, 0.02); // small scope
+    grip(0.09, -0.07);
   } else {
     tube(0.012, 0.5, GM.steel, 0, 0.05, 0.3);
     box(0.045, 0.07, 0.3, GM.poly, 0, 0.03, 0.0);
     grip(0.1, -0.05);
   }
   // shared details: a trigger in its guard, iron sights on the guns without a scope, and a muzzle crown
-  const trig = part(new THREE.TorusGeometry(0.016, 0.0035, 5, 10, Math.PI * 0.9), GM.steel, 0, -0.022, id === 'pistol' || id === 'glock' ? 0.045 : 0.01, 0, Math.PI / 2);
+  const trig = part(new THREE.TorusGeometry(0.016, 0.0035, 5, 10, Math.PI * 0.9), GM.steel, 0, -0.022, id === 'pistol' || id === 'glock' || id === 'deagle' ? 0.045 : 0.01, 0, Math.PI / 2);
   trig.rotation.set(0, Math.PI / 2, 0);
-  const tall = { pistol: 0.068, glock: 0.072, smg: 0.078, arp: 0.088, draco: 0.064, shotgun: 0.083 }[id];
+  const tall = { pistol: 0.068, glock: 0.072, deagle: 0.083, smg: 0.078, arp: 0.088, draco: 0.064, shotgun: 0.083 }[id];
   if (tall) {
-    const front = { pistol: 0.21, glock: 0.16, smg: 0.12, arp: 0.3, draco: 0.4, shotgun: 0.62 }[id];
+    const front = { pistol: 0.21, glock: 0.16, deagle: 0.18, smg: 0.12, arp: 0.3, draco: 0.4, shotgun: 0.62 }[id];
+    const handgun = id === 'pistol' || id === 'glock' || id === 'deagle';
     box(0.006, 0.014, 0.008, GM.sight, 0, tall, front);
-    box(0.024, 0.012, 0.01, GM.steel, -0.0, tall - 0.001, front - (id === 'pistol' || id === 'glock' ? 0.17 : 0.3));
+    box(0.024, 0.012, 0.01, GM.steel, -0.0, tall - 0.001, front - (handgun ? 0.17 : 0.3));
   }
   return g;
 }
@@ -969,7 +1036,7 @@ function vmArm(side = 1) {
   add(VM_GEO.thumb, VM_MAT.skin, -0.04 * side, 0.02, -0.015);
   return g;
 }
-const VM_LONG = new Set(['rifle', 'sniper', 'shotgun', 'draco', 'arp', 'smg']);
+const VM_LONG = new Set(['rifle', 'sniper', 'shotgun', 'draco', 'arp', 'smg', 'm4', 'lmg', 'dbarrel', 'crossbow']);
 function buildViewmodel(key, item) {
   vm.holder.clear();
   vm.key = key;
@@ -1417,6 +1484,12 @@ socket.on('feed', (f) => {
 });
 
 const messageLog = [];
+// NPCs shout during fights: a speech bubble over their head
+socket.on('npcSay', (c) => {
+  const v = npcViews.get(c.id);
+  if (v) setBubble(v, c.text);
+});
+
 socket.on('chat', (c) => {
   pushChat(c);
   messageLog.push(c);
@@ -1446,12 +1519,12 @@ socket.on('shot', (shot) => {
   if (shot.surface) shot.to.y = surfaceAt(shot.to.x, shot.to.z, audioT) + 0.05;
   else shot.to.y = (shot.to.y ?? 1) + liftAt(shot.to.x, shot.to.z);
   fx.tracer(shot.from, shot.to);
-  if (shot.gun) {
+  if (shot.gun && shot.gun !== 'crossbow') {
     // brass (or a red shotgun shell) pops out to the gun's right and bounces
     const cdx = shot.to.x - shot.from.x;
     const cdz = shot.to.z - shot.from.z;
     const cl = Math.hypot(cdx, cdz) || 1;
-    if (camera.position.distanceTo(tmpA.set(shot.from.x, 1.3, shot.from.z)) < 45) fx.casing(shot.from.x + cdz / cl * 0.15, 1.25, shot.from.z - cdx / cl * 0.15, cdx / cl, cdz / cl, shot.gun === 'shotgun');
+    if (camera.position.distanceTo(tmpA.set(shot.from.x, 1.3, shot.from.z)) < 45) fx.casing(shot.from.x + cdz / cl * 0.15, 1.25, shot.from.z - cdx / cl * 0.15, cdx / cl, cdz / cl, shot.gun === 'shotgun' || shot.gun === 'dbarrel');
   }
   if (shot.surface === 'water') {
     fx.splash(shot.to.x, shot.to.z, 9, 0.55);
@@ -2831,7 +2904,7 @@ function useDrug(name) {
 }
 
 // the hotbar only shows what you own, in order, and number keys pick by position
-const GUN_ORDER = ['pistol', 'glock', 'arp', 'smg', 'draco', 'shotgun', 'rifle', 'sniper'];
+const GUN_ORDER = ['pistol', 'glock', 'deagle', 'arp', 'smg', 'draco', 'm4', 'lmg', 'shotgun', 'dbarrel', 'crossbow', 'rifle', 'sniper'];
 const SLOT_KEYS_LABEL = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '='];
 function hotbarList() {
   const owned = myData && myData.guns ? GUN_ORDER.filter((g) => myData.guns[g]) : [];
@@ -3351,13 +3424,13 @@ function updateNpc(v, dt, t) {
   const combat = aliveNow && d.state === 'combat';
   v.group.rotation.y = v.rot;
   if (v.model) {
-    v.group.position.set(v.x, onDock(v.x, v.z) ? DOCK_Y : 0, v.z);
+    v.group.position.set(v.x, onDock(v.x, v.z) ? DOCK_Y : Math.max(0, groundHeight(v.x, v.z)), v.z);
     v.rifle.visible = combat;
     v.pivot.visible = aliveNow && d.role === 'angler' && !combat;
-    v.speed = moving ? 2 : 0;
+    v.speed = moving ? (d.state === 'flee' ? 5 : d.state === 'combat' ? 3.5 : 2) : 0;
     animateModel(v, dt, moving, false, !aliveNow ? 'idle' : combat ? 'rifle' : d.role === 'angler' ? 'rod' : 'idle', aliveNow);
   } else {
-    const y = (onDock(v.x, v.z) ? DOCK_Y : 0) + (moving ? Math.abs(Math.sin(t * 10)) * 0.06 : 0) + (aliveNow ? 0 : 0.35);
+    const y = (onDock(v.x, v.z) ? DOCK_Y : Math.max(0, groundHeight(v.x, v.z))) + (moving ? Math.abs(Math.sin(t * 10)) * 0.06 : 0) + (aliveNow ? 0 : 0.35);
     v.group.position.set(v.x, y, v.z);
     v.group.rotation.z = aliveNow ? 0 : Math.PI / 2;
     v.rifle.visible = combat || (aliveNow && d.role !== 'angler');
@@ -3605,6 +3678,11 @@ const SLOT_ART = {
 };
 SLOT_ART.knife = '<path fill="currentColor" d="M3.2 20.8 8.6 15.4 7.4 14.2 9 12.6 10.2 13.8 19.6 4.4C20.6 3.4 21.4 3.2 21.6 3.4 21.8 3.6 21.6 4.6 20.6 5.6L11.4 15 12.6 16.2 11 17.8 9.8 16.6 4.4 22z"/>';
 SLOT_ART.glock = SLOT_ART.pistol;
+SLOT_ART.deagle = '<path fill="currentColor" d="M2.5 8h16l1.5 1.4H22v3.4h-5.2l-1 4.6c-.2.9-1 1.5-1.9 1.5h-2.2c-1 0-1.7-.9-1.5-1.8l.7-4.3H2.5z"/>';
+SLOT_ART.m4 = '<path fill="currentColor" d="M1 11h5.5l1-1.4h8.8V8.4h1.6v1.2H23v1.8h-4.2l-.6 1.4h-3.6l-.4 4.4h-2.4l.2-4.4H8.2L7 14.6H1z"/>';
+SLOT_ART.lmg = '<path fill="currentColor" d="M1 10.6h6l1-1.6h11V8h1.4v1H23v2.2h-4v1.2h-5.2v3.6h-4.4v-3.6H7.2L6 14.2H1z"/><path d="M17 12.4l-2 6M19 12.4l2 6" stroke="currentColor" stroke-width="1.2"/>';
+SLOT_ART.dbarrel = '<path fill="currentColor" d="M1 12.6h11l2.2-1.6H23v1.2h-8.4v1.4H23v1.2h-8.8l-2.2 1.6H1z"/>';
+SLOT_ART.crossbow = '<path d="M4 4c5 3 11 3 16 0M4 4l8 8 8-8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M12 6v16" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>';
 SLOT_ART.arp = SLOT_ART.smg;
 SLOT_ART.draco = SLOT_ART.rifle;
 let hotbarSig = '';
