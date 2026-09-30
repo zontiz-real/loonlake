@@ -759,7 +759,7 @@ function dressRealGun(g, a, id) {
     plate.position.set(0, b.maxY, b.minZ + 0.04);
     g.add(plate);
   }
-  if (a.drum) {
+  if (a.drum && !(kit.gunSpecs[id] && kit.gunSpecs[id].builtInDrum)) {
     const [r, y, z] = (kit.gunSpecs[id] && kit.gunSpecs[id].drum) || [0.09, -0.14, 0.06];
     const d = new THREE.Mesh(new THREE.CylinderGeometry(r, r, 0.07, 16), GM.poly);
     d.position.set(0, y, z);

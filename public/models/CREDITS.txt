@@ -23,10 +23,12 @@ head points forward, scaled to one unit long, and had their textures dropped so 
 - fish_deep: "Piranha" by JamesWhite (opengameart.org/content/piranha)
 - fish_cat: "3d low poly catfish" (opengameart.org/content/3d-low-poly-catfish)
 
-Gun models (gun_revolver, gun_draco, gun_m4a1, gun_m60, gun_minigun). These were supplied by the project owner as
-"Revolver PSX", "Micro Draco", "Low-poly M4A1", "Low-poly M60 machine gun" and "Low-poly M134 minigun". The original
+Gun models (gun_*). These were supplied by the project owner as "Revolver PSX", "Micro Draco", "Low-poly M4A1",
+"Low-poly M60 machine gun", "Low-poly M134 minigun", "Glock 17", "hunting_rifle", "shotgun", "ar15_compact",
+"lowpoly_smg_model_reworked" and "m170_sniper_rifle". The original
 authors and licenses have NOT been recorded yet. Confirm each one's license (and add the author credit if it requires
 attribution) before publishing the game. gun_m60 has the loose ammo boxes, belts and bipod removed; gun_draco has
-its textures downscaled to 512px.
+its textures downscaled to 512px. gun_arp and gun_sniper were also reduced in triangle count
+(about 49k to 8.5k and 36k to 14k) and had their textures shrunk to 512px.
 
 Consider supporting Quaternius on Patreon: https://www.patreon.com/quaternius

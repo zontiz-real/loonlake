@@ -395,6 +395,11 @@ export async function loadModels(onProgress) {
   const GUN_SPECS = {
     pistol: { file: 'gun_revolver', fwd: '-x', len: 0.3, grip: [0.15, 0.38], shadow: true },
     glock: { file: 'gun_glock', fwd: '+z', len: 0.2, grip: [0.19, 0.6], shadow: true, drum: [0.055, -0.15, -0.03] },
+    rifle: { file: 'gun_rifle', fwd: '-z', len: 1.1, grip: [0.29, 0.6], shadow: true },
+    shotgun: { file: 'gun_shotgun', fwd: '+x', len: 0.95, grip: [0.42, 0.6], shadow: true },
+    arp: { file: 'gun_arp', fwd: '+z', len: 0.55, grip: [0.27, 0.29], builtInDrum: true },
+    smg: { file: 'gun_smg', fwd: '-z', len: 0.42, grip: [0.115, 0.59], shadow: true, drum: [0.075, -0.15, 0.02] },
+    sniper: { file: 'gun_sniper', fwd: '+z', len: 1.25, grip: [0.27, 0.27] },
     draco: { file: 'gun_draco', fwd: '-z', len: 0.6, grip: [0.09, 0.59] },
     m4a1: { file: 'gun_m4a1', fwd: '+x', len: 0.85, grip: [0.28, 0.3] },
     m60: { file: 'gun_m60', fwd: '+x', len: 1.1, grip: [0.28, 0.27] },
