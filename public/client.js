@@ -227,7 +227,7 @@ let deathUntil = 0;
 let aimRot = 0;
 let castInfo = { valid: false, hot: false };
 const cam = { yaw: 0, pitch: 0.34, dist: TUNING.camDist, aim: 0, shake: 0 };
-if (window.__loon) Object.assign(window.__loon, { cam, vel, fishViews: () => fishViews, makeFish, makeBoatMesh, socket, species: () => speciesById, hold: (h) => { held = h; hotbarSig = ''; }, data: () => myData, me: () => views.get(myId), npcViews: () => npcViews, ragStep: (id, n) => { const v = npcViews.get(id) || views.get(id); for (let i = 0; v && v.rag && i < n; i++) stepRagdoll(v, 1 / 60, audioT); } });
+if (window.__loon) Object.assign(window.__loon, { cam, vel, fishViews: () => fishViews, makeFish, makeBoatMesh, makeAvatar, socket, species: () => speciesById, hold: (h) => { held = h; hotbarSig = ''; }, data: () => myData, me: () => views.get(myId), npcViews: () => npcViews, ragStep: (id, n) => { const v = npcViews.get(id) || views.get(id); for (let i = 0; v && v.rag && i < n; i++) stepRagdoll(v, 1 / 60, audioT); } });
 let pointerLocked = false;
 // automated browsers can't hold pointer lock (it also blocks screenshots), so they use drag-to-look
 let noLock = isTouch || !!navigator.webdriver;
@@ -560,15 +560,30 @@ const blockyFaces = new Map();
 function blockyFace(skinHex) {
   if (blockyFaces.has(skinHex)) return blockyFaces.get(skinHex);
   const cv = document.createElement('canvas');
-  cv.width = cv.height = 128;
+  cv.width = cv.height = 256;
   const g = cv.getContext('2d');
   g.fillStyle = skinHex;
-  g.fillRect(0, 0, 128, 128);
+  g.fillRect(0, 0, 256, 256);
+  // blush first, so the features sit on top
+  for (const x of [56, 200]) {
+    const grd = g.createRadialGradient(x, 156, 0, x, 156, 30);
+    grd.addColorStop(0, 'rgba(235, 96, 88, .38)');
+    grd.addColorStop(1, 'rgba(235, 96, 88, 0)');
+    g.fillStyle = grd;
+    g.fillRect(x - 30, 126, 60, 60);
+  }
   g.fillStyle = '#1B1B1F';
-  g.beginPath(); g.ellipse(44, 52, 7, 12, 0, 0, Math.PI * 2); g.fill();
-  g.beginPath(); g.ellipse(84, 52, 7, 12, 0, 0, Math.PI * 2); g.fill();
-  g.strokeStyle = '#1B1B1F'; g.lineWidth = 7; g.lineCap = 'round';
-  g.beginPath(); g.arc(64, 68, 30, 0.25 * Math.PI, 0.75 * Math.PI); g.stroke();
+  g.beginPath(); g.ellipse(88, 108, 14, 25, 0, 0, Math.PI * 2); g.fill();
+  g.beginPath(); g.ellipse(168, 108, 14, 25, 0, 0, Math.PI * 2); g.fill();
+  g.fillStyle = '#FFFFFF';
+  g.beginPath(); g.arc(93, 97, 5.5, 0, Math.PI * 2); g.fill();
+  g.beginPath(); g.arc(173, 97, 5.5, 0, Math.PI * 2); g.fill();
+  g.strokeStyle = '#1B1B1F'; g.lineCap = 'round';
+  g.lineWidth = 9; // brows
+  g.beginPath(); g.moveTo(64, 68); g.quadraticCurveTo(88, 56, 112, 66); g.stroke();
+  g.beginPath(); g.moveTo(144, 66); g.quadraticCurveTo(168, 56, 192, 68); g.stroke();
+  g.lineWidth = 12; // smile
+  g.beginPath(); g.arc(128, 132, 58, 0.22 * Math.PI, 0.78 * Math.PI); g.stroke();
   const tex = new THREE.CanvasTexture(cv);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;
@@ -581,23 +596,38 @@ const BLOCK = {
   leg: new RoundedBoxGeometry(0.39, 0.82, 0.39, 3, 0.06),
   sleeve: new RoundedBoxGeometry(0.37, 0.34, 0.37, 3, 0.06),
   forearm: new RoundedBoxGeometry(0.37, 0.5, 0.37, 3, 0.06),
+  shoe: new RoundedBoxGeometry(0.42, 0.17, 0.52, 2, 0.06),
+  belt: new RoundedBoxGeometry(0.86, 0.1, 0.46, 2, 0.03),
+  buckle: new RoundedBoxGeometry(0.13, 0.09, 0.03, 2, 0.01),
+  pocket: new RoundedBoxGeometry(0.22, 0.2, 0.03, 2, 0.01),
+  hairTop: new RoundedBoxGeometry(0.52, 0.1, 0.52, 2, 0.04),
+  hairBack: new RoundedBoxGeometry(0.53, 0.4, 0.12, 2, 0.05),
+  hairSide: new RoundedBoxGeometry(0.06, 0.26, 0.3, 2, 0.02),
 };
+const HAIR_COLORS = ['#2B1B10', '#5A3A1E', '#8A5A2B', '#C9A15B', '#1B1B1F', '#7A2E1E'];
+const nameHash = (n) => Math.abs([...String(n || '')].reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 7));
 function makeBlockAvatar(color, name, skin = 0) {
   const group = new THREE.Group();
   const skinHex = SKINS[skin] || SKINS[0];
   const plastic = (col) => new THREE.MeshStandardMaterial({ color: col, roughness: 0.5, metalness: 0 });
   const cloth = plastic(color);
-  const pantsMat = plastic(new THREE.Color(color).multiplyScalar(0.42).lerp(new THREE.Color(0x35507A), 0.5));
+  // denim, nudged toward the shirt color so a group of anglers still looks varied
+  const pantsMat = plastic(new THREE.Color(0x3B5B8C).lerp(new THREE.Color(color).multiplyScalar(0.35), 0.18));
+  const shoeMat = plastic(0x3A2A1E);
+  const hairMat = plastic(HAIR_COLORS[nameHash(name) % HAIR_COLORS.length]);
+  const trimMat = plastic(new THREE.Color(color).multiplyScalar(0.8));
   const skinMat = plastic(skinHex);
   const faceMat = new THREE.MeshStandardMaterial({ map: blockyFace(skinHex), roughness: 0.5 });
   const body = limb(BLOCK.torso, cloth, 0, 1.21, 0);
+  // belt, buckle and a chest pocket ride on the torso so they follow any squash or lean
+  body.add(limb(BLOCK.belt, shoeMat, 0, -0.34, 0), limb(BLOCK.buckle, MAT.metal, 0, -0.34, 0.235), limb(BLOCK.pocket, trimMat, -0.2, 0.12, 0.215));
   const belt = new THREE.Object3D();
   // hips and shoulders are pivots, so limbs swing from the joint instead of the middle
   const joint = (x, y) => { const g = new THREE.Group(); g.position.set(x, y, 0); return g; };
   const legL = joint(-0.205, 0.8);
   const legR = joint(0.205, 0.8);
-  legL.add(limb(BLOCK.leg, pantsMat, 0, -0.41, 0));
-  legR.add(limb(BLOCK.leg, pantsMat, 0, -0.41, 0));
+  legL.add(limb(BLOCK.leg, pantsMat, 0, -0.41, 0), limb(BLOCK.shoe, shoeMat, 0, -0.745, 0.05));
+  legR.add(limb(BLOCK.leg, pantsMat, 0, -0.41, 0), limb(BLOCK.shoe, shoeMat, 0, -0.745, 0.05));
   const armL = joint(-0.6, 1.56);
   const armR = joint(0.6, 1.56);
   armL.add(limb(BLOCK.sleeve, cloth, 0, -0.17, 0), limb(BLOCK.forearm, skinMat, 0, -0.55, 0));
@@ -608,6 +638,8 @@ function makeBlockAvatar(color, name, skin = 0) {
   const head = new THREE.Mesh(BLOCK.head, [skinMat, skinMat, skinMat, skinMat, faceMat, skinMat]);
   head.position.set(0, 1.86, 0);
   head.castShadow = true;
+  head.add(limb(BLOCK.hairTop, hairMat, 0, 0.2, 0), limb(BLOCK.hairBack, hairMat, 0, 0.04, -0.21),
+    limb(BLOCK.hairSide, hairMat, -0.235, 0.1, -0.04), limb(BLOCK.hairSide, hairMat, 0.235, 0.1, -0.04));
   const brim = limb(GEO.brim, MAT.hat, 0, 2.08, 0);
   const crown = limb(GEO.crown, MAT.hat, 0, 2.2, 0);
   brim.scale.setScalar(0.8);
