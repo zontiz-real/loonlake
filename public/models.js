@@ -394,6 +394,7 @@ export async function loadModels(onProgress) {
   // grip is [how far along from the rear, how far up from the bottom] as fractions of the model's size
   const GUN_SPECS = {
     pistol: { file: 'gun_revolver', fwd: '-x', len: 0.3, grip: [0.15, 0.38], shadow: true },
+    glock: { file: 'gun_glock', fwd: '+z', len: 0.2, grip: [0.19, 0.6], shadow: true, drum: [0.055, -0.15, -0.03] },
     draco: { file: 'gun_draco', fwd: '-z', len: 0.6, grip: [0.09, 0.59] },
     m4a1: { file: 'gun_m4a1', fwd: '+x', len: 0.85, grip: [0.28, 0.3] },
     m60: { file: 'gun_m60', fwd: '+x', len: 1.1, grip: [0.28, 0.27] },

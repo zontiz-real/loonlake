@@ -743,7 +743,7 @@ const GM = {
   switchPlate: new THREE.MeshStandardMaterial({ color: 0xC9A227, roughness: 0.3, metalness: 0.8 }),
 };
 // attachments for a gun that came from a model file: a laser module under the muzzle and a drum under the receiver
-function dressRealGun(g, a) {
+function dressRealGun(g, a, id) {
   const b = g.userData.bounds;
   if (a.laser) {
     const z = b.maxZ * 0.72;
@@ -754,9 +754,15 @@ function dressRealGun(g, a) {
     lens.position.set(0, y, z + 0.03);
     g.add(body, lens);
   }
+  if (a.switch) {
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.018, 0.03), GM.switchPlate);
+    plate.position.set(0, b.maxY, b.minZ + 0.04);
+    g.add(plate);
+  }
   if (a.drum) {
-    const d = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.07, 16), GM.poly);
-    d.position.set(0, -0.14, 0.06);
+    const [r, y, z] = (kit.gunSpecs[id] && kit.gunSpecs[id].drum) || [0.09, -0.14, 0.06];
+    const d = new THREE.Mesh(new THREE.CylinderGeometry(r, r, 0.07, 16), GM.poly);
+    d.position.set(0, y, z);
     d.rotation.z = Math.PI / 2;
     d.castShadow = true;
     g.add(d);
@@ -766,7 +772,7 @@ function dressRealGun(g, a) {
 
 function buildGunModel(id, a = {}) {
   const real = kit && kit.gunModel(id);
-  if (real) return dressRealGun(real, a);
+  if (real) return dressRealGun(real, a, id);
   const g = new THREE.Group();
   const part = (geo, mat, x, y, z, rx = 0, rz = 0) => {
     const m = new THREE.Mesh(geo, mat);
