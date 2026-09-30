@@ -1,4 +1,4 @@
-// 100 more species for Loon Lake: 45 for the lake and its rivers, 55 for the big water.
+// 102 more species for Loon Lake: 45 for the lake and its rivers, 57 for the big water.
 // Each row: id, name, water, rarity, [min lbs, max lbs], color, long-bodied (1) or round (0), options
 //   options: when ('night'), golden (dawn/dusk boost), deep, prop [width, height, length], belly, fin, pattern, hint
 const R = {
@@ -35,10 +35,10 @@ const ROWS = [
   ['carp', 'Common carp', 'lake', 'uncommon', [2, 30], '#B89A4A', 1, { prop: [1.15, 1.1, 1.05] }],
   ['sauger', 'Sauger', 'lake', 'uncommon', [0.8, 6], '#A89A6A', 1, { golden: 2, pattern: 'bars', hint: 'Best at dawn and dusk.' }],
   ['drum', 'Freshwater drum', 'lake', 'uncommon', [1, 25], '#A8A8A0', 0, {}],
-  ['gar', 'Longnose gar', 'lake', 'uncommon', [3, 20], '#7A8A5A', 1, { prop: [0.7, 0.7, 1.5] }],
+  ['gar', 'Longnose gar', 'lake', 'uncommon', [3, 20], '#7A8A5A', 1, { prop: [0.75, 0.75, 1.2] }],
   ['bowfin', 'Bowfin', 'lake', 'uncommon', [2, 14], '#5A6A3A', 1, {}],
   ['roundwhitefish', 'Round whitefish', 'lake', 'uncommon', [0.6, 4], '#C8C4B0', 1, {}],
-  ['eel', 'American eel', 'lake', 'uncommon', [1, 8], '#4A5A3A', 1, { when: 'night', prop: [0.55, 0.6, 1.9], hint: 'Only after dark.' }],
+  ['eel', 'American eel', 'lake', 'uncommon', [1, 8], '#4A5A3A', 1, { when: 'night', prop: [0.6, 0.65, 1.4], hint: 'Only after dark.' }],
   ['mooneye', 'Mooneye', 'lake', 'uncommon', [0.4, 2], '#C8D0D8', 0, {}],
   // ---------------------------------------------------------------- lake, rare
   ['tigermuskie', 'Tiger muskie', 'lake', 'rare', [8, 40], '#4E7C4A', 1, { pattern: 'bars', hint: 'Minnows and patience.' }],
@@ -95,16 +95,16 @@ const ROWS = [
   ['mahi', 'Mahi-mahi', 'ocean', 'uncommon', [5, 40], '#3AA88A', 1, { fin: '#E8C83A', prop: [0.8, 1.15, 1.1] }],
   ['lionfish', 'Lionfish', 'ocean', 'uncommon', [0.5, 2], '#B8503A', 0, { pattern: 'bars' }],
   // ---------------------------------------------------------------- ocean, rare
-  ['wahoo', 'Wahoo', 'ocean', 'rare', [15, 90], '#3A6A98', 1, { pattern: 'bars', prop: [0.75, 0.8, 1.4] }],
+  ['wahoo', 'Wahoo', 'ocean', 'rare', [15, 90], '#3A6A98', 1, { pattern: 'bars', prop: [0.85, 0.9, 1.1] }],
   ['yellowfin', 'Yellowfin tuna', 'ocean', 'rare', [20, 200], '#3A5A80', 1, { fin: '#E8C83A', prop: [1.1, 1.05, 1.2] }],
   ['albacore', 'Albacore tuna', 'ocean', 'rare', [15, 60], '#5A7A98', 1, { prop: [1.05, 1, 1.15] }],
   ['skipjack', 'Skipjack tuna', 'ocean', 'rare', [5, 30], '#4A6A90', 1, { pattern: 'stripe' }],
-  ['barracuda', 'Great barracuda', 'ocean', 'rare', [5, 60], '#8A98A0', 1, { prop: [0.7, 0.75, 1.45] }],
+  ['barracuda', 'Great barracuda', 'ocean', 'rare', [5, 60], '#8A98A0', 1, { prop: [0.8, 0.85, 1.15] }],
   ['tarpon', 'Tarpon', 'ocean', 'rare', [30, 200], '#B8C8D0', 1, { prop: [0.8, 1.2, 1.3] }],
   ['permit', 'Permit', 'ocean', 'rare', [5, 40], '#C0C8D0', 0, {}],
   ['halibut', 'Atlantic halibut', 'ocean', 'rare', [20, 200], '#6A6250', 0, { prop: [1.7, 0.5, 1.2], deep: true }],
   ['monkfish', 'Monkfish', 'ocean', 'rare', [10, 60], '#5A4A3A', 0, { prop: [1.6, 0.7, 1.1], deep: true }],
-  ['moray', 'Moray eel', 'ocean', 'rare', [5, 30], '#6A6A3A', 1, { when: 'night', prop: [0.55, 0.65, 1.9], hint: 'Only after dark.' }],
+  ['moray', 'Moray eel', 'ocean', 'rare', [5, 30], '#6A6A3A', 1, { when: 'night', prop: [0.65, 0.75, 1.4], hint: 'Only after dark.' }],
   ['bonefish', 'Bonefish', 'ocean', 'rare', [3, 15], '#C8D0D0', 1, {}],
   ['dogfish', 'Spiny dogfish', 'ocean', 'rare', [3, 15], '#7A8088', 1, { prop: [0.85, 0.85, 1.4] }],
   // ---------------------------------------------------------------- ocean, epic
@@ -113,12 +113,14 @@ const ROWS = [
   ['hammerhead', 'Hammerhead shark', 'ocean', 'epic', [150, 900], '#7A8088', 1, { prop: [1.25, 1.1, 1.7] }],
   ['tigershark', 'Tiger shark', 'ocean', 'epic', [300, 1200], '#6A7078', 1, { pattern: 'bars', prop: [1.3, 1.2, 1.8] }],
   ['bluefin', 'Bluefin tuna', 'ocean', 'epic', [100, 900], '#2A4A7A', 1, { prop: [1.2, 1.15, 1.3] }],
-  ['swordfish', 'Swordfish', 'ocean', 'epic', [100, 600], '#5A6878', 1, { prop: [0.85, 0.95, 1.7] }],
-  ['bluemarlin', 'Blue marlin', 'ocean', 'epic', [200, 1000], '#2A5A9A', 1, { prop: [0.8, 1, 1.9], fin: '#1A3A6A' }],
+  ['swordfish', 'Swordfish', 'ocean', 'epic', [100, 600], '#5A6878', 1, { prop: [0.9, 1, 1.15] }],
+  ['bluemarlin', 'Blue marlin', 'ocean', 'epic', [200, 1000], '#2A5A9A', 1, { prop: [0.85, 1, 1.2], fin: '#1A3A6A' }],
   // ---------------------------------------------------------------- ocean, legendary
   ['greatwhite', 'Great white shark', 'ocean', 'legendary', [500, 2000], '#7A8898', 1, { belly: '#F4F4F0', prop: [1.35, 1.3, 1.9], hint: 'The one everyone whispers about.' }],
   ['whaleshark', 'Whale shark', 'ocean', 'legendary', [3000, 9000], '#3A5A7A', 1, { pattern: 'spots', prop: [1.5, 1.1, 2], hint: 'Gentle, and bigger than the boat.' }],
   ['oarfish', 'Oarfish', 'ocean', 'legendary', [100, 500], '#C8D0D8', 1, { deep: true, fin: '#D03A3A', prop: [0.35, 0.9, 2.6], hint: 'The sea serpent from the old stories.' }],
+  ['stingray', 'Southern stingray', 'ocean', 'uncommon', [10, 100], '#8A7A5A', 1, { model: 'fish_ray', belly: '#EDE6D6', hint: 'Skims the sandy shallows of the big water.' }],
+  ['mantaray', 'Manta ray', 'ocean', 'epic', [500, 2000], '#1E3A6A', 1, { model: 'fish_ray', belly: '#F4F4F0', deep: true, hint: 'A gentle giant that glides out past the channel.' }],
   ['coelacanth', 'Coelacanth', 'ocean', 'legendary', [50, 200], '#3A3A58', 0, { deep: true, hint: 'Supposed to be extinct.' }],
 ];
 

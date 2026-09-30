@@ -13,7 +13,7 @@ export const LOOKS = [
 ];
 export const SKINS = ['#F3CFA8', '#E2B07E', '#C68642', '#9E6639', '#744626', '#4B2C18'];
 
-const PROPS = ['fish_long', 'fish_round', 'rowboat', 'boat_row', 'boat_fish', 'boat_speed', 'barn', 'well', 'fence', 'rifle', 'barrel',
+const PROPS = ['fish_long', 'fish_round', 'fish_shark', 'fish_ray', 'fish_clown', 'fish_pike', 'fish_deep', 'fish_cat', 'rowboat', 'boat_row', 'boat_fish', 'boat_speed', 'barn', 'well', 'fence', 'rifle', 'barrel',
   'rock1', 'rock2', 'rock3', 'bush1', 'bush2', 'bush3', 'maple1', 'maple2', 'maple3', 'maple4'];
 
 // the pack ships some props untextured, so paint them by material name
@@ -27,8 +27,8 @@ const PAINT = {
 
 const LONG_FISH = new Set(['walleye', 'pike', 'muskie', 'eelpout', 'sturgeon', 'golden', 'catfish', 'bass', 'perch', 'cisco', 'whitefish', 'salmon', 'laketrout', 'pressie']);
 const CHAR_HEIGHT = 1.85;
-// the fish models swim along -z; the game expects heads toward +z
-const FISH_YAW = Math.PI;
+// the fish models already face +z (verified by comparing the Face and Tail bones with the swim direction)
+const FISH_YAW = 0;
 
 const tmpA = new THREE.Vector3();
 const tmpB = new THREE.Vector3();
@@ -217,36 +217,87 @@ export async function loadModels(onProgress) {
   };
   const FISH_BELLY = { perch: '#F1E9A8', bluegill: '#F2B24A', salmon: '#EFD9D0', sturgeon: '#D8D0BC', bass: '#E4E0B4', pike: '#EEEBD0' };
   const FISH_FIN = { perch: '#E86A2A', salmon: '#B84A4A', bass: '#6E6A2E', golden: '#FFD36A', catfish: '#3A4448', bluegill: '#2D6E70', crappie: '#5E6B5E', pike: '#B0682C' };
+  // Each model family: how it is colored and how long it is at "average" size.
+  //   tb: Top/Bottom materials    clown: Body/Stripes/Outline    grad: one body color, shaded belly to back
+  const FAMILIES = {
+    fish_long: { kind: 'long', len: 0.72, legacy: true },
+    fish_round: { kind: 'round', len: 0.46, legacy: true },
+    fish_shark: { kind: 'tb', len: 1.0 },
+    fish_ray: { kind: 'tb', len: 0.95 },
+    fish_clown: { kind: 'clown', len: 0.9 },
+    fish_pike: { kind: 'grad', len: 0.9 },
+    fish_deep: { kind: 'grad', len: 0.7 },
+    fish_cat: { kind: 'grad', len: 0.75 },
+  };
+  // shade one-material models from belly to back in the shader, using the world-space up-facing normal
+  // (so it follows the animation and works whichever way the model was authored)
+  function gradientMaterial(root, body, belly) {
+    root.traverse((o) => {
+      if (!o.isMesh) return;
+      (Array.isArray(o.material) ? o.material : [o.material]).forEach((mat) => {
+        mat.color.set(0xffffff);
+        mat.onBeforeCompile = (shader) => {
+          shader.uniforms.uBody = { value: body };
+          shader.uniforms.uBelly = { value: belly };
+          shader.vertexShader = shader.vertexShader
+            .replace('#include <common>', '#include <common>\nvarying vec3 vWN;')
+            .replace('#include <defaultnormal_vertex>', '#include <defaultnormal_vertex>\nvWN = normalize(mat3(modelMatrix) * objectNormal);');
+          shader.fragmentShader = shader.fragmentShader
+            .replace('#include <common>', '#include <common>\nvarying vec3 vWN; uniform vec3 uBody; uniform vec3 uBelly;')
+            .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb *= mix(uBelly, uBody, smoothstep(-0.35, 0.5, vWN.y));');
+        };
+        mat.customProgramCacheKey = () => 'fishgrad';
+        mat.needsUpdate = true;
+      });
+    });
+  }
+
   kit.fish = (sid, hex, spec) => {
     const long = spec && spec.long !== undefined ? !!spec.long : LONG_FISH.has(sid);
-    const src = g[long ? 'fish_long' : 'fish_round'];
+    const famName = (spec && spec.model && g[spec.model] ? spec.model : null) || (long ? 'fish_long' : 'fish_round');
+    const fam = FAMILIES[famName];
+    const src = g[famName];
     const root = SkeletonUtils.clone(src.scene);
-    const box = new THREE.Box3().setFromObject(src.scene).getSize(tmpA);
-    const len = Math.max(box.x, box.z);
+    // the two original models need measuring; the newer ones are already exactly one unit long
+    let len = 1;
+    if (fam.legacy) {
+      const box = new THREE.Box3().setFromObject(src.scene).getSize(tmpA);
+      len = Math.max(box.x, box.z);
+    }
     // bigger species are bigger fish: a minnow is a fraction of a bluegill, a whale shark is huge
     const avg = spec && spec.lbs ? (spec.lbs[0] + spec.lbs[1]) / 2 : 3;
-    const sizeMul = Math.max(0.55, Math.min(3.6, Math.cbrt(avg / 4)));
-    root.scale.multiplyScalar(((long ? 0.72 : 0.46) * sizeMul) / len);
+    const sizeMul = Math.max(0.65, Math.min(10, Math.pow(avg / 4, 0.3)));
+    root.scale.multiplyScalar((fam.len * sizeMul) / len);
     const mats = cloneMats(root, true);
     const body = new THREE.Color(hex || '#4FA3A5');
     const bellyHex = (spec && spec.belly) || FISH_BELLY[sid];
     const finHex = (spec && spec.fin) || FISH_FIN[sid];
     const belly = bellyHex ? new THREE.Color(bellyHex) : body.clone().lerp(new THREE.Color('#F2EEDC'), 0.6);
     const fin = finHex ? new THREE.Color(finHex) : body.clone().multiplyScalar(0.55);
-    if (long) {
+    if (fam.kind === 'long') {
       mats.Top?.color.copy(body);
       mats.Bottom?.color.copy(belly);
       mats.Fins?.color.copy(fin);
-    } else {
+    } else if (fam.kind === 'round') {
       mats.Body?.color.copy(body);
       mats.Front?.color.copy(belly);
       mats.Fins?.color.copy(fin);
+    } else if (fam.kind === 'tb') {
+      mats.Top?.color.copy(body);
+      mats.Bottom?.color.copy(belly);
+    } else if (fam.kind === 'clown') {
+      mats.Body?.color.copy(body);
+      mats.Stripes?.color.copy(belly);
+      mats.Outline?.color.copy(body.clone().multiplyScalar(0.25));
+    } else {
+      gradientMaterial(root, body, belly);
     }
     if (sid === 'golden') Object.values(mats).forEach((m) => { m.metalness = 0.55; m.roughness = 0.35; m.emissive = new THREE.Color(0x4A3000); });
     const group = new THREE.Group();
     const turn = new THREE.Group();
     turn.rotation.y = FISH_YAW;
-    const shape = (spec && spec.prop) || FISH_SHAPE[sid];
+    // body-proportion tweaks were tuned for the plain fish; the pike model takes only explicit ones, the rest keep their real shapes
+    const shape = fam.legacy ? (spec && spec.prop) || FISH_SHAPE[sid] : famName === 'fish_pike' ? spec && spec.prop : null;
     if (shape) turn.scale.set(...shape);
     turn.add(root);
     group.add(turn);
@@ -254,7 +305,7 @@ export async function loadModels(onProgress) {
     if (src.animations[0]) {
       const a = mixer.clipAction(src.animations[0]);
       a.play();
-      mixer.setTime(Math.random() * 1.3);
+      mixer.setTime(Math.random() * a.getClip().duration);
     }
     group.userData.mixer = mixer;
     group.userData.mats = mats;

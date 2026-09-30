@@ -124,6 +124,15 @@ const SPECIES = [
 const LONG_IDS = new Set(['walleye', 'pike', 'muskie', 'eelpout', 'sturgeon', 'golden', 'catfish', 'bass', 'perch', 'cisco', 'whitefish', 'salmon', 'laketrout', 'pressie']);
 SPECIES.forEach((s) => { s.long = LONG_IDS.has(s.id); });
 SPECIES.push(...require('./species_extra'));
+// which 3D model each species uses (anything not listed uses the plain long or round fish)
+const MODEL_OF = {};
+const assignModel = (model, ids) => ids.forEach((id) => { MODEL_OF[id] = model; });
+assignModel('fish_shark', ['mako', 'thresher', 'hammerhead', 'tigershark', 'greatwhite', 'whaleshark', 'dogfish']);
+assignModel('fish_pike', ['pike', 'muskie', 'tigermuskie', 'barracuda', 'gar', 'bowfin', 'wahoo', 'swordfish', 'bluemarlin', 'moray', 'eel', 'eelpout']);
+assignModel('fish_cat', ['catfish', 'bullhead', 'yellowbullhead', 'flathead', 'bluecat', 'albinocat']);
+assignModel('fish_deep', ['bluegill', 'pumpkinseed', 'greensunfish', 'redear', 'rockbass', 'crappie', 'whitecrappie', 'whiteperch', 'pompano', 'permit', 'scup', 'tautog', 'blackdrum', 'snapper', 'grouper', 'seabass', 'drum']);
+assignModel('fish_clown', ['killifish', 'warmouth', 'sheepshead', 'lionfish']);
+SPECIES.forEach((s) => { if (MODEL_OF[s.id]) s.model = MODEL_OF[s.id]; });
 const SPECIES_BY_ID = Object.fromEntries(SPECIES.map((s) => [s.id, s]));
 const FISHY = (s) => !['junk', 'treasure'].includes(s.rarity) && !s.when;
 const SWIMMERS = SPECIES.filter((s) => ['common', 'uncommon', 'rare'].includes(s.rarity) && !s.when && s.where === 'lake');
@@ -157,7 +166,7 @@ const SLOT_WEIGHT = SLOT_SYMBOLS.reduce((s, x) => s + x.w, 0);
 const COLORS = ['#E0452B', '#F2B134', '#4FA3A5', '#9B6FC2', '#E8E3D3', '#6DBF67', '#3E7CC9', '#D9719B'];
 
 // what the client needs to draw the world, shop, and journal
-WORLD.species = SPECIES.map(({ id, name, rarity, lbs, color, hint, when, where, long, prop, belly, fin, pattern }) => ({ id, name, rarity, lbs, color, hint, when, where, long, prop, belly, fin, pattern }));
+WORLD.species = SPECIES.map(({ id, name, rarity, lbs, color, hint, when, where, long, prop, belly, fin, pattern, model }) => ({ id, name, rarity, lbs, color, hint, when, where, long, prop, belly, fin, pattern, model }));
 WORLD.colors = COLORS;
 
 // ---------------------------------------------------------------- server

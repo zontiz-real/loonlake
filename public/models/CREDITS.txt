@@ -16,4 +16,11 @@ Packs used:
 - Watercraft Kit (v2.1): boat_row (boat-row-large), boat_fish (boat-speed-d), boat_speed (boat-speed-j).
   The texture is embedded into each GLB so they load as a single file.
 
+Fish models, all CC0 1.0 Universal (public domain), from OpenGameArt.org. They were converted to GLB, turned so the
+head points forward, scaled to one unit long, and had their textures dropped so the game can recolor them per species:
+- fish_shark, fish_ray, fish_clown: Animated Fish Pack by Quaternius (opengameart.org/content/animated-fish): Shark, Manta ray, Clownfish
+- fish_pike: "Esox - Animated Fish" by CDmir (opengameart.org/content/esox-animated-fish)
+- fish_deep: "Piranha" by JamesWhite (opengameart.org/content/piranha)
+- fish_cat: "3d low poly catfish" (opengameart.org/content/3d-low-poly-catfish)
+
 Consider supporting Quaternius on Patreon: https://www.patreon.com/quaternius

@@ -76,7 +76,7 @@ The 3D models in `public/models` are by [Quaternius](https://quaternius.com), re
 - `server.js` runs everything that matters: movement checks, bites, species rolls, hot spots, derbies, the clock, NPCs, shots, the shop, cards, slots, and saves.
 - `public/client.js` holds the camera, input, fishing and reeling, combat, and all of the HUD.
 - `public/world.js` builds the sky and day cycle, the water shader, the camp, the forest, and the loons.
-- `public/models.js` loads the models, tints characters and fish, and sets up animations and instancing.
+- `public/models.js` loads the models, tints characters and fish, and sets up animations and instancing. Fish come in a few model families (sharks, rays, pike, catfish, deep-bodied fish, banded fish, and the two plain fish) and each species picks one.
 - `public/fx.js` has particles, ripples, floating numbers, and tracers.
 - `public/sfx.js` synthesizes all audio, so there are no sound files.
 - `public/touch.js` handles phone controls.
