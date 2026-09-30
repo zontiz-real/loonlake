@@ -17,7 +17,7 @@ Fish for cash, climb through better rods and bait, fill out your journal, and wi
 - **Levels and quests.** Every catch earns XP (more for rare fish, first catches and personal bests). Level up for a cash bonus. Three rolling quests (catch fish, catch uncommon or better, catch on a hot spot) pay cash and XP, then get replaced with a fresh one that scales with your level. Both save with your profile.
 - **14 species** across common, uncommon, rare, epic, and legendary, plus junk and treasure. Walleye bite at dawn and dusk. Catfish and eelpout only come out at night. Sturgeon live in the deep middle, so you need a rod that casts far. Press J for the journal.
 - **Gear.** Seven rods (longer casts, more line strength, faster reel) and four baits (rarer fish), bought in order from Moss. Three boats: a rowboat, an aluminum skiff, and a sport cruiser.
-- **Guns.** Pistol, hunting rifle, shotgun, SMG and sniper rifle, each with its own magazine size, reload time, damage, spread and range. Shots you aim at the water splash where you aimed instead of flying off into the distance.
+- **Guns.** Revolver, Glock 19, hunting rifle, shotgun, SMG, AR pistol, Draco and sniper rifle, each with its own magazine, reload, damage, spread and range. Moss sells attachments: a laser beam (tighter groups and a visible red beam), a drum mag (2.5x the rounds, slower reload), and an auto switch for the Glock and revolver (full auto, fast, sloppy). Shots you aim at the water splash where you aimed instead of flying off into the distance.
 - **Hot spots.** Bubbling patches that drift around the lake. They bite faster and hold bigger fish. They show as gold rings on the minimap.
 - **Day and night.** A full day takes 12 minutes.
 - **Derbies.** Every 6 minutes a derby runs for 2.5 minutes. The heaviest fish takes the pot, which grows with each player who weighs in. If you log off, you still get paid.
@@ -42,7 +42,7 @@ WASD to walk, Shift to run. Click the game to lock the mouse, Esc to release it.
 - **Right click** (hold) zooms. With a gun out it aims down the sights, and you can still shoot while zoomed.
 - **Space** jumps. Hold it to bunny hop, and landing straight into the next hop builds speed.
 - **R** reloads. Guns have magazines and share a pool of spare rounds.
-- **1-0, -, =** hold the matching hotbar item: fists, rod, bait, then whichever guns you own, then the drugs and your bag.
+- **1-0, -, =** or the **scroll wheel** switch hotbar items: fists, rod, bait, then whichever guns you own, then the drugs and your bag. Ctrl + wheel moves the camera.
 - **Q** reels your line in. **E** talks to Moss, sits at the shack, or launches/leaves your boat. **F** throws a punch.
 - Walk into the water to swim. You can't fish while swimming. Players are solid, so you can't walk through each other.
 - **P** phone, **J** journal, **H** help, **Enter** chat.

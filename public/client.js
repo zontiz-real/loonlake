@@ -203,8 +203,6 @@ const JUMP_V = 5.4;
 const JUMP_G = 20;
 const BHOP_STEP = 0.12;
 const BHOP_MAX = 1.5;
-const GUN_LOOK = { pistol: 0.55, rifle: 1, shotgun: 1.05, smg: 0.75, sniper: 1.25 };
-const RECOIL = { pistol: 0.012, rifle: 0.02, shotgun: 0.045, smg: 0.008, sniper: 0.06 };
 let reel = null;
 let castSwing = 0;
 let nibbleAt = 0;
@@ -241,6 +239,18 @@ const inWater = (x, z) => W && !onDock(x, z) && (Math.hypot(x, z) < W.lakeRadius
 const surfaceAt = (x, z, t) => (inWater(x, z) ? WATER_Y + wave(x, z, t) : onDock(x, z) ? DOCK_Y : groundHeight(x, z));
 const isGun = (h) => !!(W && W.guns && W.guns[h]);
 const gunOf = (h) => (W && W.guns ? W.guns[h] : null);
+// a gun's stats once its attachments are on (mirrors the server)
+function effGun(id) {
+  const base = gunOf(id);
+  if (!base) return null;
+  const a = (myData && myData.att && myData.att[id]) || {};
+  const A = W.attachments;
+  let { mag, reload, cooldown, spread, auto } = base;
+  if (a.drum) { mag = Math.round(mag * A.drum.magMul); reload += A.drum.reloadAdd; }
+  if (a.switch) { cooldown = Math.round(cooldown * A.switch.cooldownMul); spread *= A.switch.spreadMul; auto = true; }
+  if (a.laser) spread *= A.laser.spreadMul;
+  return { ...base, mag, reload, cooldown, spread, auto };
+}
 const ownsGun = (h) => !!(myData && myData.guns && myData.guns[h]);
 const footOk = (x, z) => onLand(x, z) || inWater(x, z) || inChannel(x, z, 0.8) || Math.hypot(x, z) < W.shoreRadius;
 const boating = () => !!(myData && myData.boat);
@@ -662,6 +672,16 @@ function makeBoatMesh(tier = 0) {
   return g;
 }
 
+function makeBeam() {
+  const g = new THREE.Group();
+  const mat = new THREE.MeshBasicMaterial({ color: 0xFF2A2A, transparent: true, opacity: 0.7, depthWrite: false, blending: THREE.AdditiveBlending });
+  const line = new THREE.Mesh(new THREE.BoxGeometry(0.014, 0.014, 1), mat);
+  const dot = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), mat);
+  g.add(line, dot);
+  g.traverse((o) => { o.frustumCulled = false; });
+  return g;
+}
+
 function makeBobber() {
   const g = new THREE.Group();
   const top = new THREE.Mesh(new THREE.SphereGeometry(0.14, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0xE0452B, roughness: 0.4 }));
@@ -775,6 +795,7 @@ function makeView(d) {
 
 function removeView(v) {
   scene.remove(v.group, v.line, v.bobber);
+  if (v.beam) scene.remove(v.beam);
   disposeAvatar(v);
   v.line.geometry.dispose();
   v.line.material.dispose();
@@ -1301,9 +1322,18 @@ addEventListener('mouseup', (e) => {
   else if (e.button === 2) releaseRight();
 });
 canvas.addEventListener('pointercancel', () => { releaseLeft(); releaseRight(); });
+let wheelAt = 0;
 canvas.addEventListener('wheel', (e) => {
   e.preventDefault();
-  cam.dist = clamp(cam.dist + e.deltaY * 0.01, TUNING.camMin, TUNING.camMax);
+  // Ctrl + wheel moves the camera; plain wheel flips through your hotbar like most games
+  if (e.ctrlKey) { cam.dist = clamp(cam.dist + e.deltaY * 0.01, TUNING.camMin, TUNING.camMax); return; }
+  const now = performance.now();
+  if (now - wheelAt < 110 || !myId || !alive() || openPanel || phase !== 'idle') return;
+  wheelAt = now;
+  const list = hotbarList().filter((a) => a !== 'bag' && canHold(a));
+  if (!list.length) return;
+  const at = Math.max(0, list.indexOf(held));
+  selectHold(list[(at + (e.deltaY > 0 ? 1 : -1) + list.length) % list.length], false);
 }, { passive: false });
 
 addEventListener('keydown', (e) => {
@@ -1662,7 +1692,7 @@ function itemButton(action, title, desc, price, disabled, owned) {
 function renderShop() {
   if (openPanel !== 'shop' || !myData || !W) return;
   const d = myData;
-  const sig = [d.cash, d.boatTier, d.rod, d.bait, Object.values(d.guns || {}).join(''), d.ammo, d.bag.n, d.bag.value, d.pocket.weed, d.pocket.whiskey, d.pocket.crank].join('|');
+  const sig = [d.cash, d.boatTier, d.rod, d.bait, Object.values(d.guns || {}).join(''), JSON.stringify(d.att || 0), d.ammo, d.bag.n, d.bag.value, d.pocket.weed, d.pocket.whiskey, d.pocket.crank].join('|');
   if (sig === shopSig) return;
   shopSig = sig;
   const sell = $('sellBtn');
@@ -1694,12 +1724,20 @@ function renderShop() {
     if (d.guns[id]) continue;
     gear.append(itemButton(id, g.name, `${g.desc} ${g.mag} per magazine. Comes loaded with ${g.start} spare rounds.`, `$${g.price}`, d.cash < g.price));
   }
+  for (const id of GUN_ORDER) {
+    if (!d.guns[id]) continue;
+    for (const key of Object.keys(W.attachments)) {
+      const at = W.attachments[key];
+      if (d.att[id][key] || (at.only && !at.only.includes(id))) continue;
+      gear.append(itemButton(`att:${id}:${key}`, `${W.guns[id].name}: ${at.name}`, at.desc, `$${at.price}`, d.cash < at.price));
+    }
+  }
   if (Object.values(d.guns).some(Boolean)) gear.append(itemButton('ammo', `Ammo, ${W.shop.ammoCount} rounds`, `You have ${d.ammo} spare. Press R to reload.`, `$${W.shop.ammo}`, d.cash < W.shop.ammo));
 
   const counter = $('counterList');
   counter.replaceChildren();
   DRUGS.forEach((name, i) => {
-    counter.append(itemButton(name, `${name[0].toUpperCase()}${name.slice(1)}`, `${DRUG_INFO[name]} Key ${['9', '0', '-'][i]}. You have ${d.pocket[name]}.`, `$${W.shop[name]}`, d.cash < W.shop[name]));
+    counter.append(itemButton(name, `${name[0].toUpperCase()}${name.slice(1)}`, `${DRUG_INFO[name]} You have ${d.pocket[name]}.`, `$${W.shop[name]}`, d.cash < W.shop[name]));
   });
 }
 
@@ -2221,7 +2259,7 @@ function tryPunch() {
 
 function reload() {
   if (!myId || !alive() || !isGun(held) || phase !== 'idle' || !myData) return;
-  const g = gunOf(held);
+  const g = effGun(held);
   if (!ownsGun(held) || myData.reloadGun || (myData.mag[held] || 0) >= g.mag) return;
   if (myData.ammo <= 0) { flashPrompt('No spare rounds. Moss sells more.', '', 1500); return; }
   socket.emit('reload', { gun: held }, (res) => {
@@ -2236,7 +2274,7 @@ function reload() {
 
 function tryShoot() {
   if (!myId || !alive() || openPanel || chatOpen || phase !== 'idle') return;
-  const g = gunOf(held);
+  const g = effGun(held);
   if (!g) return;
   if (!ownsGun(held)) { flashPrompt(`You need the ${g.name.toLowerCase()}. Moss sells them.`, '', 1500); return; }
   if (myData.reloadGun) return;
@@ -2254,9 +2292,9 @@ function tryShoot() {
   const m = me();
   const shotRot = isTouch ? assistRot(aimRot, 60, 0.1) : aimRot;
   if (m) { m.trot = m.rot = shotRot; }
-  sfx.shot(held);
+  sfx.shot(g.sound);
   cam.shake += 0.08 + g.pellets * 0.015;
-  cam.pitch -= RECOIL[held] || 0.015;
+  cam.pitch -= g.recoil || 0.015;
   const gun = held;
   socket.emit('shoot', { rot: shotRot, aiming: cam.aim > 0.5, gun, dist: isTouch ? 0 : aimDist }, (res) => {
     if (!res) return;
@@ -2294,8 +2332,13 @@ function useDrug(name) {
   });
 }
 
-const HOTBAR = ['fists', 'rod', 'bait', 'pistol', 'rifle', 'shotgun', 'smg', 'sniper', 'weed', 'whiskey', 'crank', 'bag'];
+// the hotbar only shows what you own, in order, and number keys pick by position
+const GUN_ORDER = ['pistol', 'glock', 'arp', 'smg', 'draco', 'shotgun', 'rifle', 'sniper'];
 const SLOT_KEYS_LABEL = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '='];
+function hotbarList() {
+  const owned = myData && myData.guns ? GUN_ORDER.filter((g) => myData.guns[g]) : [];
+  return ['fists', 'rod', 'bait', ...owned, ...DRUGS, 'bag'];
+}
 let held = 'rod';
 
 function canHold(act) {
@@ -2321,7 +2364,7 @@ function selectHold(act, useIfHeld) {
 }
 
 function selectSlot(i) {
-  const act = HOTBAR[i];
+  const act = hotbarList()[i];
   if (act) selectHold(act, true);
 }
 
@@ -2332,7 +2375,7 @@ $('slots').addEventListener('click', (e) => {
   btn.blur();
   const m = me();
   const act = btn.dataset.act;
-  if (!HOTBAR.includes(act)) return;
+  if (!hotbarList().includes(act)) return;
   if (act === 'bag') {
     if (near(m, W.camp.dealer)) sell();
     else if (myData && myData.bag.n) openPhone('market');
@@ -2464,7 +2507,7 @@ function updateLocal(m, dt) {
     m.trot = aimRot;
   }
   if (lmbHeld && !openPanel && !chatOpen) {
-    if (isGun(held) && gunOf(held).auto) tryShoot();
+    if (isGun(held) && effGun(held).auto) tryShoot();
     else if (held === 'fists') tryPunch();
   }
   if (phase === 'charging') {
@@ -2616,7 +2659,7 @@ function updateView(v, dt, t) {
   v.pivot.visible = aliveNow && (fishing || inHand === 'rod');
   const gunHeld = isGun(inHand) && !!(v.data.guns && v.data.guns[inHand]);
   v.rifle.visible = aliveNow && !fishing && gunHeld;
-  if (gunHeld) v.rifle.scale.setScalar(GUN_LOOK[inHand] || 1);
+  if (gunHeld) v.rifle.scale.setScalar(W.guns[inHand].look || 1);
   const drug = !fishing && aliveNow && (inHand === 'weed' || inHand === 'whiskey' || inHand === 'crank');
   v.hand.visible = drug;
   for (const child of v.hand.children) child.visible = drug && child.name === inHand;
@@ -2634,6 +2677,23 @@ function updateView(v, dt, t) {
     const lunge = poseLimbs(v, t, aliveNow && v.walking, isMe && stepSprint, pose, dt);
     v.group.position.set(v.x + Math.sin(v.rot) * lunge, v.y + bob + jOff + (aliveNow ? 0 : 0.35), v.z + Math.cos(v.rot) * lunge);
   }
+  const beamOn = aliveNow && gunHeld && !fishing && !!(isMe ? myData && myData.att && myData.att[inHand] && myData.att[inHand].laser : v.data.lz);
+  if (beamOn) {
+    if (!v.beam) { v.beam = makeBeam(); scene.add(v.beam); }
+    v.rifle.getWorldPosition(tmpA);
+    const fwdX = Math.sin(isMe ? aimRot : v.rot);
+    const fwdZ = Math.cos(isMe ? aimRot : v.rot);
+    const len = isMe && aimDist > 0 ? Math.min(aimDist, 70) : 45;
+    const endY = isMe && aimDist > 0 ? surfaceAt(tmpA.x + fwdX * len, tmpA.z + fwdZ * len, t) + 0.05 : tmpA.y;
+    v.beam.visible = true;
+    v.beam.position.copy(tmpA);
+    tmpB.set(tmpA.x + fwdX * len, endY, tmpA.z + fwdZ * len);
+    v.beam.lookAt(tmpB);
+    v.beam.children[0].scale.z = len;
+    v.beam.children[0].position.z = len / 2;
+    v.beam.children[1].position.z = len;
+    v.beam.children[1].scale.setScalar(0.8 + Math.sin(t * 30) * 0.15);
+  } else if (v.beam) v.beam.visible = false;
   if (v.flash > 0) { v.flash -= dt; v.cloth.emissive.setRGB(v.flash > 0 ? 0.6 : 0, 0, 0); }
 
   let tilt = 0.45;
@@ -2932,12 +2992,15 @@ const SLOT_ART = {
   crank: '<path fill="currentColor" d="M13.2 2 5 13.2h6.2L10 22l9.2-12.4h-6z"/>',
   bag: '<path fill="currentColor" d="M2 12.2c4.2-4.6 9.2-4.8 13.4-2.2 2.2 1.3 4.2 1.4 6.6-.6-1.4 3.4-3.8 5.6-7 5.8C10.6 15.4 6.2 14.2 2 12.2z"/><circle cx="16.2" cy="10.6" r="1" fill="#163438"/>',
 };
+SLOT_ART.glock = SLOT_ART.pistol;
+SLOT_ART.arp = SLOT_ART.smg;
+SLOT_ART.draco = SLOT_ART.rifle;
 let hotbarSig = '';
 function renderHotbar() {
   const d = myData;
   if (!d || !W) return;
   const bagMax = W.bagMax;
-  const gunSig = Object.keys(d.guns || {}).map((g) => `${d.guns[g] ? 1 : 0}${d.mag[g] || 0}`).join('');
+  const gunSig = Object.keys(d.guns || {}).map((g) => `${d.guns[g] ? 1 : 0}${d.mag[g] || 0}`).join('') + JSON.stringify(d.att || 0);
   const sig = [held, d.rod, d.bait, gunSig, d.reloadGun, d.ammo, d.pocket.weed, d.pocket.whiskey, d.pocket.crank, d.bag.n, d.bag.value, d.highLeft.weed, d.highLeft.whiskey, d.highLeft.crank].join('|');
   if (sig === hotbarSig) return;
   hotbarSig = sig;
@@ -2945,12 +3008,13 @@ function renderHotbar() {
     { act: 'fists', art: 'fists', label: 'Fists', key: '1' },
     { act: 'rod', art: 'rod', label: W.rods[d.rod].name, tier: [d.rod, W.rods.length], key: '2' },
     { act: 'bait', art: 'bait', label: W.baits[d.bait].name, tier: [d.bait, W.baits.length], key: '3' },
-    ...['pistol', 'rifle', 'shotgun', 'smg', 'sniper'].filter((g) => d.guns[g]).map((g) => ({
-      act: g, art: g, label: `${W.guns[g].name}, ${d.mag[g] || 0} loaded, ${d.ammo} spare`, count: `${d.mag[g] || 0}/${d.ammo}`, key: SLOT_KEYS_LABEL[HOTBAR.indexOf(g)],
+    ...GUN_ORDER.filter((g) => d.guns[g]).map((g) => ({
+      act: g, art: g, label: `${W.guns[g].name}, ${d.mag[g] || 0} loaded, ${d.ammo} spare`, count: `${d.mag[g] || 0}/${d.ammo}`,
     })),
-    ...DRUGS.map((n, i) => ({ act: n, art: n, label: `${n}, ${d.pocket[n]} left`, count: d.pocket[n], key: SLOT_KEYS_LABEL[8 + i], empty: !d.pocket[n] && !d.high[n], on: d.high[n], timer: d.highLeft[n] / 30 })),
+    ...DRUGS.map((n, i) => ({ act: n, art: n, label: `${n}, ${d.pocket[n]} left`, count: d.pocket[n], empty: !d.pocket[n] && !d.high[n], on: d.high[n], timer: d.highLeft[n] / 30 })),
     { act: 'bag', art: 'bag', label: d.bag.n ? `Bag, ${d.bag.n} fish worth $${d.bag.value}` : 'Bag is empty', count: `${d.bag.n}/${bagMax}`, empty: !d.bag.n, full: d.bag.n >= bagMax, key: '=' },
   ];
+  slots.forEach((sl, i) => { sl.key = SLOT_KEYS_LABEL[i] || ''; });
   const box = $('slots');
   box.replaceChildren();
   for (const s of slots) {
@@ -3258,11 +3322,14 @@ function updateHud(dt, t) {
   if (gunOut) {
     const g = gunOf(held);
     const txt = d.reloadGun === held ? 'Reloading…' : `${d.mag[held] || 0} / ${d.ammo}`;
-    if (ammoEl.dataset.t !== `${g.name}|${txt}`) {
-      ammoEl.dataset.t = `${g.name}|${txt}`;
+    const at = (d.att && d.att[held]) || {};
+    const tags = [at.drum && 'Drum', at.laser && 'Laser', at.switch && 'Switch'].filter(Boolean).join(' · ');
+    const title = g.name + (tags ? ` · ${tags}` : '');
+    if (ammoEl.dataset.t !== `${title}|${txt}`) {
+      ammoEl.dataset.t = `${title}|${txt}`;
       ammoEl.replaceChildren();
       const n = document.createElement('small');
-      n.textContent = g.name;
+      n.textContent = title;
       const c = document.createElement('b');
       c.textContent = txt;
       ammoEl.append(n, c);

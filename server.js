@@ -48,11 +48,19 @@ const WORLD = {
   },
   shop: { ammo: 10, ammoCount: 12, weed: 25, whiskey: 15, crank: 40 },
   guns: {
-    pistol: { name: 'Pistol', price: 60, mag: 12, reload: 1100, damage: 22, cooldown: 260, spread: 0.035, pellets: 1, range: 45, auto: false, start: 24, zoom: 52, desc: 'Quick to draw, quick to reload.' },
-    rifle: { name: 'Hunting rifle', price: 80, mag: 5, reload: 2300, damage: 34, cooldown: 420, spread: 0.05, pellets: 1, range: 72, auto: false, start: 10, zoom: 42, desc: 'Reliable at range.' },
-    shotgun: { name: 'Shotgun', price: 220, mag: 6, reload: 2700, damage: 13, cooldown: 850, spread: 0.13, pellets: 8, range: 26, auto: false, start: 12, zoom: 54, desc: 'Devastating up close.' },
-    smg: { name: 'SMG', price: 380, mag: 30, reload: 1900, damage: 11, cooldown: 95, spread: 0.075, pellets: 1, range: 42, auto: true, start: 60, zoom: 50, desc: 'Hold the button and hang on.' },
-    sniper: { name: 'Sniper rifle', price: 650, mag: 4, reload: 3000, damage: 90, cooldown: 1300, spread: 0.006, pellets: 1, range: 110, auto: false, start: 8, zoom: 18, desc: 'One or two shots at any distance.' },
+    pistol: { name: 'Revolver', price: 60, mag: 6, reload: 1500, damage: 30, cooldown: 340, spread: 0.035, pellets: 1, range: 45, auto: false, start: 24, zoom: 52, look: 0.55, recoil: 0.02, sound: 'pistol', desc: 'Six shots of old-school stopping power.' },
+    glock: { name: 'Glock 19', price: 140, mag: 15, reload: 1200, damage: 19, cooldown: 190, spread: 0.04, pellets: 1, range: 45, auto: false, start: 45, zoom: 52, look: 0.5, recoil: 0.012, sound: 'pistol', desc: 'Fifteen in the mag. Takes a switch, a laser, and a drum.' },
+    rifle: { name: 'Hunting rifle', price: 80, mag: 5, reload: 2300, damage: 34, cooldown: 420, spread: 0.05, pellets: 1, range: 72, auto: false, start: 10, zoom: 42, look: 1, recoil: 0.02, sound: 'rifle', desc: 'Reliable at range.' },
+    shotgun: { name: 'Shotgun', price: 220, mag: 6, reload: 2700, damage: 13, cooldown: 850, spread: 0.13, pellets: 8, range: 26, auto: false, start: 12, zoom: 54, look: 1.05, recoil: 0.045, sound: 'shotgun', desc: 'Devastating up close.' },
+    smg: { name: 'SMG', price: 380, mag: 30, reload: 1900, damage: 11, cooldown: 95, spread: 0.075, pellets: 1, range: 42, auto: true, start: 60, zoom: 50, look: 0.75, recoil: 0.008, sound: 'smg', desc: 'Hold the button and hang on.' },
+    arp: { name: 'AR pistol', price: 520, mag: 30, reload: 1900, damage: 17, cooldown: 82, spread: 0.062, pellets: 1, range: 52, auto: true, start: 90, zoom: 50, look: 0.8, recoil: 0.01, sound: 'smg', desc: 'Rifle round, pistol size. Full auto.' },
+    draco: { name: 'Draco', price: 720, mag: 30, reload: 2100, damage: 28, cooldown: 115, spread: 0.07, pellets: 1, range: 58, auto: true, start: 90, zoom: 48, look: 0.85, recoil: 0.018, sound: 'rifle', desc: 'AK pistol. Hits hard, kicks harder. Takes a drum.' },
+    sniper: { name: 'Sniper rifle', price: 900, mag: 4, reload: 3000, damage: 90, cooldown: 1300, spread: 0.006, pellets: 1, range: 110, auto: false, start: 8, zoom: 18, look: 1.25, recoil: 0.06, sound: 'sniper', desc: 'One or two shots at any distance.' },
+  },
+  attachments: {
+    laser: { name: 'Laser beam', price: 90, spreadMul: 0.55, desc: 'A red beam shows where it points, and shots group tighter.', only: null },
+    drum: { name: 'Drum mag', price: 180, magMul: 2.5, reloadAdd: 700, desc: 'Two and a half times the rounds. Slower to reload.', only: ['glock', 'smg', 'arp', 'draco'] },
+    switch: { name: 'Auto switch', price: 320, cooldownMul: 0.3, spreadMul: 1.5, desc: 'Turns it full auto. Burns through the mag.', only: ['glock', 'pistol'] },
   },
   rods: [
     { id: 'cane', name: 'Cane pole', price: 0, castMax: 16, tol: 1, speed: 1, color: '#C9A36A', desc: 'Short casts. Snaps easy.' },
@@ -334,6 +342,22 @@ function advanceQuests(p, species, hot) {
 
 // ---------------------------------------------------------------- guns
 
+const freshAtt = () => Object.fromEntries(GUN_IDS.map((g) => [g, { laser: false, drum: false, switch: false }]));
+// a gun's real stats once its attachments are on
+function effGun(p, id) {
+  const base = WORLD.guns[id];
+  const a = (p.att && p.att[id]) || {};
+  const A = WORLD.attachments;
+  let mag = base.mag;
+  let reload = base.reload;
+  let cooldown = base.cooldown;
+  let spread = base.spread;
+  let auto = base.auto;
+  if (a.drum) { mag = Math.round(mag * A.drum.magMul); reload += A.drum.reloadAdd; }
+  if (a.switch) { cooldown = Math.round(cooldown * A.switch.cooldownMul); spread *= A.switch.spreadMul; auto = true; }
+  if (a.laser) spread *= A.laser.spreadMul;
+  return { ...base, mag, reload, cooldown, spread, auto };
+}
 const freshGuns = () => Object.fromEntries(GUN_IDS.map((g) => [g, false]));
 const freshMag = () => Object.fromEntries(GUN_IDS.map((g) => [g, 0]));
 const hasAnyGun = (p) => GUN_IDS.some((g) => p.guns[g]);
@@ -341,7 +365,7 @@ const hasAnyGun = (p) => GUN_IDS.some((g) => p.guns[g]);
 // a reload finishes lazily: the next thing that looks at the player settles it
 function tickReload(p) {
   if (!p.reloadGun || nowMs() < p.reloadUntil) return;
-  const g = WORLD.guns[p.reloadGun];
+  const g = effGun(p, p.reloadGun);
   const take = Math.max(0, Math.min(g.mag - p.mag[p.reloadGun], p.ammo));
   p.mag[p.reloadGun] += take;
   p.ammo -= take;
@@ -350,7 +374,7 @@ function tickReload(p) {
 
 function startReload(p, gunId) {
   tickReload(p);
-  const g = WORLD.guns[gunId];
+  const g = WORLD.guns[gunId] && effGun(p, gunId);
   if (!g || !p.guns[gunId] || p.reloadGun || p.mag[gunId] >= g.mag || p.ammo <= 0) return false;
   p.reloadGun = gunId;
   p.reloadUntil = nowMs() + g.reload;
@@ -363,7 +387,7 @@ function storeProfile(p) {
   if (!p || p.guest) return;
   profiles[p.token] = {
     name: p.name, color: p.color, look: p.look, skin: p.skin, cash: p.cash, rod: p.rod, bait: p.bait,
-    guns: p.guns, mag: p.mag, ammo: p.ammo, pocket: p.pocket, bag: p.bag, ownsBoat: !!p.ownsBoat, boatTier: p.boatTier,
+    guns: p.guns, mag: p.mag, att: p.att, ammo: p.ammo, pocket: p.pocket, bag: p.bag, ownsBoat: !!p.ownsBoat, boatTier: p.boatTier,
     journal: p.journal, caught: p.caught, earned: p.earned, derbyWins: p.derbyWins,
     best: p.best, xp: p.xp, quests: p.quests, seen: nowMs(),
   };
@@ -1007,7 +1031,7 @@ function snapshot() {
     list.push({
       id: p.id, name: p.name, color: p.color, look: p.look, skin: p.skin, x: r2(p.x), z: r2(p.z), rot: r2(p.rot), jy: r2(p.jy || 0), level: levelOf(p.xp),
       state: p.state, bobber: p.bobber, cash: p.cash, hp: Math.max(0, p.hp), alive: p.alive,
-      guns: p.guns, rod: p.rod, held: p.held || 'rod', boat: !!p.boat, bt: Math.max(0, p.boatTier), swim: !!p.swim, high: highFlags(p), caught: p.caught, best: p.best,
+      guns: p.guns, lz: !!(GUN_IDS.includes(p.held) && p.att[p.held] && p.att[p.held].laser), rod: p.rod, held: p.held || 'rod', boat: !!p.boat, bt: Math.max(0, p.boatTier), swim: !!p.swim, high: highFlags(p), caught: p.caught, best: p.best,
     });
   }
   const standings = derby.active ? derbyStandings() : [];
@@ -1036,7 +1060,7 @@ function snapshot() {
 function privateState(p) {
   tickReload(p);
   return {
-    guns: p.guns, mag: p.mag, reloadGun: p.reloadGun, reloadLeft: p.reloadGun ? Math.max(0, p.reloadUntil - nowMs()) : 0, boatTier: p.boatTier,
+    guns: p.guns, mag: p.mag, att: p.att, reloadGun: p.reloadGun, reloadLeft: p.reloadGun ? Math.max(0, p.reloadUntil - nowMs()) : 0, boatTier: p.boatTier,
     cash: p.cash, ammo: p.ammo, rod: p.rod, bait: p.bait, pocket: p.pocket,
     bag: { n: p.bag.length, value: p.bag.reduce((s, f) => s + f.value, 0) },
     high: highFlags(p), highLeft: highLeft(p), moveMul: moveMul(p), hp: Math.max(0, p.hp),
@@ -1147,7 +1171,7 @@ function debugCommand(p, socket, text) {
   }
   if (cmd === 'hour') { setHour(Number(args[0]) || 12); return say('Clock set.'); }
   if (cmd === 'derby') { if (derby.active) derby.endsAt = nowMs(); else derby.nextAt = nowMs(); return say('Derby toggled.'); }
-  if (cmd === 'gear') { p.rod = WORLD.rods.length - 1; p.bait = WORLD.baits.length - 1; GUN_IDS.forEach((g) => { p.guns[g] = true; p.mag[g] = WORLD.guns[g].mag; }); p.ammo += 200; p.boatTier = WORLD.boats.length - 1; p.ownsBoat = true; return say('Maxed out.'); }
+  if (cmd === 'gear') { p.rod = WORLD.rods.length - 1; p.bait = WORLD.baits.length - 1; GUN_IDS.forEach((g) => { p.guns[g] = true; Object.keys(WORLD.attachments).forEach((k) => { p.att[g][k] = !WORLD.attachments[k].only || WORLD.attachments[k].only.includes(g); }); p.mag[g] = effGun(p, g).mag; }); p.ammo += 200; p.boatTier = WORLD.boats.length - 1; p.ownsBoat = true; return say('Maxed out.'); }
   if (cmd === 'boat') { p.ownsBoat = true; p.boatTier = Math.max(p.boatTier, 0); return say('You own a boat.'); }
   if (cmd === 'sea' || cmd === 'channel') {
     resetLine(p);
@@ -1194,7 +1218,7 @@ io.on('connection', (socket) => {
       x: s.x, z: s.z, rot: s.rot, aim: s.rot,
       state: 'idle', bobber: null, fish: null,
       lastMove: nowMs(), budget: 2, lastChat: 0,
-      cash: COMBAT.stake, hp: COMBAT.hp, alive: true, guns: freshGuns(), mag: freshMag(), reloadGun: null, reloadUntil: 0, boatTier: -1, swim: false, ammo: 0, rod: 0, bait: 0, held: 'rod',
+      cash: COMBAT.stake, hp: COMBAT.hp, alive: true, guns: freshGuns(), mag: freshMag(), att: freshAtt(), reloadGun: null, reloadUntil: 0, boatTier: -1, swim: false, ammo: 0, rod: 0, bait: 0, held: 'rod',
       pocket: freshPocket(), bag: [], high: { weed: 0, whiskey: 0, crank: 0 },
       journal: {}, caught: 0, earned: 0, derbyWins: 0, best: null, xp: 0, quests: [], jy: 0,
       nextShot: 0, respawnAt: 0, bj: null, safeUntil: nowMs() + COMBAT.spawnSafe,
@@ -1204,6 +1228,7 @@ io.on('connection', (socket) => {
         cash: prof.cash ?? COMBAT.stake, ammo: prof.ammo || 0,
         guns: { ...freshGuns(), ...(prof.guns || {}), rifle: !!(prof.rifle || (prof.guns && prof.guns.rifle)) },
         mag: { ...freshMag(), ...(prof.mag || {}) },
+        att: Object.fromEntries(GUN_IDS.map((g) => [g, { laser: false, drum: false, switch: false, ...((prof.att || {})[g] || {}) }])),
         boatTier: Number.isInteger(prof.boatTier) ? Math.min(prof.boatTier, WORLD.boats.length - 1) : prof.ownsBoat ? 0 : -1,
         rod: Math.min(prof.rod || 0, WORLD.rods.length - 1), bait: Math.min(prof.bait || 0, WORLD.baits.length - 1),
         pocket: { ...freshPocket(), ...(prof.pocket || {}) }, bag: Array.isArray(prof.bag) ? prof.bag : [],
@@ -1213,6 +1238,7 @@ io.on('connection', (socket) => {
       });
     }
     ensureQuests(p);
+    GUN_IDS.forEach((g) => { p.mag[g] = Math.min(p.mag[g] || 0, effGun(p, g).mag); });
     players.set(socket.id, p);
     storeProfile(p);
     const payload = { id: socket.id, you: { x: p.x, z: p.z, rot: p.rot }, guest, returning: !!prof, cash: p.cash, journal: p.journal, caught: p.caught, color: p.color };
@@ -1366,11 +1392,23 @@ io.on('connection', (socket) => {
       if (p.guns[item]) return reply({ ok: false, msg: `You already have the ${g.name.toLowerCase()}.` });
       if (!pay(g.price)) return reply({ ok: false, msg: `The ${g.name.toLowerCase()} is $${g.price}.` });
       p.guns[item] = true;
-      p.mag[item] = g.mag;
+      p.mag[item] = effGun(p, item).mag;
       p.ammo += g.start;
       feed(`${p.name} bought a ${g.name.toLowerCase()}`, 'shop');
       storeProfile(p);
       return reply({ ok: true, msg: `${g.name} bought, loaded, with ${g.start} spare rounds.` });
+    }
+    if (typeof item === 'string' && item.startsWith('att:')) {
+      const [, gunId, key] = item.split(':');
+      const at = WORLD.attachments[key];
+      if (!WORLD.guns[gunId] || !at) return reply({ ok: false, msg: 'Moss does not sell that.' });
+      if (!p.guns[gunId]) return reply({ ok: false, msg: `You do not own the ${WORLD.guns[gunId].name.toLowerCase()}.` });
+      if (at.only && !at.only.includes(gunId)) return reply({ ok: false, msg: `That will not fit the ${WORLD.guns[gunId].name.toLowerCase()}.` });
+      if (p.att[gunId][key]) return reply({ ok: false, msg: 'Already on there.' });
+      if (!pay(at.price)) return reply({ ok: false, msg: `${at.name} is $${at.price}.` });
+      p.att[gunId][key] = true;
+      storeProfile(p);
+      return reply({ ok: true, msg: `${at.name} fitted to the ${WORLD.guns[gunId].name.toLowerCase()}.` });
     }
     if (item === 'ammo') {
       if (!hasAnyGun(p)) return reply({ ok: false, msg: 'Buy a gun first.' });
@@ -1518,7 +1556,7 @@ io.on('connection', (socket) => {
     if (p.state !== 'idle') return reply({ ok: false, msg: 'Reel in before you shoot.' });
     const gunId = body && WORLD.guns[body.gun] ? body.gun : GUN_IDS.includes(p.held) ? p.held : null;
     if (!gunId || !p.guns[gunId]) return reply({ ok: false, msg: 'Buy a gun from Moss.' });
-    const g = WORLD.guns[gunId];
+    const g = effGun(p, gunId);
     tickReload(p);
     if (p.reloadGun) return reply({ ok: false, reloading: true });
     if (p.mag[gunId] <= 0) {
@@ -1541,7 +1579,7 @@ io.on('connection', (socket) => {
     const gunId = body && WORLD.guns[body.gun] ? body.gun : null;
     if (!gunId || !p.guns[gunId]) return reply({ ok: false });
     if (p.ammo <= 0) return reply({ ok: false, msg: 'No spare rounds. Moss sells more.' });
-    reply({ ok: startReload(p, gunId), ms: WORLD.guns[gunId].reload });
+    reply({ ok: startReload(p, gunId), ms: effGun(p, gunId).reload });
   });
 
   const shackGuard = () => {
