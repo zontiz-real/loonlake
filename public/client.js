@@ -4,6 +4,7 @@ import { sfx } from './sfx.js';
 import { initTouch } from './touch.js';
 import { createWorld, makeLabel, wave, WATER_Y, DOCK_Y, isNightHour, isGoldenHour, groundHeight } from './world.js';
 import { createFx } from './fx.js';
+import { applyFriction, accelerate, capBhop } from './movement.js';
 import { loadModels, LOOKS, SKINS, aimBone } from './models.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
@@ -197,12 +198,11 @@ let lmbHeld = false;
 let aimDist = 0;
 let jumpY = 0;
 let jumpV = 0;
-let bhop = 1;
-let landedAt = -9;
+const vel = { x: 0, z: 0 };
+let curMax = 6;
 const JUMP_V = 5.4;
 const JUMP_G = 20;
-const BHOP_STEP = 0.12;
-const BHOP_MAX = 1.5;
+
 let reel = null;
 let castSwing = 0;
 let nibbleAt = 0;
@@ -218,7 +218,7 @@ let deathUntil = 0;
 let aimRot = 0;
 let castInfo = { valid: false, hot: false };
 const cam = { yaw: 0, pitch: 0.34, dist: TUNING.camDist, aim: 0, shake: 0 };
-if (window.__loon) Object.assign(window.__loon, { cam, hold: (h) => { held = h; hotbarSig = ''; }, data: () => myData, me: () => views.get(myId), npcViews: () => npcViews, ragStep: (id, n) => { const v = npcViews.get(id) || views.get(id); for (let i = 0; v && v.rag && i < n; i++) stepRagdoll(v, 1 / 60, audioT); } });
+if (window.__loon) Object.assign(window.__loon, { cam, vel, hold: (h) => { held = h; hotbarSig = ''; }, data: () => myData, me: () => views.get(myId), npcViews: () => npcViews, ragStep: (id, n) => { const v = npcViews.get(id) || views.get(id); for (let i = 0; v && v.rag && i < n; i++) stepRagdoll(v, 1 / 60, audioT); } });
 let pointerLocked = false;
 // automated browsers can't hold pointer lock (it also blocks screenshots), so they use drag-to-look
 let noLock = isTouch || !!navigator.webdriver;
@@ -2129,9 +2129,8 @@ function fishDown() {
 function jump() {
   const m = me();
   if (!m || !alive() || openPanel || chatOpen || phase !== 'idle' || boating() || m.swimming || jumpY > 0) return;
-  // hopping again right as you land keeps the speed, and it builds with every clean hop
-  const chained = audioT - landedAt < 0.22;
-  bhop = chained ? Math.min(BHOP_MAX, bhop + BHOP_STEP) : 1;
+  // like Half-Life, taking off caps your speed at 1.7x top speed, so hopping can't run away forever
+  capBhop(vel, curMax);
   jumpV = JUMP_V;
   jumpY = 0.001;
   fx.puff(m.x, 0.15, m.z, 0xD9CDB0, 3);
@@ -2547,7 +2546,7 @@ function pushOutOfBodies(m) {
 function updateLocal(m, dt) {
   m.walking = false;
   stepSprint = false;
-  if (!alive()) return;
+  if (!alive()) { vel.x = 0; vel.z = 0; return; }
   let ix = 0;
   let iz = 0;
   if (!chatOpen) {
@@ -2561,45 +2560,61 @@ function updateLocal(m, dt) {
   const wasBoat = boating();
   m.swimming = !wasBoat && inWater(m.x, m.z);
   if (m.swimming && jumpY > 0) { jumpY = 0; jumpV = 0; }
-  if (phase === 'idle' && (ix || iz)) {
-    const sy = Math.sin(cam.yaw);
-    const cy = Math.cos(cam.yaw);
-    let dx = -sy * iz + cy * ix;
-    let dz = -cy * iz - sy * ix;
-    const len = Math.hypot(dx, dz);
-    if (len > 0.05) {
-      const k = len > 1 ? 1 / len : 1;
-      dx *= k; dz *= k;
-      const sprint = !rifleUp && !m.swimming && (keys.has('ShiftLeft') || keys.has('ShiftRight') || (touch && touch.state.sprint));
-      const inBoat = boating();
-      const boatDef = W.boats[Math.max(0, (myData && myData.boatTier) ?? 0)] || W.boat;
-      const base = inBoat ? boatDef.speed : W.moveSpeed;
-      const hopMul = jumpY > 0 || audioT - landedAt < 0.22 ? bhop : 1;
-      const speed = base * ((myData && myData.moveMul) || 1) * (sprint ? W.sprint : 1) * (rifleUp ? 0.6 : 1) * (m.swimming ? 0.55 : 1) * (inBoat ? 1 : hopMul);
-      const step = speed * dt;
-      const ox = m.x;
-      const oz = m.z;
-      const ok = inBoat ? inWater : footOk;
-      if (ok(m.x + dx * step, m.z)) m.x += dx * step;
-      if (ok(m.x, m.z + dz * step)) m.z += dz * step;
-      if (!inBoat) {
-        world.collide(m, 0.35);
-        pushOutOfBodies(m);
-      }
+  const inBoat = boating();
+  const sprint = !rifleUp && !m.swimming && !inBoat && (keys.has('ShiftLeft') || keys.has('ShiftRight') || (touch && touch.state.sprint));
+  const boatDef = W.boats[Math.max(0, (myData && myData.boatTier) ?? 0)] || W.boat;
+  const baseSpeed = inBoat ? boatDef.speed : W.moveSpeed;
+  const maxSpeed = baseSpeed * ((myData && myData.moveMul) || 1) * (sprint ? W.sprint : 1) * (rifleUp ? 0.6 : 1) * (m.swimming ? 0.55 : 1);
+  curMax = maxSpeed;
+  const canMove = phase === 'idle' && (ix || iz);
+  const sy = Math.sin(cam.yaw);
+  const cy = Math.cos(cam.yaw);
+  let wx = -sy * iz + cy * ix;
+  let wz = -cy * iz - sy * ix;
+  const wlen = Math.hypot(wx, wz);
+  if (wlen > 1) { wx /= wlen; wz /= wlen; }
+  const ox = m.x;
+  const oz = m.z;
+  const ok = inBoat ? inWater : footOk;
+  if (inBoat || m.swimming) {
+    // boats and swimming move directly
+    vel.x = 0; vel.z = 0;
+    if (canMove && wlen > 0.05) {
+      const step = maxSpeed * dt;
+      if (ok(m.x + wx * step, m.z)) m.x += wx * step;
+      if (ok(m.x, m.z + wz * step)) m.z += wz * step;
+      if (!inBoat) { world.collide(m, 0.35); pushOutOfBodies(m); }
       if (!ok(m.x, m.z)) { m.x = ox; m.z = oz; }
-      m.trot = rifleUp ? aimRot : Math.atan2(dx, dz);
-      if (inBoat) {
-        const sp = Math.hypot(m.x - ox, m.z - oz) / Math.max(dt, 1e-3);
-        if (sp > 1) { fx.wake(m.x - Math.sin(m.rot) * 1.4, m.z - Math.cos(m.rot) * 1.4, Math.sin(m.rot), Math.cos(m.rot), sp); sfx.motor(audioT, sp); }
-      }
-      m.walking = Math.hypot(m.x - ox, m.z - oz) > 0.001;
-      stepSprint = sprint;
-      if (m.walking && !inBoat && !m.swimming) sfx.step(audioT, sprint);
-      if (m.walking && m.swimming && Math.random() < dt * 5) fx.ripple(m.x, m.z, 0.7, 1, 0.4);
+      m.trot = rifleUp ? aimRot : Math.atan2(wx, wz);
     }
-  } else if (phase === 'charging' || rifleUp) {
-    m.trot = aimRot;
+  } else {
+    // on foot: velocity, friction and acceleration
+    if (jumpY === 0 && keys.has('Space') && !chatOpen) jump();
+    const airborne = jumpY > 0;
+    if (!airborne) applyFriction(vel, dt);
+    if (canMove && wlen > 0.05) {
+      accelerate(vel, wx / wlen, wz / wlen, Math.min(wlen, 1) * maxSpeed, airborne, dt);
+      m.trot = rifleUp ? aimRot : Math.atan2(wx, wz);
+    }
+    const stepX = vel.x * dt;
+    const stepZ = vel.z * dt;
+    if (ok(m.x + stepX, m.z)) m.x += stepX;
+    if (ok(m.x, m.z + stepZ)) m.z += stepZ;
+    world.collide(m, 0.35);
+    pushOutOfBodies(m);
+    if (!ok(m.x, m.z)) { m.x = ox; m.z = oz; }
+    // whatever stopped us (walls, bodies, the shoreline) takes the speed with it
+    if (dt > 0) { vel.x = (m.x - ox) / dt; vel.z = (m.z - oz) / dt; }
   }
+  if (inBoat) {
+    const sp = Math.hypot(m.x - ox, m.z - oz) / Math.max(dt, 1e-3);
+    if (sp > 1) { fx.wake(m.x - Math.sin(m.rot) * 1.4, m.z - Math.cos(m.rot) * 1.4, Math.sin(m.rot), Math.cos(m.rot), sp); sfx.motor(audioT, sp); }
+  }
+  m.walking = Math.hypot(m.x - ox, m.z - oz) > 0.001;
+  stepSprint = sprint;
+  if (m.walking && !inBoat && !m.swimming && jumpY === 0) sfx.step(audioT, sprint);
+  if (m.walking && m.swimming && Math.random() < dt * 5) fx.ripple(m.x, m.z, 0.7, 1, 0.4);
+  if (!canMove && (phase === 'charging' || rifleUp)) m.trot = aimRot;
   if (lmbHeld && !openPanel && !chatOpen) {
     if (isGun(held) && effGun(held).auto) tryShoot();
     else if (held === 'fists') tryPunch();
@@ -2612,10 +2627,7 @@ function updateLocal(m, dt) {
   if (jumpY > 0) {
     jumpV -= JUMP_G * dt;
     jumpY += jumpV * dt;
-    if (jumpY <= 0) { jumpY = 0; jumpV = 0; landedAt = audioT; fx.puff(m.x, 0.15, m.z, 0xD9CDB0, 4); }
-  } else {
-    if (audioT - landedAt > 0.22) bhop = 1;
-    if (keys.has('Space') && !chatOpen) jump();
+    if (jumpY <= 0) { jumpY = 0; jumpV = 0; fx.puff(m.x, 0.15, m.z, 0xD9CDB0, 4); }
   }
   m.tx = m.x;
   m.tz = m.z;
@@ -3441,6 +3453,11 @@ function updateHud(dt, t) {
       ammoEl.classList.toggle('empty', (d.mag[held] || 0) <= 0);
     }
   }
+  const speedEl = $('speedo');
+  const spNow = Math.hypot(vel.x, vel.z);
+  const showSpeed = !!(myId && alive() && !boating() && spNow > W.moveSpeed * 1.5 * 1.02);
+  speedEl.hidden = !showSpeed;
+  if (showSpeed) speedEl.textContent = `${Math.round((spNow / 6) * 320)} u/s`;
   $('lockHint').hidden = !(myId && !isTouch && !noLock && !pointerLocked && !openPanel && !chatOpen && alive());
   if (hurtT > 0) hurtT = Math.max(0, hurtT - dt * 1.8);
   $('hurtFlash').style.opacity = String(hurtT);
