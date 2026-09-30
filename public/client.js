@@ -3,8 +3,9 @@ import * as THREE from 'three';
 import { sfx } from './sfx.js';
 import { initTouch } from './touch.js';
 import { createWorld, makeLabel, wave, WATER_Y, DOCK_Y, isNightHour, isGoldenHour, groundHeight } from './world.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { createFx } from './fx.js';
-import { applyFriction, accelerate, capBhop } from './movement.js';
+import { groundMove, airMove, nextHopBoost, FEEL } from './movement.js';
 import { loadModels, LOOKS, SKINS, aimBone } from './models.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
@@ -50,7 +51,7 @@ if (!/^[A-Za-z0-9_-]{16,64}$/.test(token || '')) {
   store.set('loonlake.token', token);
 }
 
-const settings = { sens: 1, volume: 0.8, invertY: false, shake: true, quality: 'auto', blood: true, ...store.get('loonlake.settings', {}) };
+const settings = { sens: 1, volume: 0.8, bright: 0.8, invertY: false, shake: true, quality: 'auto', blood: true, ...store.get('loonlake.settings', {}) };
 sfx.setVolume(settings.volume);
 
 const isTouch = matchMedia('(pointer: coarse)').matches || (navigator.maxTouchPoints > 0 && !matchMedia('(pointer: fine)').matches);
@@ -109,7 +110,7 @@ renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.0;
+renderer.toneMappingExposure = 1.0; // set from the Brightness setting below
 $('game').append(renderer.domElement);
 const canvas = renderer.domElement;
 
@@ -122,7 +123,7 @@ const fx = createFx(scene, camera);
 // post: bloom makes the fire, lanterns, sun glints, and sparkles glow, then a soft vignette frames it
 const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType, samples: 4 }));
 composer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.5, 0.55, 0.85);
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.3, 0.45, 0.93);
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
 const vignette = new ShaderPass({
@@ -136,12 +137,14 @@ const vignette = new ShaderPass({
       c.rgb *= mix(1.0 - uStrength, 1.0, v);
       c.rgb = mix(c.rgb, c.rgb * vec3(1.03, 1.0, 0.96), 0.6);
       float l = dot(c.rgb, vec3(0.299, 0.587, 0.114));
-      c.rgb = mix(vec3(l), c.rgb, 1.14);
-      c.rgb = (c.rgb - 0.5) * 1.06 + 0.5;
+      c.rgb = mix(vec3(l), c.rgb, 1.2);
+      c.rgb = (c.rgb - 0.5) * 1.1 + 0.5;
       gl_FragColor = c;
     }`,
 });
 composer.addPass(vignette);
+function applyBrightness() { renderer.toneMappingExposure = settings.bright; }
+applyBrightness();
 function applyQuality() {
   renderer.setPixelRatio(pixelRatio());
   renderer.setSize(innerWidth, innerHeight);
@@ -176,7 +179,7 @@ let myId = null;
 let myData = null;
 let joinInfo = null;
 let chosenColor = store.get('loonlake.color', null);
-let chosenLook = store.get('loonlake.look', 0);
+let chosenLook = store.get('loonlake.look', LOOKS.length);
 let chosenSkin = store.get('loonlake.skin', 1);
 let journal = {};
 let hotspots = [];
@@ -199,9 +202,12 @@ let aimDist = 0;
 let jumpY = 0;
 let jumpV = 0;
 const vel = { x: 0, z: 0 };
+let hopBoost = 1;
+let landedAt = -9;
 let curMax = 6;
-const JUMP_V = 5.4;
-const JUMP_G = 20;
+const JUMP_V = 9.4; // about 1.5 m up, 0.6 s in the air: snappy like Roblox
+const JUMP_G = 30;
+let jumpBufferAt = -9;
 
 let reel = null;
 let castSwing = 0;
@@ -368,8 +374,8 @@ function makeBubble(text) {
 const NPC_LOOKS = { dealer: [1, 3], boss: [3, 4], 'angler-1': [0, 1], 'angler-2': [1, 0], 'angler-3': [2, 2], 'angler-4': [0, 5] };
 
 function makeAvatar(color, name, look = 0, skin = 0) {
-  if (kit) return makeModelAvatar(color, name, look, skin);
-  return makeBlockAvatar(color, name);
+  if (kit && look < LOOKS.length) return makeModelAvatar(color, name, look, skin);
+  return makeBlockAvatar(color, name, skin);
 }
 
 function makeModelAvatar(color, name, look, skin) {
@@ -546,31 +552,69 @@ function stepRagdoll(v, dt, t) {
   }
 }
 
-function makeBlockAvatar(color, name) {
+// A Roblox-style avatar: rounded blocks, a smiley face, and stiff swinging arms and legs
+const blockyFaces = new Map();
+function blockyFace(skinHex) {
+  if (blockyFaces.has(skinHex)) return blockyFaces.get(skinHex);
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = 128;
+  const g = cv.getContext('2d');
+  g.fillStyle = skinHex;
+  g.fillRect(0, 0, 128, 128);
+  g.fillStyle = '#1B1B1F';
+  g.beginPath(); g.ellipse(44, 52, 7, 12, 0, 0, Math.PI * 2); g.fill();
+  g.beginPath(); g.ellipse(84, 52, 7, 12, 0, 0, Math.PI * 2); g.fill();
+  g.strokeStyle = '#1B1B1F'; g.lineWidth = 7; g.lineCap = 'round';
+  g.beginPath(); g.arc(64, 68, 30, 0.25 * Math.PI, 0.75 * Math.PI); g.stroke();
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  blockyFaces.set(skinHex, tex);
+  return tex;
+}
+const BLOCK = {
+  torso: new RoundedBoxGeometry(0.82, 0.82, 0.42, 3, 0.07),
+  head: new RoundedBoxGeometry(0.5, 0.5, 0.5, 3, 0.11),
+  leg: new RoundedBoxGeometry(0.39, 0.82, 0.39, 3, 0.06),
+  sleeve: new RoundedBoxGeometry(0.37, 0.34, 0.37, 3, 0.06),
+  forearm: new RoundedBoxGeometry(0.37, 0.5, 0.37, 3, 0.06),
+};
+function makeBlockAvatar(color, name, skin = 0) {
   const group = new THREE.Group();
-  const cloth = new THREE.MeshStandardMaterial({ color, roughness: 0.72 });
-  const body = limb(GEO.body, cloth, 0, 1.05, 0);
-  const belt = limb(GEO.belt, MAT.belt, 0, 0.8, 0);
+  const skinHex = SKINS[skin] || SKINS[0];
+  const plastic = (col) => new THREE.MeshStandardMaterial({ color: col, roughness: 0.5, metalness: 0 });
+  const cloth = plastic(color);
+  const pantsMat = plastic(new THREE.Color(color).multiplyScalar(0.42).lerp(new THREE.Color(0x35507A), 0.5));
+  const skinMat = plastic(skinHex);
+  const faceMat = new THREE.MeshStandardMaterial({ map: blockyFace(skinHex), roughness: 0.5 });
+  const body = limb(BLOCK.torso, cloth, 0, 1.21, 0);
+  const belt = new THREE.Object3D();
   // hips and shoulders are pivots, so limbs swing from the joint instead of the middle
   const joint = (x, y) => { const g = new THREE.Group(); g.position.set(x, y, 0); return g; };
-  const legL = joint(-0.14, 0.72);
-  const legR = joint(0.14, 0.72);
-  legL.add(limb(GEO.leg, MAT.pants, 0, -0.3, 0), limb(GEO.boot, MAT.boot, 0, -0.64, 0.04));
-  legR.add(limb(GEO.leg, MAT.pants, 0, -0.3, 0), limb(GEO.boot, MAT.boot, 0, -0.64, 0.04));
-  const armL = joint(-0.4, 1.36);
-  const armR = joint(0.4, 1.36);
-  armL.add(limb(GEO.arm, cloth, 0, -0.22, 0), limb(GEO.hand, MAT.skin, 0, -0.47, 0));
-  const handR = limb(GEO.hand, MAT.skin, 0, -0.47, 0);
-  armR.add(limb(GEO.arm, cloth, 0, -0.22, 0), handR);
-  const head = limb(GEO.head, MAT.skin, 0, 1.68, 0);
-  const eyeL = limb(GEO.eye, MAT.eye, -0.085, 1.72, 0.205);
-  const eyeR = limb(GEO.eye, MAT.eye, 0.085, 1.72, 0.205);
-  const nose = limb(GEO.nose, MAT.skin, 0, 1.66, 0.235);
-  const brim = limb(GEO.brim, MAT.hat, 0, 1.86, 0);
-  const crown = limb(GEO.crown, MAT.hat, 0, 1.98, 0);
+  const legL = joint(-0.205, 0.8);
+  const legR = joint(0.205, 0.8);
+  legL.add(limb(BLOCK.leg, pantsMat, 0, -0.41, 0));
+  legR.add(limb(BLOCK.leg, pantsMat, 0, -0.41, 0));
+  const armL = joint(-0.6, 1.56);
+  const armR = joint(0.6, 1.56);
+  armL.add(limb(BLOCK.sleeve, cloth, 0, -0.17, 0), limb(BLOCK.forearm, skinMat, 0, -0.55, 0));
+  armR.add(limb(BLOCK.sleeve, cloth, 0, -0.17, 0), limb(BLOCK.forearm, skinMat, 0, -0.55, 0));
+  const handR = new THREE.Object3D();
+  armR.add(handR);
+  // BoxGeometry face order is +x, -x, +y, -y, +z, -z: the smiley goes on +z
+  const head = new THREE.Mesh(BLOCK.head, [skinMat, skinMat, skinMat, skinMat, faceMat, skinMat]);
+  head.position.set(0, 1.86, 0);
+  head.castShadow = true;
+  const brim = limb(GEO.brim, MAT.hat, 0, 2.08, 0);
+  const crown = limb(GEO.crown, MAT.hat, 0, 2.2, 0);
+  brim.scale.setScalar(0.8);
+  crown.scale.setScalar(0.8);
+  const eyeL = new THREE.Object3D();
+  const eyeR = new THREE.Object3D();
+  const nose = new THREE.Object3D();
 
   const pivot = new THREE.Group();
-  pivot.position.set(0.4, 1.02, 0.3);
+  pivot.position.set(0.6, 1.05, 0.35);
   const rodMat = new THREE.MeshStandardMaterial({ color: 0xC9A36A, roughness: 0.5, metalness: 0.15 });
   const rod = new THREE.Mesh(GEO.rod, rodMat);
   rod.position.y = 1.25;
@@ -580,7 +624,7 @@ function makeBlockAvatar(color, name) {
   pivot.add(rod, tip);
 
   const rifle = new THREE.Group();
-  rifle.position.set(0.22, 1.22, 0.2);
+  rifle.position.set(0.34, 1.32, 0.3);
   const barrel = new THREE.Mesh(GEO.barrel, MAT.metal);
   barrel.rotation.x = Math.PI / 2;
   barrel.position.z = 0.32;
@@ -593,7 +637,7 @@ function makeBlockAvatar(color, name) {
   rifle.visible = false;
 
   const hand = new THREE.Group();
-  hand.position.set(0, -0.5, 0.1);
+  hand.position.set(0, -0.9, 0.12);
   const weed = new THREE.Mesh(GEO.bud, new THREE.MeshStandardMaterial({ color: 0x6DBF67, roughness: 0.55 }));
   const whiskey = new THREE.Mesh(GEO.bottle, new THREE.MeshStandardMaterial({ color: 0xC47A32, roughness: 0.32, metalness: 0.08 }));
   const crank = new THREE.Mesh(GEO.pack, new THREE.MeshStandardMaterial({ color: 0xF4F1EA, roughness: 0.4 }));
@@ -605,11 +649,11 @@ function makeBlockAvatar(color, name) {
   hand.visible = false;
 
   const highMark = new THREE.Mesh(GEO.mark, new THREE.MeshBasicMaterial({ color: 0x6DBF67 }));
-  highMark.position.set(0.34, 2.05, 0);
+  highMark.position.set(0.34, 2.5, 0);
   highMark.visible = false;
 
   const label = makeLabel(name);
-  label.position.y = 2.48;
+  label.position.y = 2.65;
   const hp = makeHpBar();
   armR.add(hand);
   group.add(body, belt, legL, legR, armL, armR, head, eyeL, eyeR, nose, brim, crown, pivot, rifle, highMark, label, hp.sprite);
@@ -1333,6 +1377,13 @@ function buildLookPickers() {
     b.addEventListener('click', () => { chosenLook = i; markSwatch(); });
     looks.append(b);
   });
+  const blocky = document.createElement('button');
+  blocky.type = 'button';
+  blocky.textContent = 'Blocky';
+  blocky.dataset.look = String(LOOKS.length);
+  blocky.setAttribute('role', 'radio');
+  blocky.addEventListener('click', () => { chosenLook = LOOKS.length; markSwatch(); });
+  looks.prepend(blocky);
   const skins = $('skins');
   skins.replaceChildren();
   SKINS.forEach((c, i) => {
@@ -2100,6 +2151,7 @@ function showCatchTag(res) {
 function syncSettingsUI() {
   $('setSens').value = settings.sens;
   $('setVol').value = settings.volume;
+  $('setBright').value = settings.bright;
   $('setInvert').checked = settings.invertY;
   $('setShake').checked = settings.shake;
   $('setBlood').checked = settings.blood;
@@ -2108,6 +2160,8 @@ function syncSettingsUI() {
 function saveSettings() {
   settings.sens = Number($('setSens').value);
   settings.volume = Number($('setVol').value);
+  settings.bright = Number($('setBright').value);
+  applyBrightness();
   settings.invertY = $('setInvert').checked;
   settings.shake = $('setShake').checked;
   settings.blood = $('setBlood').checked;
@@ -2117,7 +2171,7 @@ function saveSettings() {
   sfx.setVolume(settings.volume);
   store.set('loonlake.settings', settings);
 }
-['setSens', 'setVol', 'setInvert', 'setShake', 'setQuality', 'setBlood'].forEach((id) => $(id).addEventListener('input', saveSettings));
+['setSens', 'setVol', 'setBright', 'setInvert', 'setShake', 'setQuality', 'setBlood'].forEach((id) => $(id).addEventListener('input', saveSettings));
 
 // ---------- goals
 
@@ -2159,9 +2213,11 @@ function fishDown() {
 
 function jump() {
   const m = me();
-  if (!m || !alive() || openPanel || chatOpen || phase !== 'idle' || boating() || m.swimming || jumpY > 0) return;
-  // like Half-Life, taking off caps your speed at 1.7x top speed, so hopping can't run away forever
-  capBhop(vel, curMax);
+  if (!m || !alive() || openPanel || chatOpen || phase !== 'idle' || boating() || m.swimming) return;
+  // pressing jump a hair before you land still jumps the moment you touch down
+  if (jumpY > 0) { jumpBufferAt = audioT; return; }
+  // hopping again right as you land builds a speed boost; stopping the chain resets it
+  hopBoost = nextHopBoost(hopBoost, audioT - landedAt);
   jumpV = JUMP_V;
   jumpY = 0.001;
   fx.puff(m.x, 0.15, m.z, 0xD9CDB0, 3);
@@ -2596,7 +2652,8 @@ function updateLocal(m, dt) {
   const sprint = !rifleUp && !m.swimming && !inBoat && (keys.has('ShiftLeft') || keys.has('ShiftRight') || (touch && touch.state.sprint));
   const boatDef = W.boats[Math.max(0, (myData && myData.boatTier) ?? 0)] || W.boat;
   const baseSpeed = inBoat ? boatDef.speed : W.moveSpeed;
-  const maxSpeed = baseSpeed * ((myData && myData.moveMul) || 1) * (sprint ? W.sprint : 1) * (rifleUp ? 0.6 : 1) * (m.swimming ? 0.55 : 1);
+  if (jumpY === 0 && audioT - landedAt > FEEL.hopWindow) hopBoost = 1;
+  const maxSpeed = baseSpeed * ((myData && myData.moveMul) || 1) * (sprint ? W.sprint : 1) * (rifleUp ? 0.6 : 1) * (m.swimming ? 0.55 : 1) * (inBoat || m.swimming ? 1 : hopBoost);
   curMax = maxSpeed;
   const canMove = phase === 'idle' && (ix || iz);
   const sy = Math.sin(cam.yaw);
@@ -2620,14 +2677,16 @@ function updateLocal(m, dt) {
       m.trot = rifleUp ? aimRot : Math.atan2(wx, wz);
     }
   } else {
-    // on foot: velocity, friction and acceleration
-    if (jumpY === 0 && keys.has('Space') && !chatOpen) jump();
+    // on foot: quick to start and stop on the ground, free steering in the air (holding Space keeps hopping)
+    if (jumpY === 0 && (keys.has('Space') || audioT - jumpBufferAt < 0.12) && !chatOpen) { jumpBufferAt = -9; jump(); }
     const airborne = jumpY > 0;
-    if (!airborne) applyFriction(vel, dt);
-    if (canMove && wlen > 0.05) {
-      accelerate(vel, wx / wlen, wz / wlen, Math.min(wlen, 1) * maxSpeed, airborne, dt);
-      m.trot = rifleUp ? aimRot : Math.atan2(wx, wz);
-    }
+    const moving = canMove && wlen > 0.05;
+    const dirx = moving ? wx / wlen : 0;
+    const dirz = moving ? wz / wlen : 0;
+    const wishSpeed = moving ? Math.min(wlen, 1) * maxSpeed : 0;
+    if (airborne) airMove(vel, dirx, dirz, wishSpeed, dt);
+    else groundMove(vel, dirx, dirz, wishSpeed, dt);
+    if (moving) m.trot = rifleUp ? aimRot : Math.atan2(wx, wz);
     const stepX = vel.x * dt;
     const stepZ = vel.z * dt;
     if (ok(m.x + stepX, m.z)) m.x += stepX;
@@ -2657,9 +2716,11 @@ function updateLocal(m, dt) {
     if (power <= 0) { power = 0; powerDir = 1; }
   }
   if (jumpY > 0) {
-    jumpV -= JUMP_G * dt;
+    // let go of Space early for a short hop, and fall a touch faster than you rise
+    const g = JUMP_G * (jumpV > 0 && !keys.has('Space') ? 2.3 : jumpV < 0 ? 1.2 : 1);
+    jumpV -= g * dt;
     jumpY += jumpV * dt;
-    if (jumpY <= 0) { jumpY = 0; jumpV = 0; fx.puff(m.x, 0.15, m.z, 0xD9CDB0, 4); }
+    if (jumpY <= 0) { jumpY = 0; jumpV = 0; landedAt = audioT; fx.puff(m.x, 0.15, m.z, 0xD9CDB0, 4); }
   }
   m.tx = m.x;
   m.tz = m.z;
@@ -2700,15 +2761,21 @@ const POSES = {
 };
 function poseLimbs(v, t, moving, fast, pose = 'idle', dt = 0.016) {
   const L = v.limbs;
-  const swing = moving ? Math.sin(t * (fast ? 13 : 9)) * (fast ? 0.75 : 0.55) : 0;
-  L.legL.rotation.x = swing;
-  L.legR.rotation.x = -swing;
+  const swing = moving ? Math.sin(t * (fast ? 14 : 11)) * (fast ? 0.95 : 0.75) : 0;
+  const air = !!v.airborne;
+  const legKick = Math.min(1, dt * 18);
+  const lTarget = air ? -0.55 : swing;
+  const rTarget = air ? 0.4 : -swing;
+  L.legL.rotation.x += (lTarget - L.legL.rotation.x) * legKick;
+  L.legR.rotation.x += (rTarget - L.legR.rotation.x) * legKick;
   const P = POSES[pose] || POSES.idle;
   const free = pose === 'idle' || pose === 'drug' || pose === 'rod';
   let lx = P.lx - (free ? swing * 0.6 : 0);
   let rx = P.rx + (pose === 'idle' ? swing * 0.6 : 0);
   let lz = P.lz;
   let rz = P.rz;
+  // jumping: arms fly up and out, like a Roblox jump
+  if (air && pose === 'idle') { lx = -2.7; rx = -2.7; lz = -0.35; rz = 0.35; }
   if (pose === 'fists') {
     const bounce = Math.sin(t * (moving ? 10 : 4)) * 0.06;
     lx += bounce; rx -= bounce;
@@ -2788,7 +2855,11 @@ function updateView(v, dt, t) {
   v.group.rotation.x = inBoat ? 0 : v.swimLean || 0;
   if (!isMe) v.jyS = (v.jyS || 0) + ((v.jy || 0) - (v.jyS || 0)) * k;
   const jOff = isMe ? jumpY : v.jyS || 0;
-  const bob = aliveNow && v.walking ? Math.abs(Math.sin(t * 10)) * 0.06 : 0;
+  const wasAir = !!v.airborne;
+  v.airborne = jOff > 0.06 && aliveNow;
+  if (wasAir && !v.airborne) v.squash = 1; // landing: a quick squash, then it springs back
+  v.squash = Math.max(0, (v.squash || 0) - dt * 7);
+  const bob = aliveNow && v.walking && !v.airborne ? Math.abs(Math.sin(t * 10)) * 0.06 : 0;
   v.group.rotation.y = v.rot;
   v.group.rotation.z = aliveNow ? 0 : Math.PI / 2;
   const state = isMe ? { charging: 'charging', casting: 'waiting', out: 'waiting', bite: 'bite', reeling: 'reeling' }[phase] || 'idle' : v.state;
@@ -2825,6 +2896,8 @@ function updateView(v, dt, t) {
   } else {
     const lunge = poseLimbs(v, t, aliveNow && v.walking, isMe && stepSprint, pose, dt);
     v.group.position.set(v.x + Math.sin(v.rot) * lunge, v.y + bob + jOff + (aliveNow ? 0 : 0.35), v.z + Math.cos(v.rot) * lunge);
+    const sq = v.squash || 0;
+    v.group.scale.set(1 + 0.09 * sq, 1 - 0.15 * sq, 1 + 0.09 * sq);
   }
   const beamOn = aliveNow && gunHeld && !fishing && !!(isMe ? myData && myData.att && myData.att[inHand] && myData.att[inHand].laser : v.data.lz);
   if (beamOn) {
@@ -3118,7 +3191,8 @@ function updateCamera(m, dt, t) {
   }
   cam.shake *= Math.exp(-dt * 8);
   const zoomFov = rifleOut ? gunOf(held).zoom : 40;
-  const fov = lerp(60, zoomFov, cam.aim) + (high.crank ? 7 : 0);
+  const speedKick = clamp((Math.hypot(vel.x, vel.z) - 6.5) / 6, 0, 1) * 4 * (1 - cam.aim);
+  const fov = lerp(60, zoomFov, cam.aim) + (high.crank ? 7 : 0) + speedKick;
   if (Math.abs(camera.fov - fov) > 0.05) {
     camera.fov += (fov - camera.fov) * Math.min(1, dt * 8);
     camera.updateProjectionMatrix();

@@ -30,9 +30,9 @@ Fish for cash, climb through better rods and bait, fill out your journal, and wi
 - **Saves.** Cash, gear, bag, ammo, pocket, and journal save per browser (a token in localStorage) to `data/players.json`.
 - **Chat.** Press Enter. Messages also show as speech bubbles.
 - **Phones.** Use the left thumb stick to move and drag on the right side to look. A Punch or Shoot button appears for whatever you're holding, with light aim assist. Tapping Cast switches to your rod automatically. Phones vibrate on bites and hits (Android). Tap Full screen on Android, or on iPhone use Share, then Add to Home Screen, to play without the browser bars. The layout works in portrait and landscape.
-- **Characters.** Real rigged, animated people that idle, walk, run, punch, and fall down. On the license you pick one of four looks, a skin tone, and a shirt color, and your choices save.
+- **Characters.** Pick the Roblox-style Blocky avatar (rounded blocks and a smiley face, with a jump pose and a landing squash) or one of four realistic rigged people, plus a skin tone and shirt color. Your choices save.
 - **Graphics.** Hills around the lake, wind-blown grass, birches, maples with some fall color, bushes, low-poly rocks, a red barn for the shack, rowboats at the dock, a well and fence at camp, animated fish, drifting clouds, and glow on firelight, lanterns, and sun glints. Help (H) has a Graphics setting. Auto picks High on computers and Low on phones.
-- **Settings.** Press H for controls, look speed, volume, invert Y, and camera shake.
+- **Settings.** Press H for controls, look speed, volume, brightness, invert Y, and camera shake.
 
 ## Controls
 
@@ -40,7 +40,7 @@ WASD to walk, Shift to run. Click the game to lock the mouse, Esc to release it.
 
 - **Left click** uses whatever is in your hands: cast and reel with the rod, fire a gun (hold for full auto on the SMG), punch with fists, or take a drug.
 - **Right click** (hold) zooms. With a gun out it aims down the sights, and you can still shoot while zoomed.
-- **Space** jumps. Hold it to bunny hop. Movement is velocity-based like Half-Life: ground friction, capped air acceleration, and a 1.7x speed cap on takeoff, so turning your view while strafing (A or D plus a mouse turn) in the air builds speed.
+- **Space** jumps (about 1.5 m, hold it longer for a higher hop). Movement is Roblox-style: you reach full speed almost instantly, stop just as fast, and steer freely in the air. Hold Space to keep hopping, and each hop you land right into adds speed (up to +35%) until you stop.
 - **R** reloads. Guns have magazines and share a pool of spare rounds.
 - **1-0, -, =** or the **scroll wheel** switch hotbar items: fists, rod, bait, then whichever guns you own, then the drugs and your bag. Ctrl + wheel moves the camera.
 - **Q** reels your line in. **E** talks to Moss, sits at the shack, or launches/leaves your boat. **F** throws a punch.

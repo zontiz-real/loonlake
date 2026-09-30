@@ -145,11 +145,11 @@ export function makeLabel(text, opts = {}) {
 const DAY_KEYS = [
   { h: 0, top: '#08112A', hor: '#1C2A48', fog: '#172339', sun: 0.42, hemi: 0.62, light: '#9FB4FF', night: 1 },
   { h: 4.8, top: '#0E1734', hor: '#2C3252', fog: '#212B43', sun: 0.42, hemi: 0.64, light: '#9FB4FF', night: 0.95 },
-  { h: 6, top: '#3E5C92', hor: '#F0A77E', fog: '#C99A86', sun: 0.95, hemi: 0.85, light: '#FFC08A', night: 0.25 },
-  { h: 7.5, top: '#6F9FCF', hor: '#E9D6BC', fog: '#D9D6C8', sun: 1.7, hemi: 1.15, light: '#FFE2B8', night: 0 },
-  { h: 12, top: '#4F92D0', hor: '#BCD8E6', fog: '#C6DADF', sun: 2.2, hemi: 1.3, light: '#FFF6E4', night: 0 },
-  { h: 17, top: '#558FC8', hor: '#CCDCDC', fog: '#CCD8D2', sun: 2.0, hemi: 1.22, light: '#FFEBCC', night: 0 },
-  { h: 19, top: '#4D5F9A', hor: '#F29A62', fog: '#D98D6A', sun: 1.15, hemi: 0.9, light: '#FFB070', night: 0.15 },
+  { h: 6, top: '#3E5C92', hor: '#F0A77E', fog: '#C99A86', sun: 0.8, hemi: 0.62, light: '#FFC08A', night: 0.25 },
+  { h: 7.5, top: '#6F9FCF', hor: '#E9D6BC', fog: '#D9D6C8', sun: 1.25, hemi: 0.8, light: '#FFE2B8', night: 0 },
+  { h: 12, top: '#3F86CC', hor: '#A9CBDD', fog: '#AFC8D2', sun: 1.55, hemi: 0.88, light: '#FFF2DC', night: 0 },
+  { h: 17, top: '#4A85C4', hor: '#B9CFD4', fog: '#B8C8C6', sun: 1.4, hemi: 0.84, light: '#FFE7C4', night: 0 },
+  { h: 19, top: '#4D5F9A', hor: '#F29A62', fog: '#D98D6A', sun: 0.85, hemi: 0.65, light: '#FFB070', night: 0.15 },
   { h: 20.6, top: '#1B2152', hor: '#5B3F66', fog: '#36304E', sun: 0.45, hemi: 0.66, light: '#B7A8E8', night: 0.75 },
   { h: 22, top: '#08112A', hor: '#1C2A48', fog: '#172339', sun: 0.42, hemi: 0.62, light: '#9FB4FF', night: 1 },
   { h: 24, top: '#08112A', hor: '#1C2A48', fog: '#172339', sun: 0.42, hemi: 0.62, light: '#9FB4FF', night: 1 },
@@ -159,9 +159,9 @@ const WATER_DAY = { deep: new THREE.Color('#0F4F5C'), shallow: new THREE.Color('
 const WATER_NIGHT = { deep: new THREE.Color('#051219'), shallow: new THREE.Color('#0F2C36') };
 
 export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch }) {
-  const hemi = new THREE.HemisphereLight(0xE7F2FA, 0x3E4A32, 1.3);
+  const hemi = new THREE.HemisphereLight(0xE7F2FA, 0x3E4A32, 0.9);
   scene.add(hemi);
-  const sun = new THREE.DirectionalLight(0xFFF6E4, 2.1);
+  const sun = new THREE.DirectionalLight(0xFFF6E4, 1.5);
   sun.castShadow = true;
   sun.shadow.mapSize.set(isTouch ? 1024 : 2048, isTouch ? 1024 : 2048);
   Object.assign(sun.shadow.camera, { left: -42, right: 42, top: 42, bottom: -42, near: 1, far: 160 });
@@ -298,10 +298,10 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
         vec3 col = mix(base, uSky, 0.1 + fres * 0.65);
         vec3 H = normalize(normalize(uSunDir) + V);
         float nh = max(dot(n, H), 0.0);
-        col += uSunColor * (pow(nh, 260.0) * 2.4 + pow(nh, 28.0) * 0.1);
+        col += uSunColor * (pow(nh, 260.0) * 1.1 + pow(nh, 28.0) * 0.06);
         // sun glitter that twinkles across the ripples, and a soft glow from light in the water
         float twinkle = smoothstep(0.82, 1.0, vnoise(vWorld.xz * 5.5 + vec2(uTime * 1.6, uTime * 1.2)));
-        col += uSunColor * twinkle * pow(nh, 9.0) * 2.2;
+        col += uSunColor * twinkle * pow(nh, 14.0) * 0.55;
         col += uShallow * 0.1 * (1.0 - fres) * (1.0 - uNight * 0.8);
         float foam = uLake * smoothstep(0.93, 0.997, r) * (0.35 + 0.65 * vnoise(vWorld.xz * 1.8 + vec2(uTime * 0.5, -uTime * 0.35))) * (0.6 + 0.4 * sin(uTime * 1.6 + vWorld.x * 0.7 + vWorld.z * 0.4));
         if (uLake < 0.5) foam = smoothstep(0.55, 0.95, sin(vWorld.z * 0.12 + uTime * 0.8) * 0.5 + 0.5) * smoothstep(-126.0, -118.0, vWorld.z) * 0.6;

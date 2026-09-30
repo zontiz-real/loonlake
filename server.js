@@ -1281,7 +1281,7 @@ io.on('connection', (socket) => {
     const color = COLORS.includes(opts.color) ? opts.color : (prof && prof.color) || COLORS[players.size % COLORS.length];
     const s = campSpawn();
     const pick = (v, n, fallback) => (Number.isInteger(v) && v >= 0 && v < n ? v : fallback);
-    const look = pick(opts.look, 4, (prof && prof.look) || 0);
+    const look = pick(opts.look, 5, (prof && prof.look) || 0);
     const skin = pick(opts.skin, 6, (prof && prof.skin) || 0);
     p = {
       id: socket.id, token, guest, name, color, look, skin,
