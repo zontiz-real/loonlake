@@ -230,7 +230,7 @@ let aimRot = 0;
 let castInfo = { valid: false, hot: false };
 let camLift = 0;
 const cam = { yaw: 0, pitch: 0.34, dist: TUNING.camDist, aim: 0, shake: 0 };
-if (window.__loon) Object.assign(window.__loon, { cam, vel, fishState: () => ({ phase, power, reel: reel ? { tension: reel.tension, progress: reel.progress, dir: reel.dir } : null }), phys: () => ({ jumpY, jumpV, grounded }), fishViews: () => fishViews, makeFish, species: () => speciesById, hold: (h) => { held = h; hotbarSig = ''; }, data: () => myData, me: () => views.get(myId), npcViews: () => npcViews, ragStep: (id, n) => { const v = npcViews.get(id) || views.get(id); for (let i = 0; v && v.rag && i < n; i++) stepRagdoll(v, 1 / 60, audioT); } });
+if (window.__loon) Object.assign(window.__loon, { cam, vel, weather, playerViews: () => views.values(), fishState: () => ({ phase, power, reel: reel ? { tension: reel.tension, progress: reel.progress, dir: reel.dir } : null }), phys: () => ({ jumpY, jumpV, grounded }), fishViews: () => fishViews, makeFish, species: () => speciesById, hold: (h) => { held = h; hotbarSig = ''; }, data: () => myData, me: () => views.get(myId), npcViews: () => npcViews, ragStep: (id, n) => { const v = npcViews.get(id) || views.get(id); for (let i = 0; v && v.rag && i < n; i++) stepRagdoll(v, 1 / 60, audioT); } });
 let pointerLocked = false;
 // automated browsers can't hold pointer lock (it also blocks screenshots), so they use drag-to-look
 let noLock = isTouch || !!navigator.webdriver;
@@ -1357,18 +1357,21 @@ socket.on('caught', (c) => {
 socket.on('derby', (d) => {
   sfx.horn();
   if (d.type === 'start') {
-    flashPrompt('Derby! Heaviest fish before the horn wins the pot.', 'good', 3000);
-  } else if (d.winnerId && d.winnerId === myId) {
-    const m = me();
-    sfx.land('legendary');
-    if (m) {
-      fx.sparkle(m.x, 1.6, m.z, 0xF2B134, 60, 3);
-      fx.floater(m.x, 2.4, m.z, `+$${d.pot}`, 'cash', 2.2);
-    }
-    flashPrompt(`You won the derby and $${d.pot}.`, 'good', 4500);
+    flashPrompt(`Tournament: ${d.name}. ${d.blurb}`, 'good', 3600);
   } else if (d.top && d.top[0]) {
-    flashPrompt(`${d.top[0].name} won the derby.`, '', 2600);
+    const winners = d.top.map((t, i) => `${['1st', '2nd', '3rd'][i]} ${t.name}`).join(', ');
+    pushFeed(`${d.name} results: ${winners}.`, 'derby');
+    if (!d.top.some((t) => t.pid === myId)) flashPrompt(`${d.top[0].name} won the ${d.name.toLowerCase()} tournament.`, '', 2800);
   }
+});
+socket.on('derbyPrize', (r) => {
+  const m = me();
+  sfx.land(r.place === 1 ? 'legendary' : 'epic');
+  if (m) {
+    fx.sparkle(m.x, 1.6, m.z, 0xF2B134, r.place === 1 ? 60 : 30, 3);
+    fx.floater(m.x, 2.4, m.z, `+$${r.amount}`, 'cash', 2.2);
+  }
+  flashPrompt(`You placed ${['1st', '2nd', '3rd'][r.place - 1]} in the ${r.mode.toLowerCase()} tournament: $${r.amount} and ${r.xp} XP.`, 'good', 5200);
 });
 
 // ================================================================ join
@@ -2171,8 +2174,8 @@ function showCatchTag(res) {
   const add = (text, cls) => { const f = document.createElement('span'); f.textContent = text; if (cls) f.className = cls; flags.append(f); };
   if (res.first) add(`First ${res.name.toLowerCase()}`);
   if (res.pb) add('Personal best', 'pb');
-  if (res.derbyLead) add('Leads the derby', 'derby');
-  else if (res.derby) add('Weighed in for the derby', 'derby');
+  if (res.derbyLead) add('Leads the tournament', 'derby');
+  else if (res.derby) add('Counts for the tournament', 'derby');
   if (res.hot) add('Hot spot');
   if (res.xpGain) add(`+${res.xpGain} XP`);
   if (res.levelUp) add(`Level ${res.level}! +$${res.levelBonus}`, 'pb');
@@ -3526,19 +3529,45 @@ function renderDerby() {
   const el = $('derby');
   if (!d || !myId) { el.hidden = true; return; }
   if (d.active) {
+    const mine = myData && myData.tourney;
+    const sig = JSON.stringify([d.name, d.pot, d.top, Math.floor(d.endsIn / 1000), mine]);
     el.hidden = false;
+    if (sig === el.dataset.sig) return;
+    el.dataset.sig = sig;
     el.replaceChildren();
+    const head = document.createElement('div');
+    head.className = 'thead';
     const b = document.createElement('b');
-    b.textContent = 'Derby';
+    b.textContent = `Tournament: ${d.name}`;
     const time = document.createElement('span');
     time.className = 'time';
     time.textContent = fmtTime(d.endsIn);
-    const txt = d.leader ? `${d.leader.name} leads with ${d.leader.lbs} lb. Pot $${d.pot}.` : `No fish weighed yet. Pot $${d.pot}.`;
-    el.append(b, time, document.createTextNode(txt));
-    $('boardFoot').textContent = `Derby pot $${d.pot}. Heaviest fish wins.`;
+    head.append(b, time);
+    const sub = document.createElement('small');
+    sub.textContent = `${d.blurb} Pot $${d.pot}.`;
+    el.append(head, sub);
+    if (!d.top.length) {
+      const none = document.createElement('p');
+      none.textContent = 'No fish weighed in yet.';
+      el.append(none);
+    }
+    d.top.forEach((t, i) => {
+      const row = document.createElement('p');
+      row.className = 'trow' + (t.pid === myId ? ' you' : '');
+      row.textContent = `${['1st', '2nd', '3rd'][i]}  ${t.name}: ${t.label}`;
+      el.append(row);
+    });
+    if (mine) {
+      const me2 = document.createElement('p');
+      me2.className = 'trow you';
+      me2.textContent = mine.rank ? `You are ${mine.rank}${['st', 'nd', 'rd'][mine.rank - 1] || 'th'} of ${mine.of}: ${mine.label}` : 'You have not weighed in yet.';
+      if (d.top.length && !d.top.some((t) => t.pid === myId)) el.append(me2);
+    }
+    $('boardFoot').textContent = `Tournament: ${d.name}. Pot $${d.pot}.`;
   } else {
     el.hidden = true;
-    $('boardFoot').textContent = `Next derby in ${fmtTime(d.nextIn)}`;
+    el.dataset.sig = '';
+    $('boardFoot').textContent = `Next tournament in ${fmtTime(d.nextIn)}: ${d.nextName}`;
   }
 }
 
@@ -3885,7 +3914,7 @@ renderer.setAnimationLoop(() => {
   const wx = weather.update(dt, weatherKind, {
     inWater: (x, z) => inWater(x, z),
     ripple: (x, z) => fx.ripple(x, z, 0.45 + Math.random() * 0.3, 0.8, 0.35),
-    thunder: (delay) => sfx.thunder(delay),
+    thunder: (delay, x, z) => { sfx.thunder(delay); if (inWater(x, z)) fx.splash(x, z, 24, 1.4); else fx.puff(x, 0.3, z, 0xFFFFFF, 10); },
   });
   world.update(dt, t, clockHour, focus, { ripple: (x, z, s) => fx.ripple(x, z, s, 1.4, 0.5) }, Math.min(1, wx.level));
   sfx.rain(wx.rain * (myId && boating() ? 0.8 : 1));

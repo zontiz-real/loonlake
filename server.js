@@ -495,59 +495,100 @@ function tickHotspots() {
 
 // ---------------------------------------------------------------- derby
 
-const derby = { active: false, endsAt: 0, nextAt: nowMs() + DERBY.firstIn, entries: new Map(), leader: null };
+const derby = { active: false, endsAt: 0, nextAt: nowMs() + DERBY.firstIn, entries: new Map(), leader: null, modeIdx: -1 };
 
-function derbyStandings() {
-  return [...derby.entries.values()].sort((a, b) => b.lbs - a.lbs);
+// A tournament runs every few minutes and rotates through four ways to win:
+// the heaviest single fish, the most fish, the most total weight, or the rarest catch.
+const T_MODES = [
+  { id: 'heaviest', name: 'Heaviest fish', blurb: 'The heaviest single fish wins.' },
+  { id: 'count', name: 'Most fish', blurb: 'Weigh in the most fish.' },
+  { id: 'total', name: 'Total weight', blurb: 'The most pounds in total wins.' },
+  { id: 'rare', name: 'Rarest catch', blurb: 'The rarest fish wins. Weight breaks ties.' },
+];
+const T_SPLIT = [[1], [0.7, 0.3], [0.6, 0.25, 0.15]];
+const T_XP = [120, 70, 35];
+const RARITY_NAME = { common: 'common', uncommon: 'uncommon', rare: 'rare', epic: 'epic', legendary: 'legendary' };
+
+function tMode() { return T_MODES[((derby.modeIdx % T_MODES.length) + T_MODES.length) % T_MODES.length]; }
+function tScore(e) {
+  switch (tMode().id) {
+    case 'count': return e.count * 1000 + e.best;
+    case 'total': return e.total;
+    case 'rare': return e.rare;
+    default: return e.best;
+  }
 }
+function tLabel(e) {
+  switch (tMode().id) {
+    case 'count': return `${e.count} fish`;
+    case 'total': return `${e.total} lb total`;
+    case 'rare': return `${e.rareFish} (${e.rareRarity}), ${e.rareLbs} lb`;
+    default: return `${e.best} lb ${e.bestFish.toLowerCase()}`;
+  }
+}
+function derbyStandings() {
+  return [...derby.entries.values()].sort((a, b) => tScore(b) - tScore(a));
+}
+const derbyPot = () => DERBY.basePot + DERBY.perEntry * derby.entries.size;
 
 function startDerby() {
   derby.active = true;
   derby.endsAt = nowMs() + DERBY.length;
   derby.entries.clear();
   derby.leader = null;
-  io.emit('derby', { type: 'start', length: DERBY.length });
-  feed('The derby is on. Heaviest fish in the next few minutes takes the pot.', 'derby');
+  derby.modeIdx = (derby.modeIdx || 0) + 1;
+  const m = tMode();
+  io.emit('derby', { type: 'start', length: DERBY.length, mode: m.id, name: m.name, blurb: m.blurb });
+  feed(`Tournament: ${m.name}. ${m.blurb} Top three share the pot.`, 'derby');
 }
 
 function finishDerby() {
   derby.active = false;
   derby.nextAt = nowMs() + DERBY.every;
   const standings = derbyStandings();
-  const pot = DERBY.basePot + DERBY.perEntry * standings.length;
-  const top = standings.slice(0, 3).map((e) => ({ name: e.name, lbs: e.lbs, fish: e.fish, color: e.color }));
-  let winnerId = null;
-  if (standings.length) {
-    const w = standings[0];
-    const live = [...players.values()].find((p) => p.token === w.token);
+  const pot = derbyPot();
+  const m = tMode();
+  const split = T_SPLIT[Math.max(0, Math.min(T_SPLIT.length, standings.length) - 1)];
+  const top = [];
+  standings.slice(0, split.length).forEach((e, i) => {
+    const prize = Math.round(pot * split[i]);
+    const live = [...players.values()].find((p) => p.token === e.token);
     if (live) {
-      live.cash += pot;
-      live.derbyWins += 1;
-      winnerId = live.id;
+      live.cash += prize;
+      live.earned += prize;
+      live.xp += T_XP[i];
+      if (i === 0) live.derbyWins += 1;
       storeProfile(live);
-    } else if (profiles[w.token]) {
-      profiles[w.token].cash += pot;
-      profiles[w.token].derbyWins = (profiles[w.token].derbyWins || 0) + 1;
+      const sock = sockOf(live.id);
+      if (sock) sock.emit('derbyPrize', { place: i + 1, amount: prize, xp: T_XP[i], mode: m.name });
+    } else if (profiles[e.token]) {
+      profiles[e.token].cash += prize;
+      if (i === 0) profiles[e.token].derbyWins = (profiles[e.token].derbyWins || 0) + 1;
       saveDirty = true;
     }
-    feed(`${w.name} wins the derby with a ${w.lbs} lb ${w.fish.toLowerCase()} and takes $${pot}.`, 'derby');
-  } else {
-    feed('The derby ended with no fish weighed in.', 'derby');
-  }
-  io.emit('derby', { type: 'end', top, pot, winnerId });
+    top.push({ name: e.name, color: e.color, label: tLabel(e), prize, pid: live ? live.id : null });
+  });
+  if (top.length) feed(`${top[0].name} wins the ${m.name.toLowerCase()} tournament (${top[0].label}) and takes $${top[0].prize}.`, 'derby');
+  else feed('The tournament ended with no fish weighed in.', 'derby');
+  io.emit('derby', { type: 'end', mode: m.id, name: m.name, top, pot, winnerId: top[0] ? top[0].pid : null });
 }
 
+// records a catch; returns true if it put this player in the lead
 function derbyWeighIn(p, species, lbs) {
   if (!derby.active || species.rarity === 'junk' || species.rarity === 'treasure') return false;
-  const prev = derby.entries.get(p.token);
-  if (!prev || lbs > prev.lbs) {
-    derby.entries.set(p.token, { token: p.token, name: p.name, color: p.color, lbs, fish: species.name });
-  }
+  const e = derby.entries.get(p.token) || { token: p.token, name: p.name, color: p.color, count: 0, total: 0, best: 0, bestFish: '', rare: 0, rareFish: '', rareRarity: '', rareLbs: 0 };
+  e.name = p.name;
+  e.count += 1;
+  e.total = Math.round((e.total + lbs) * 10) / 10;
+  if (lbs > e.best) { e.best = lbs; e.bestFish = species.name; }
+  const rs = RARITY_RANK[species.rarity] * 100000 + lbs;
+  if (rs > e.rare) { e.rare = rs; e.rareFish = species.name; e.rareRarity = RARITY_NAME[species.rarity] || species.rarity; e.rareLbs = lbs; }
+  derby.entries.set(p.token, e);
   const lead = derbyStandings()[0];
-  const leadKey = lead ? lead.token + ':' + lead.lbs : null;
+  const leadKey = lead ? lead.token + ':' + tScore(lead) : null;
   if (leadKey !== derby.leader) {
     derby.leader = leadKey;
-    feed(`${lead.name} leads the derby with a ${lead.lbs} lb ${lead.fish.toLowerCase()}.`, 'derby');
+    feed(`${lead.name} leads the tournament: ${tLabel(lead)}.`, 'derby');
     return lead.token === p.token;
   }
   return false;
@@ -1147,13 +1188,23 @@ function snapshot() {
     hotspots: hotspots.map((h) => ({ id: h.id, x: r2(h.x), z: r2(h.z), r: h.r, age: now - h.born, left: h.until - now })),
     derby: {
       active: derby.active,
+      mode: tMode().id,
+      name: tMode().name,
+      blurb: tMode().blurb,
       endsIn: derby.active ? derby.endsAt - now : 0,
       nextIn: derby.active ? 0 : derby.nextAt - now,
+      nextName: T_MODES[(((derby.modeIdx + 1) % T_MODES.length) + T_MODES.length) % T_MODES.length].name,
       entries: standings.length,
-      pot: DERBY.basePot + DERBY.perEntry * standings.length,
-      leader: standings[0] ? { name: standings[0].name, lbs: standings[0].lbs, fish: standings[0].fish } : null,
+      pot: derbyPot(),
+      top: standings.slice(0, 3).map((e) => ({ name: e.name, color: e.color, label: tLabel(e), pid: [...players.values()].find((p) => p.token === e.token)?.id || null })),
     },
   };
+}
+
+function tourneyOf(p) {
+  const st = derbyStandings();
+  const i = st.findIndex((e) => e.token === p.token);
+  return i < 0 ? { rank: 0, of: st.length } : { rank: i + 1, of: st.length, label: tLabel(st[i]) };
 }
 
 function privateState(p) {
@@ -1166,6 +1217,7 @@ function privateState(p) {
     bagMax: bagCap(p), bagTier: p.bagTier || 0,
     high: highFlags(p), highLeft: highLeft(p), moveMul: moveMul(p), hp: Math.max(0, p.hp),
     alive: p.alive, safe: inCamp(p) || nowMs() < p.safeUntil, state: p.state,
+    tourney: derby.active ? tourneyOf(p) : null,
     xp: p.xp, level: levelOf(p.xp), xpLow: xpFloor(levelOf(p.xp)), xpNext: xpFloor(levelOf(p.xp) + 1), quests: p.quests, boat: !!p.boat, ownsBoat: !!p.ownsBoat,
   };
 }
@@ -1271,7 +1323,8 @@ function debugCommand(p, socket, text) {
     return say('Moved.');
   }
   if (cmd === 'hour') { setHour(Number(args[0]) || 12); return say('Clock set.'); }
-  if (cmd === 'derby') { if (derby.active) derby.endsAt = nowMs(); else derby.nextAt = nowMs(); return say('Derby toggled.'); }
+  if (cmd === 'derby') { if (derby.active) derby.endsAt = nowMs(); else derby.nextAt = nowMs(); return say('Tournament toggled.'); }
+  if (cmd === 'tmode') { derby.modeIdx = (Number(args[0]) || 1) - 2; return say(`Next tournament: ${T_MODES[(derby.modeIdx + 1) % T_MODES.length].name}.`); }
   if (cmd === 'gear') { p.rod = WORLD.rods.length - 1; p.bait = WORLD.baits.length - 1; GUN_IDS.forEach((g) => { p.guns[g] = true; Object.keys(WORLD.attachments).forEach((k) => { p.att[g][k] = !WORLD.attachments[k].only || WORLD.attachments[k].only.includes(g); }); p.mag[g] = effGun(p, g).mag; }); GUN_IDS.forEach((g) => { p.glvl[g] = WORLD.gunLevels.names.length - 1; }); p.ammo += 200; p.boatTier = WORLD.boats.length - 1; p.ownsBoat = true; return say('Maxed out.'); }
   if (cmd === 'bag') {
     const n = Math.min(60, Number(args[0]) || 8);
