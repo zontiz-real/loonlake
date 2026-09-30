@@ -554,3 +554,7 @@ body.touch #questList { display: none; }
 #scope::before { left: 50%; top: 50%; width: 52vmin; height: 1px; transform: translate(-50%, -50%); }
 #scope::after { left: 50%; top: 50%; height: 52vmin; width: 1px; transform: translate(-50%, -50%); }
 body.touch #ammoHud { bottom: calc(150px + var(--safe-b)); }
+
+/* many items: let the hotbar wrap and shrink instead of running off the screen */
+#slots { flex-wrap: wrap; justify-content: center; max-width: 96vw; }
+@media (max-width: 1000px) { button.slot { width: 44px; height: 44px; } button.slot svg { width: 22px; height: 22px; } }

@@ -3114,7 +3114,7 @@ function renderHotbar() {
     { act: 'rod', art: 'rod', label: W.rods[d.rod].name, tier: [d.rod, W.rods.length], key: '2' },
     { act: 'bait', art: 'bait', label: W.baits[d.bait].name, tier: [d.bait, W.baits.length], key: '3' },
     ...GUN_ORDER.filter((g) => d.guns[g]).map((g) => ({
-      act: g, art: g, label: `${W.guns[g].name}, ${d.mag[g] || 0} loaded, ${d.ammo} spare`, count: `${d.mag[g] || 0}/${d.ammo}`,
+      act: g, art: g, label: `${W.guns[g].name}, ${d.mag[g] || 0} loaded, ${d.ammo} spare`, count: d.mag[g] || 0,
     })),
     ...DRUGS.map((n, i) => ({ act: n, art: n, label: `${n}, ${d.pocket[n]} left`, count: d.pocket[n], empty: !d.pocket[n] && !d.high[n], on: d.high[n], timer: d.highLeft[n] / 30 })),
     { act: 'bag', art: 'bag', label: d.bag.n ? `Bag, ${d.bag.n} fish worth $${d.bag.value}` : 'Bag is empty', count: `${d.bag.n}/${bagMax}`, empty: !d.bag.n, full: d.bag.n >= bagMax, key: '=' },
