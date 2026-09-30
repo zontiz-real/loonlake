@@ -292,6 +292,8 @@ export async function loadModels(onProgress) {
     } else {
       gradientMaterial(root, body, belly);
     }
+    // wet skin catches the sun: much glossier than the matte clamp people and props get
+    Object.values(mats).forEach((m) => { if ('roughness' in m) { m.roughness = 0.5; m.metalness = 0.02; } });
     if (sid === 'golden') Object.values(mats).forEach((m) => { m.metalness = 0.55; m.roughness = 0.35; m.emissive = new THREE.Color(0x4A3000); });
     const group = new THREE.Group();
     const turn = new THREE.Group();
@@ -331,6 +333,7 @@ export async function loadModels(onProgress) {
       mat.name = (o.material.name || '').trim();
       if (paint[mat.name]) mat.color.set(paint[mat.name]);
       if ('metalness' in mat) { mat.metalness = Math.min(mat.metalness, 0.2); mat.roughness = Math.max(mat.roughness, 0.6); }
+      if (name.startsWith('boat')) { mat.roughness = 0.42; mat.metalness = 0.08; } // painted hulls have a lacquer shine
       if (mat.name === 'Leaves' || mat.name === 'Rock') mat.flatShading = true;
       parts.push({ geometry: geo, material: mat });
     });

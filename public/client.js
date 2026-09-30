@@ -123,7 +123,7 @@ const fx = createFx(scene, camera);
 // post: bloom makes the fire, lanterns, sun glints, and sparkles glow, then a soft vignette frames it
 const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType, samples: 4 }));
 composer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.3, 0.45, 0.93);
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.3, 0.45, 1.5);
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
 const vignette = new ShaderPass({
@@ -227,7 +227,7 @@ let deathUntil = 0;
 let aimRot = 0;
 let castInfo = { valid: false, hot: false };
 const cam = { yaw: 0, pitch: 0.34, dist: TUNING.camDist, aim: 0, shake: 0 };
-if (window.__loon) Object.assign(window.__loon, { cam, vel, fishViews: () => fishViews, makeFish, species: () => speciesById, hold: (h) => { held = h; hotbarSig = ''; }, data: () => myData, me: () => views.get(myId), npcViews: () => npcViews, ragStep: (id, n) => { const v = npcViews.get(id) || views.get(id); for (let i = 0; v && v.rag && i < n; i++) stepRagdoll(v, 1 / 60, audioT); } });
+if (window.__loon) Object.assign(window.__loon, { cam, vel, fishViews: () => fishViews, makeFish, makeBoatMesh, socket, species: () => speciesById, hold: (h) => { held = h; hotbarSig = ''; }, data: () => myData, me: () => views.get(myId), npcViews: () => npcViews, ragStep: (id, n) => { const v = npcViews.get(id) || views.get(id); for (let i = 0; v && v.rag && i < n; i++) stepRagdoll(v, 1 / 60, audioT); } });
 let pointerLocked = false;
 // automated browsers can't hold pointer lock (it also blocks screenshots), so they use drag-to-look
 let noLock = isTouch || !!navigator.webdriver;
@@ -682,6 +682,23 @@ function setBubble(v, text) {
 }
 
 const BOAT_MODELS = ['boat_row', 'boat_fish', 'boat_speed'];
+// a soft ring of foam where the hull meets the water; the middle is clear so it never shows inside the boat
+const foamTex = (() => {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d');
+  const grd = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  grd.addColorStop(0, 'rgba(255,255,255,0)');
+  grd.addColorStop(0.62, 'rgba(255,255,255,0)');
+  grd.addColorStop(0.75, 'rgba(255,255,255,.85)');
+  grd.addColorStop(0.9, 'rgba(255,255,255,.25)');
+  grd.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grd;
+  g.fillRect(0, 0, 128, 128);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+})();
 function makeBoatMesh(tier = 0) {
   const def = (W && W.boats && W.boats[tier]) || { scale: 1 };
   const g = new THREE.Group();
@@ -689,9 +706,19 @@ function makeBoatMesh(tier = 0) {
     const name = BOAT_MODELS[tier] || BOAT_MODELS[0];
     const hull = kit.prop(name, 0.75);
     const sz = kit.baked(name, 0.75).size;
-    hull.scale.setScalar((3.2 * def.scale) / Math.max(sz.x, sz.z));
+    const hs = (3.2 * def.scale) / Math.max(sz.x, sz.z);
+    hull.scale.setScalar(hs);
     if (sz.x > sz.z) hull.rotation.y = Math.PI / 2;
     g.add(hull);
+    const foam = new THREE.Mesh(
+      new THREE.PlaneGeometry(Math.min(sz.x, sz.z) * hs * 1.45, Math.max(sz.x, sz.z) * hs * 1.2),
+      new THREE.MeshBasicMaterial({ map: foamTex, transparent: true, opacity: 0.5, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
+    );
+    foam.rotation.x = -Math.PI / 2;
+    foam.position.y = 0.2; // the boat sits 0.18 below the water line in its own space
+    foam.renderOrder = 2;
+    g.userData.foam = foam;
+    g.add(foam);
   } else {
     const hull = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.4, 3), new THREE.MeshStandardMaterial({ color: 0x6A3A1C }));
     hull.position.y = 0.2;
@@ -2846,6 +2873,8 @@ function updateView(v, dt, t) {
     v.y = wy - (v.model ? 0.46 : 0.15);
     v.boatMesh.position.y = (v.model ? 0.46 : 0.15) - 0.18;
     v.boatMesh.rotation.set(Math.sin(t * 1.3 + v.x) * 0.05, 0, Math.cos(t * 1.1 + v.z) * 0.05);
+    const foam = v.boatMesh.userData.foam;
+    if (foam) { foam.material.opacity = 0.42 + 0.14 * Math.sin(t * 2.2 + v.x); foam.scale.setScalar(1 + 0.03 * Math.sin(t * 1.7 + v.z)); foam.material.color.setScalar(1 - world.day.night * 0.7); }
     if (!isMe && v.walking && Math.random() < dt * 20) fx.wake(v.x - Math.sin(v.rot) * 1.4, v.z - Math.cos(v.rot) * 1.4, Math.sin(v.rot), Math.cos(v.rot), 7);
   } else {
     if (v.boatMesh) v.boatMesh.visible = false;
