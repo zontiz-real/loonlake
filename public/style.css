@@ -53,10 +53,13 @@ input {
   border: 2px solid transparent; background: rgba(236, 242, 234, .1);
   -webkit-user-select: text; user-select: text;
 }
+/* enamel panels: a soft top sheen, a frosted blur, and a drop shadow so they sit above the scene */
 .panel {
-  background: var(--enamel); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  background-color: var(--enamel);
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, 0) 45%);
+  backdrop-filter: blur(12px) saturate(1.25); -webkit-backdrop-filter: blur(12px) saturate(1.25);
   border: 1px solid var(--line); border-radius: 14px;
-  box-shadow: inset 0 1px 0 var(--enamel-hi);
+  box-shadow: 0 8px 24px rgba(6, 14, 12, .3), inset 0 1px 0 var(--enamel-hi);
 }
 
 /* ---------- paper tags ---------- */
@@ -124,13 +127,19 @@ input {
 }
 #stats {
   display: grid; gap: 5px; padding: 10px 12px; min-width: 148px;
-  background: var(--enamel); border: 1px solid var(--line); border-radius: 14px; backdrop-filter: blur(10px);
+  background-color: var(--enamel); border: 1px solid var(--line); border-radius: 14px;
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, 0) 45%);
+  backdrop-filter: blur(12px) saturate(1.25); -webkit-backdrop-filter: blur(12px) saturate(1.25);
+  box-shadow: 0 8px 24px rgba(6, 14, 12, .3), inset 0 1px 0 var(--enamel-hi);
 }
 #clockLine { font-size: .9rem; color: var(--muted); display: flex; gap: 6px; align-items: center; }
 #clockLine svg { width: 15px; height: 15px; }
 #hpBar { height: 8px; border-radius: 4px; background: rgba(236, 242, 234, .15); overflow: hidden; }
-#hpBar i { display: block; height: 100%; width: 100%; background: #6DBF67; border-radius: 4px; transition: width .2s, background .2s; }
-#hpBar.low i { background: var(--bobber); }
+#hpBar i {
+  display: block; height: 100%; width: 100%; border-radius: 4px; transition: width .2s, background .2s;
+  background: linear-gradient(180deg, #86D57F, #56AD50); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .35);
+}
+#hpBar.low i { background: linear-gradient(180deg, #F0654A, #C93C25); }
 #cashLine { font-size: 1.55rem; font-weight: 600; color: var(--brass); line-height: 1.05; }
 #bagLine { font-size: .9rem; }
 #statusLine { font-size: .82rem; color: var(--muted); }
@@ -232,7 +241,9 @@ input {
 #hotbar { position: fixed; left: 50%; bottom: calc(16px + var(--safe-b)); transform: translateX(-50%); z-index: 6; }
 #slots {
   display: flex; gap: 6px; padding: 7px; background: rgba(14, 30, 26, .7);
-  border: 1px solid var(--line); border-radius: 18px; backdrop-filter: blur(14px);
+  border: 1px solid var(--line); border-radius: 18px;
+  backdrop-filter: blur(14px) saturate(1.25); -webkit-backdrop-filter: blur(14px) saturate(1.25);
+  box-shadow: 0 10px 28px rgba(6, 14, 12, .35), inset 0 1px 0 var(--enamel-hi);
 }
 button.slot {
   width: 56px; height: 56px; padding: 0; border-radius: 12px; position: relative;
@@ -241,8 +252,8 @@ button.slot {
 button.slot svg { width: 26px; height: 26px; }
 button.slot.empty { color: rgba(236, 242, 234, .32); background: rgba(236, 242, 234, .04); }
 button.slot.on { border-color: var(--brass); color: var(--brass); }
-button.slot.held { border-color: var(--paper); background: rgba(238, 242, 236, .28); box-shadow: inset 0 0 0 1px rgba(238, 242, 236, .55); }
-button.slot.held.on { border-color: var(--brass); }
+button.slot.held { border-color: var(--paper); background: rgba(238, 242, 236, .28); box-shadow: inset 0 0 0 1px rgba(238, 242, 236, .55), 0 0 14px rgba(238, 242, 236, .25); transform: translateY(-2px); }
+button.slot.held.on { border-color: var(--brass); box-shadow: inset 0 0 0 1px rgba(242, 177, 52, .5), 0 0 14px rgba(242, 177, 52, .35); }
 button.slot .count { position: absolute; right: 5px; bottom: 2px; font-size: .76rem; font-weight: 600; }
 button.slot .key { position: absolute; left: 6px; top: 3px; font-size: .64rem; color: var(--muted); }
 button.slot .tier { position: absolute; left: 0; right: 0; bottom: 3px; display: flex; justify-content: center; gap: 2px; }

@@ -290,6 +290,8 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
         vec3 V = normalize(cameraPosition - vWorld);
         float fres = pow(1.0 - clamp(dot(n, V), 0.0, 1.0), 4.0);
         vec3 base = mix(uDeep, uShallow, smoothstep(0.5, 1.0, r));
+        // the last few meters before the beach go a clear turquoise, like sunlit sand under shallow water
+        base = mix(base, vec3(0.13, 0.46, 0.42) * (1.0 - uNight * 0.75), uLake * smoothstep(0.84, 1.0, r) * 0.6);
         if (uLake < 0.5) {
           // channel water is shallow and green; open water goes deep blue away from the beach
           float open = smoothstep(-100.0, -150.0, vWorld.z);
@@ -305,7 +307,15 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
         col += uShallow * 0.1 * (1.0 - fres) * (1.0 - uNight * 0.8);
         float foam = uLake * smoothstep(0.93, 0.997, r) * (0.35 + 0.65 * vnoise(vWorld.xz * 1.8 + vec2(uTime * 0.5, -uTime * 0.35))) * (0.6 + 0.4 * sin(uTime * 1.6 + vWorld.x * 0.7 + vWorld.z * 0.4));
         if (uLake < 0.5) foam = smoothstep(0.55, 0.95, sin(vWorld.z * 0.12 + uTime * 0.8) * 0.5 + 0.5) * smoothstep(-126.0, -118.0, vWorld.z) * 0.6;
-        col = mix(col, vec3(0.92, 0.96, 0.94) * (1.0 - uNight * 0.65), foam * 0.6);
+        else {
+          // a thin crest that laps up and down the beach (whole-number frequencies so it has no seam)
+          float ang = atan(vWorld.z, vWorld.x);
+          float lap = 0.5 + 0.25 * sin(ang * 7.0 + uTime * 0.8) + 0.25 * sin(ang * 13.0 - uTime * 1.1);
+          float edge = 0.972 + 0.014 * lap;
+          float crest = smoothstep(edge - 0.02, edge, r) * (1.0 - smoothstep(edge, edge + 0.018, r));
+          foam = max(foam, crest * (0.55 + 0.45 * vnoise(vWorld.xz * 3.0 + uTime * 0.3)) * 1.3);
+        }
+        col = mix(col, vec3(0.92, 0.96, 0.94) * (1.0 - uNight * 0.65), clamp(foam * 0.6, 0.0, 0.85));
         float alpha = uLake > 0.5 ? mix(0.9, 0.74, smoothstep(0.86, 1.0, r)) : mix(0.8, 0.97, smoothstep(-110.0, -135.0, vWorld.z));
         float fogF = smoothstep(uFogNear, uFogFar, length(vWorld - cameraPosition));
         col = mix(col, uFogColor, fogF);
@@ -423,6 +433,27 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     scene.add(ground);
     flat(new THREE.Mesh(new THREE.RingGeometry(w.lakeRadius - 1.2, w.shoreRadius + 2.4, 128), new THREE.MeshStandardMaterial({ map: sand, roughness: 1 })), 0.02);
     flat(new THREE.Mesh(new THREE.CircleGeometry(w.lakeRadius, 96), new THREE.MeshStandardMaterial({ color: 0x1A3A3E, roughness: 1 })), 0.015);
+    // The lakebed fades up to sand instead of ending in a hard ring, and the beach is damp where the waves reach.
+    // RingGeometry UVs span its outer radius, so a radial gradient on a square canvas lines up with real meters.
+    const ringFade = (inner, outer, stops) => {
+      const tex = canvasTex(256, 256, (g, cw) => {
+        const grd = g.createRadialGradient(cw / 2, cw / 2, 0, cw / 2, cw / 2, cw / 2);
+        for (const [m, c] of stops) grd.addColorStop(Math.min(1, m / outer), c);
+        g.fillStyle = grd;
+        g.fillRect(0, 0, cw, cw);
+      });
+      tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+      const ring = new THREE.Mesh(
+        new THREE.RingGeometry(inner, outer, 128),
+        new THREE.MeshLambertMaterial({ map: tex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
+      );
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.y = 0.022;
+      scene.add(ring);
+    };
+    const lr = w.lakeRadius;
+    ringFade(lr - 7, lr + 0.4, [[0, 'rgba(176,170,128,0)'], [lr - 7, 'rgba(176,170,128,0)'], [lr - 0.5, 'rgba(176,170,128,.8)'], [lr + 0.4, 'rgba(176,170,128,.8)']]);
+    ringFade(lr, lr + 3.4, [[0, 'rgba(0,0,0,0)'], [lr, 'rgba(92,74,48,.38)'], [lr + 1.4, 'rgba(92,74,48,.2)'], [lr + 3.4, 'rgba(92,74,48,0)']]);
 
     const waterGeo = new THREE.RingGeometry(0.01, w.lakeRadius, 140, 34);
     waterGeo.rotateX(-Math.PI / 2);

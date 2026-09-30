@@ -139,6 +139,9 @@ const vignette = new ShaderPass({
       float l = dot(c.rgb, vec3(0.299, 0.587, 0.114));
       c.rgb = mix(vec3(l), c.rgb, 1.2);
       c.rgb = (c.rgb - 0.5) * 1.1 + 0.5;
+      // a whisper of split toning: cool shadows, warm highlights
+      float g = dot(c.rgb, vec3(0.299, 0.587, 0.114));
+      c.rgb += mix(vec3(-0.004, 0.006, 0.012), vec3(0.012, 0.006, -0.008), smoothstep(0.2, 0.8, g));
       gl_FragColor = c;
     }`,
 });
