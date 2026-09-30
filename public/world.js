@@ -52,8 +52,8 @@ function gridLines(lo, hi, zones, coarse) {
   for (const [a, b, step] of zones) for (let v = Math.ceil(a / step) * step; v <= b; v += step) add(v);
   return [...set].sort((p, q) => p - q);
 }
-const GRID_X = gridLines(GROUND.x0, GROUND.x1, [[-14, 14, 0.5], [-44, 44, 1.5]], 4);
-const GRID_Z = gridLines(GROUND.z0, GROUND.z1, [[-135, -18, 1]], 4);
+const GRID_X = gridLines(GROUND.x0, GROUND.x1, [[-8, 8, 0.5], [-44, 44, 2]], 5);
+const GRID_Z = gridLines(GROUND.z0, GROUND.z1, [[-135, -18, 1.5]], 5);
 // a slice of the shared grid, lifted by `lift`
 function gridGeometry(x0, x1, z0, z1, lift, withUv) {
   const xs = GRID_X.filter((v) => v >= x0 - 1e-6 && v <= x1 + 1e-6);

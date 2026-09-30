@@ -102,7 +102,8 @@ const GOALS = [
 // ================================================================ renderer
 
 // auto means high on computers and low on phones; phones can still opt into high
-const quality = () => (settings.quality === 'auto' ? (isTouch ? 'low' : 'high') : settings.quality);
+let autoLow = false; // set when Auto graphics notices the computer can't keep up
+const quality = () => (settings.quality === 'auto' ? (isTouch || autoLow ? 'low' : 'high') : settings.quality);
 const pixelRatio = () => Math.min(devicePixelRatio, quality() === 'high' ? (isTouch ? 1.75 : 2) : 1.25);
 const loadQuality = quality();
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -3937,10 +3938,33 @@ function updateHud(dt, t) {
 // ================================================================ loop
 
 const clock = new THREE.Clock();
+let perfWin = 0;
+let perfSlow = 0;
+let perfLast = 0;
 const focus = new THREE.Vector3();
 renderer.setAnimationLoop(() => {
   const dt = Math.min(clock.getDelta(), 0.1);
   const t = clock.elapsedTime;
+  // Auto graphics: if most of the last 6 real seconds went to frames slower than 40 ms, drop to Low and say so
+  if (settings.quality === 'auto' && !autoLow && !isTouch && myId && !location.search.includes('debug')) {
+    const nowMs = performance.now();
+    const real = perfLast ? Math.min(nowMs - perfLast, 2000) : 0;
+    perfLast = nowMs;
+    perfWin += real;
+    if (real > 40) perfSlow += real;
+    if (perfWin >= 6000) {
+      if (perfSlow / perfWin > 0.6) {
+        autoLow = true;
+        // shadows are the biggest single cost, so an auto-downgrade drops them too
+        renderer.shadowMap.enabled = false;
+        scene.traverse((o) => { if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => { m.needsUpdate = true; }); });
+        applyQuality();
+        pushFeed('This computer is struggling, so graphics switched to Low. You can change it under Help (H).', 'mine');
+      }
+      perfWin = 0;
+      perfSlow = 0;
+    }
+  }
   audioT = t;
   if (W) clockHour = (clockHour + (dt * 24) / (W.dayMs / 1000)) % 24;
   const m = me();

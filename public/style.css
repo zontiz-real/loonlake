@@ -629,3 +629,5 @@ body.touch #derby { top: calc(158px + var(--safe-t)); bottom: auto; left: calc(1
 body.touch #derby small, body.touch #derby .trow:nth-of-type(n+3) { display: none; }
 body.touch #stats { max-width: min(170px, calc(100vw - 260px)); }
 body.touch #statusLine, body.touch #bagLine { white-space: normal; font-size: .82rem; }
+#derby { left: max(486px, calc(50% - 150px)); width: min(300px, calc(100vw - 486px - 250px)); }
+body.touch #derby { left: calc(12px + var(--safe-l)); width: min(250px, 62vw); }
