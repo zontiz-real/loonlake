@@ -442,7 +442,28 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     });
     grass.repeat.set((GROUND.x1 - GROUND.x0) / 22, (GROUND.z1 - GROUND.z0) / 22);
     const groundGeo = gridGeometry(GROUND.x0, GROUND.x1, GROUND.z0, GROUND.z1, 0, true);
-    const ground = new THREE.Mesh(groundGeo, new THREE.MeshStandardMaterial({ map: grass, roughness: 1 }));
+    // Lambert has no specular, so the ground no longer goes pale at grazing angles. World-space noise varies the color over
+    // tens of meters (lush, dry, dark) so the 22m texture tile never shows, and fine noise gives it grain up close.
+    const groundMat = new THREE.MeshLambertMaterial({ map: grass });
+    groundMat.onBeforeCompile = (sh) => {
+      sh.vertexShader = sh.vertexShader
+        .replace('#include <common>', '#include <common>\nvarying vec2 vGrassXZ;')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvGrassXZ = (modelMatrix * vec4(position, 1.0)).xz;');
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <common>', `#include <common>
+          varying vec2 vGrassXZ;
+          float gh(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+          float gn(vec2 p){ vec2 i = floor(p); vec2 f = fract(p); vec2 u = f*f*(3.0-2.0*f);
+            return mix(mix(gh(i), gh(i+vec2(1.0,0.0)), u.x), mix(gh(i+vec2(0.0,1.0)), gh(i+vec2(1.0,1.0)), u.x), u.y); }`)
+        .replace('#include <map_fragment>', `#include <map_fragment>
+          float gm1 = gn(vGrassXZ * 0.04);
+          float gm2 = gn(vGrassXZ * 0.12 + 17.0);
+          float gm3 = gn(vGrassXZ * 1.3 + 3.0) * 0.6 + gn(vGrassXZ * 4.1) * 0.4;
+          vec3 gDry = vec3(1.2, 1.08, 0.7);
+          vec3 gLush = vec3(0.86, 1.0, 0.86);
+          diffuseColor.rgb *= mix(gLush, gDry, smoothstep(0.35, 0.75, gm1)) * (0.86 + 0.28 * gm2) * (0.78 + 0.44 * gm3);`);
+    };
+    const ground = new THREE.Mesh(groundGeo, groundMat);
     ground.receiveShadow = true;
     scene.add(ground);
     flat(new THREE.Mesh(new THREE.RingGeometry(w.lakeRadius - 1.2, w.shoreRadius + 2.4, 128), new THREE.MeshStandardMaterial({ map: sand, roughness: 1 })), 0.02);
@@ -724,22 +745,35 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     }
     scene.add(birchTrunks, birchLeaves);
 
-    // grass tufts that sway in the wind
-    const grassN = high ? 9000 : 2600;
-    const bladeCount = 3;
+    // Grass tufts that sway in the wind: four curved, tapering blades each, dark at the root and bright at the tip.
+    // They are scattered in clumps (thick patches and bare spots) rather than evenly, and a few are dry and yellow.
+    const grassN = high ? 18000 : 5000;
+    const bladeCount = 4;
     const gpos = [];
     const gcol = [];
     const gnorm = [];
+    const rootC = [0.05, 0.13, 0.04];
+    const midC = [0.13, 0.27, 0.08];
+    const tipC = [0.28, 0.46, 0.14];
     for (let b = 0; b < bladeCount; b++) {
-      const ang = (b / bladeCount) * Math.PI + 0.3;
-      const cx = Math.cos(ang) * 0.035;
-      const cz = Math.sin(ang) * 0.035;
-      const lean = (b - 1) * 0.07;
-      const top = [lean, 0.3 + b * 0.05, lean * 0.5];
-      // both windings with upward normals, so the back of a blade is lit like the front
-      gpos.push(-cx, 0, -cz, cx, 0, cz, ...top, cx, 0, cz, -cx, 0, -cz, ...top);
-      gcol.push(0.26, 0.38, 0.18, 0.26, 0.38, 0.18, 0.52, 0.66, 0.32, 0.26, 0.38, 0.18, 0.26, 0.38, 0.18, 0.52, 0.66, 0.32);
-      gnorm.push(0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0);
+      const ang = (b / bladeCount) * Math.PI + 0.35;
+      const cx = Math.cos(ang);
+      const cz = Math.sin(ang);
+      const dirX = Math.cos(ang + Math.PI / 2);
+      const dirZ = Math.sin(ang + Math.PI / 2);
+      const bend = 0.09 + b * 0.035; // how far the tip leans along the blade's direction
+      const hgt = 0.3 + b * 0.055;
+      const row = (y, half, lean) => [[-cx * half + dirX * lean, y, -cz * half + dirZ * lean], [cx * half + dirX * lean, y, cz * half + dirZ * lean]];
+      const [b0, b1] = row(0, 0.04, 0);
+      const [m0, m1] = row(hgt * 0.55, 0.028, bend * 0.35);
+      const tip = [dirX * bend * 1.3, hgt, dirZ * bend * 1.3];
+      // triangles in both windings, so the back of a blade is lit like the front
+      const tris = [[b0, b1, m1, rootC, rootC, midC], [b0, m1, m0, rootC, midC, midC], [m0, m1, tip, midC, midC, tipC]];
+      for (const [p, q, r, cp, cq, cr] of tris) {
+        gpos.push(...p, ...q, ...r, ...q, ...p, ...r);
+        gcol.push(...cp, ...cq, ...cr, ...cq, ...cp, ...cr);
+        gnorm.push(0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0);
+      }
     }
     const tuft = new THREE.BufferGeometry();
     tuft.setAttribute('position', new THREE.Float32BufferAttribute(gpos, 3));
@@ -751,35 +785,101 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
       sh.vertexShader = 'uniform float uTime;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
         vec4 gw = instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
         float sway = sin(uTime * 1.7 + gw.x * 0.35 + gw.z * 0.27) + 0.5 * sin(uTime * 2.9 + gw.x * 0.8);
-        transformed.x += sway * 0.08 * position.y;
-        transformed.z += cos(uTime * 1.3 + gw.z * 0.4) * 0.05 * position.y;`);
+        transformed.x += sway * 0.1 * position.y * position.y * 3.0;
+        transformed.z += cos(uTime * 1.3 + gw.z * 0.4) * 0.06 * position.y * position.y * 3.0;`);
     };
     const grassField = new THREE.InstancedMesh(tuft, grassMat, grassN);
     grassField.receiveShadow = false;
     grassField.frustumCulled = false;
     const clear = [...colliders.filter((c) => c.r > 0.5), { x: f.x, z: f.z, r: 1.6 }];
-    let gi = 0;
-    for (let tries = 0; gi < grassN && tries < grassN * 4; tries++) {
+    const okGrass = (x, z) => {
+      if (Math.hypot(x, z) < w.shoreRadius + 2.8) return false;
+      if (Math.abs(x) > w.bounds + 12 || Math.abs(z) > w.bounds + 12) return false;
+      if (Math.abs(x) < 2.4 && z > w.dock.minZ && z < w.dock.maxZ + 3) return false;
+      if (nearWaterArea(x, z, 0.5)) return false;
+      return !clear.some((c) => (c.x - x) ** 2 + (c.z - z) ** 2 < (c.r + 0.4) ** 2);
+    };
+    // clump centers: each thick patch of grass is a cloud of tufts around one, with a scatter between them
+    const centers = [];
+    for (let i = 0, tries = 0; i < grassN / 14 && tries < 9000; tries++) {
       const a = rnd() * Math.PI * 2;
-      const r = w.shoreRadius + 2.8 + rnd() * 40;
-      const x = Math.sin(a) * r;
-      const z = Math.cos(a) * r;
-      if (Math.abs(x) > w.bounds + 12 || Math.abs(z) > w.bounds + 12) continue;
-      if (Math.abs(x) < 2.4 && z > w.dock.minZ && z < w.dock.maxZ + 3) continue;
-      if (nearWaterArea(x, z, 0.5)) continue;
-      if (clear.some((c) => (c.x - x) ** 2 + (c.z - z) ** 2 < (c.r + 0.4) ** 2)) continue;
-      const s = 0.7 + rnd() * 0.6;
+      const r = w.shoreRadius + 2.8 + Math.sqrt(rnd()) * 44;
+      centers.push({ x: Math.sin(a) * r, z: Math.cos(a) * r, rad: 0.8 + rnd() * 2.2 });
+      i++;
+    }
+    let gi = 0;
+    for (let tries = 0; gi < grassN && tries < grassN * 6; tries++) {
+      let x;
+      let z;
+      if (rnd() < 0.3) {
+        const a = rnd() * Math.PI * 2;
+        const r = w.shoreRadius + 2.8 + Math.sqrt(rnd()) * 44;
+        x = Math.sin(a) * r;
+        z = Math.cos(a) * r;
+      } else {
+        const c = centers[Math.floor(rnd() * centers.length)];
+        const ga = rnd() * Math.PI * 2;
+        const gr = c.rad * Math.sqrt(-2 * Math.log(1 - rnd() * 0.98)) * 0.5;
+        x = c.x + Math.cos(ga) * gr;
+        z = c.z + Math.sin(ga) * gr;
+      }
+      if (!okGrass(x, z)) continue;
+      const s = 0.75 + rnd() * 0.7;
       dummy.position.set(x, groundHeight(x, z), z);
-      dummy.scale.set(s, s * (0.7 + rnd() * 0.6), s);
-      dummy.rotation.set(0, rnd() * Math.PI * 2, 0);
+      dummy.scale.set(s, s * (0.75 + rnd() * 0.8), s);
+      dummy.rotation.set((rnd() - 0.5) * 0.15, rnd() * Math.PI * 2, (rnd() - 0.5) * 0.15);
       dummy.updateMatrix();
       grassField.setMatrixAt(gi, dummy.matrix);
-      tint.setHSL(0.22 + (rnd() - 0.5) * 0.07, 0.45, 0.9 + rnd() * 0.3);
+      const kind = rnd();
+      if (kind < 0.14) tint.setRGB(1.5 + rnd() * 0.3, 1.25 + rnd() * 0.2, 0.55 + rnd() * 0.2); // dry, straw-colored
+      else if (kind < 0.26) tint.setRGB(0.65 + rnd() * 0.2, 0.92 + rnd() * 0.15, 0.85 + rnd() * 0.2); // dark, bluish
+      else tint.setRGB(0.8 + rnd() * 0.45, 0.88 + rnd() * 0.3, 0.68 + rnd() * 0.3);
       grassField.setColorAt(gi, tint);
       gi++;
     }
     grassField.count = gi;
     scene.add(grassField);
+
+    // wildflowers in a few patches: a thin stem and a small bloom each
+    const flowerPatches = high ? 34 : 14;
+    const flowerStemGeo = new THREE.CylinderGeometry(0.004, 0.006, 0.34, 3);
+    flowerStemGeo.translate(0, 0.17, 0);
+    const flowerBloomGeo = new THREE.IcosahedronGeometry(0.05, 0);
+    flowerBloomGeo.scale(1, 0.7, 1);
+    flowerBloomGeo.translate(0, 0.35, 0);
+    const flowerCap = flowerPatches * 26;
+    const flowerStems = new THREE.InstancedMesh(flowerStemGeo, new THREE.MeshLambertMaterial({ color: 0x3C6A2A }), flowerCap);
+    const flowerBlooms = new THREE.InstancedMesh(flowerBloomGeo, new THREE.MeshLambertMaterial({ color: 0xFFFFFF }), flowerCap);
+    const bloomColors = ['#FFFFFF', '#FFD84A', '#B48CE8', '#FF8FB0', '#FFFFFF', '#FFB347'];
+    let fi = 0;
+    for (let pch = 0; pch < flowerPatches; pch++) {
+      const a = rnd() * Math.PI * 2;
+      const r = w.shoreRadius + 4 + rnd() * 34;
+      const px = Math.sin(a) * r;
+      const pz = Math.cos(a) * r;
+      const col = new THREE.Color(bloomColors[pch % bloomColors.length]);
+      const n = 10 + Math.floor(rnd() * 16);
+      for (let k = 0; k < n && fi < flowerCap; k++) {
+        const fa = rnd() * Math.PI * 2;
+        const fr = Math.sqrt(rnd()) * 1.4;
+        const x = px + Math.cos(fa) * fr;
+        const z = pz + Math.sin(fa) * fr;
+        if (!okGrass(x, z)) continue;
+        const s = 0.8 + rnd() * 0.6;
+        dummy.position.set(x, groundHeight(x, z), z);
+        dummy.scale.set(s, s, s);
+        dummy.rotation.set((rnd() - 0.5) * 0.3, rnd() * 6.3, (rnd() - 0.5) * 0.3);
+        dummy.updateMatrix();
+        flowerStems.setMatrixAt(fi, dummy.matrix);
+        flowerBlooms.setMatrixAt(fi, dummy.matrix);
+        tint.copy(col).multiplyScalar(0.85 + rnd() * 0.25);
+        flowerBlooms.setColorAt(fi, tint);
+        fi++;
+      }
+    }
+    flowerStems.count = flowerBlooms.count = fi;
+    flowerStems.frustumCulled = flowerBlooms.frustumCulled = false;
+    scene.add(flowerStems, flowerBlooms);
 
     if (kit) buildModelScenery(w, kit, rnd, dummy, tint, camp, f);
     const rockMat = new THREE.MeshStandardMaterial({ color: 0x8A8680, roughness: 1, flatShading: true });

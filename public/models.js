@@ -378,7 +378,7 @@ export async function loadModels(onProgress) {
             .replace('#include <begin_vertex>', '#include <begin_vertex>\nvCanopyY = clamp(position.y / uCanopy, 0.0, 1.0);');
           shader.fragmentShader = shader.fragmentShader
             .replace('#include <common>', '#include <common>\nvarying float vCanopyY;')
-            .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb *= mix(0.55, 1.08, smoothstep(0.1, 0.85, vCanopyY));');
+            .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb *= mix(0.72, 1.08, smoothstep(0.1, 0.85, vCanopyY));');
         };
         mat.customProgramCacheKey = () => 'leafcanopy';
       }
