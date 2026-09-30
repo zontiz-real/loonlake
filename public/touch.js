@@ -8,6 +8,7 @@ export function initTouch(h) {
     <div class="tzone" id="tzRight"></div>
     <div id="stick" hidden><div id="knob"></div></div>
     <div id="tButtons">
+      <button type="button" class="tbtn small" id="tJump">Jump</button>
       <button type="button" class="tbtn small" id="tReel" hidden>Reel in</button>
       <button type="button" class="tbtn small" id="tUse" hidden>Use</button>
       <button type="button" class="tbtn" id="tShoot" hidden>Shoot</button>
@@ -104,6 +105,7 @@ export function initTouch(h) {
     el.addEventListener('contextmenu', (e) => e.preventDefault());
   };
   press('tFish', h.fishDown, h.fishUp);
+  press('tJump', h.jumpDown, h.jumpUp);
   press('tShoot', null, h.shoot);
   press('tUse', null, h.use);
   press('tReel', null, h.reelIn);

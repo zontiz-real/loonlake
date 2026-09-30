@@ -558,7 +558,26 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     // benches around the fire
     [[-2.6, 0.4, 0.2], [2.6, 0.2, -0.2], [0, 2.7, Math.PI / 2]].forEach(([ox, oz, ry]) => {
       box(0.35, 0.35, 1.8, 0x5A3E28, f.x + ox, 0.18, f.z + oz, { ry });
-      colliders.push({ x: f.x + ox, z: f.z + oz, r: 0.6 });
+      colliders.push({ x: f.x + ox, z: f.z + oz, r: 0.6, h: 0.36 });
+    });
+
+    // a staircase of crates and some barrels to hop up: 0.6 m, 1.1 m, then 1.6 m
+    const crate = (x, z, h) => {
+      box(1.3, h, 1.3, 0x9A6B3A, x, h / 2, z);
+      box(1.36, 0.08, 1.36, 0x6E4A26, x, h - 0.04, z);
+      colliders.push({ x, z, r: 0.75, h });
+    };
+    const cx0 = camp.dealer.x + 10;
+    const cz0 = camp.dealer.z + 6;
+    crate(cx0, cz0, 0.6);
+    crate(cx0 + 1.7, cz0, 1.1);
+    crate(cx0 + 3.4, cz0, 1.6);
+    crate(cx0 + 1.7, cz0 + 1.8, 0.6);
+    [[cx0 - 1.2, cz0 + 2.2], [cx0 - 2.2, cz0 + 1.2]].forEach(([bx2, bz2]) => {
+      const b = kit.prop('barrel', 1.0);
+      b.position.set(bx2, 0, bz2);
+      scene.add(b);
+      colliders.push({ x: bx2, z: bz2, r: 0.5, h: 1.0 });
     });
 
     // forest, instanced
@@ -867,7 +886,9 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
       const k = i % 3;
       if (rockCount[k] >= 16) continue;
       tint.setHSL(0.08, 0.05, 0.75 + rnd() * 0.35);
-      place(rockSets[k], rockCount[k]++, x, z, 0.5 + rnd() * 1.4, rnd() * 6.3, { Rock: tint });
+      const rs = 0.5 + rnd() * 1.4;
+      place(rockSets[k], rockCount[k]++, x, z, rs, rnd() * 6.3, { Rock: tint });
+      colliders.push({ x, z, r: 0.5 * rs + 0.1, h: 0.62 * rs });
     }
     rockSets.forEach((set, k) => { set.finish(rockCount[k]); scene.add(...set.meshes); });
 
@@ -923,7 +944,7 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     beached.position.set(Math.sin(ba) * (w.shoreRadius + 0.6), 0.05, Math.cos(ba) * (w.shoreRadius + 0.6));
     beached.rotation.set(0.05, ba + 0.4, 0.12);
     scene.add(beached);
-    colliders.push({ x: beached.position.x, z: beached.position.z, r: 1.2 });
+    colliders.push({ x: beached.position.x, z: beached.position.z, r: 1.2, h: 0.55 });
 
     // the old well and a split-rail fence behind camp
     const well = kit.prop('well', 2.3);
@@ -1099,9 +1120,12 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     }
   }
 
-  // push a circle of radius pr out of any collider
-  function collide(pos, pr) {
+  // push a circle of radius pr out of any collider. Low ones (with a top height h) only block you if your
+  // feet are more than a step below their top, so you can hop up onto them.
+  const STEP = 0.3;
+  function collide(pos, pr, feet = 0) {
     for (const c of colliders) {
+      if (c.h !== undefined && feet >= c.h - STEP) continue;
       const dx = pos.x - c.x;
       const dz = pos.z - c.z;
       const min = c.r + pr;
@@ -1114,11 +1138,22 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     }
   }
 
+  // how high the ground is under (x, z) for someone whose feet are at height `feet`: the top of the tallest
+  // low object they are over and can stand on, or 0
+  function platformAt(x, z, feet) {
+    let top = 0;
+    for (const c of colliders) {
+      if (c.h === undefined || c.h <= top || feet < c.h - STEP) continue;
+      if ((x - c.x) ** 2 + (z - c.z) ** 2 <= c.r * c.r) top = c.h;
+    }
+    return top;
+  }
+
   // true if a point sits inside a building, so the camera can pull in
   function blocked(x, y, z) {
     for (const b of solids) if (y < b.h && (x - b.x) ** 2 + (z - b.z) ** 2 < b.r * b.r) return true;
     return false;
   }
 
-  return { build, update, collide, blocked, day, firePos, loons, sunDir };
+  return { build, update, collide, platformAt, blocked, day, firePos, loons, sunDir };
 }

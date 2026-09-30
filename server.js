@@ -1107,7 +1107,7 @@ function snapshot() {
   const list = [];
   for (const p of players.values()) {
     list.push({
-      id: p.id, name: p.name, color: p.color, look: p.look, skin: p.skin, x: r2(p.x), z: r2(p.z), rot: r2(p.rot), jy: r2(p.jy || 0), level: levelOf(p.xp),
+      id: p.id, name: p.name, color: p.color, look: p.look, skin: p.skin, x: r2(p.x), z: r2(p.z), rot: r2(p.rot), jy: r2(p.jy || 0), jg: p.jg === 0 ? 0 : 1, level: levelOf(p.xp),
       state: p.state, bobber: p.bobber, cash: p.cash, hp: Math.max(0, p.hp), alive: p.alive,
       guns: p.guns, ga: GUN_IDS.includes(p.held) ? p.att[p.held] : null, lz: !!(GUN_IDS.includes(p.held) && p.att[p.held] && p.att[p.held].laser), rod: p.rod, held: p.held || 'rod', boat: !!p.boat, bt: Math.max(0, p.boatTier), swim: !!p.swim, high: highFlags(p), caught: p.caught, best: p.best,
     });
@@ -1351,7 +1351,8 @@ io.on('connection', (socket) => {
     if (Number.isFinite(m.aim)) p.aim = m.aim;
     if (typeof m.held === 'string' && HOLDABLE.has(m.held) && ownsHold(p, m.held)) p.held = m.held;
     if (p.reloadGun && p.held !== p.reloadGun) p.reloadGun = null;
-    p.jy = Number.isFinite(m.jy) ? Math.min(Math.max(m.jy, 0), 2.5) : 0;
+    p.jy = Number.isFinite(m.jy) ? Math.min(Math.max(m.jy, 0), 4) : 0;
+    p.jg = m.jg === 0 ? 0 : 1;
     if (p.state !== 'idle') return;
     const x = Number(m.x);
     const z = Number(m.z);

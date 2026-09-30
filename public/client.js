@@ -199,8 +199,10 @@ let holdFish = false;
 let lmbFish = false;
 let lmbHeld = false;
 let aimDist = 0;
-let jumpY = 0;
+let jumpY = 0; // feet height above the ground/dock under you (standing on a crate is > 0 and still grounded)
 let jumpV = 0;
+let grounded = true;
+let touchJump = false;
 const vel = { x: 0, z: 0 };
 let hopBoost = 1;
 let landedAt = -9;
@@ -223,8 +225,9 @@ let hurtT = 0;
 let deathUntil = 0;
 let aimRot = 0;
 let castInfo = { valid: false, hot: false };
+let camLift = 0;
 const cam = { yaw: 0, pitch: 0.34, dist: TUNING.camDist, aim: 0, shake: 0 };
-if (window.__loon) Object.assign(window.__loon, { cam, vel, fishViews: () => fishViews, makeFish, species: () => speciesById, hold: (h) => { held = h; hotbarSig = ''; }, data: () => myData, me: () => views.get(myId), npcViews: () => npcViews, ragStep: (id, n) => { const v = npcViews.get(id) || views.get(id); for (let i = 0; v && v.rag && i < n; i++) stepRagdoll(v, 1 / 60, audioT); } });
+if (window.__loon) Object.assign(window.__loon, { cam, vel, phys: () => ({ jumpY, jumpV, grounded }), fishViews: () => fishViews, makeFish, species: () => speciesById, hold: (h) => { held = h; hotbarSig = ''; }, data: () => myData, me: () => views.get(myId), npcViews: () => npcViews, ragStep: (id, n) => { const v = npcViews.get(id) || views.get(id); for (let i = 0; v && v.rag && i < n; i++) stepRagdoll(v, 1 / 60, audioT); } });
 let pointerLocked = false;
 // automated browsers can't hold pointer lock (it also blocks screenshots), so they use drag-to-look
 let noLock = isTouch || !!navigator.webdriver;
@@ -1013,6 +1016,8 @@ socket.on('welcome', (w) => {
     touch = initTouch({
       unlock: () => sfx.unlock(),
       fishDown, fishUp,
+      jumpDown: () => { touchJump = true; jump(); },
+      jumpUp: () => { touchJump = false; },
       shoot: attack,
       use: interact,
       reelIn,
@@ -1037,7 +1042,7 @@ socket.on('state', (s) => {
     const prevState = v.data.state;
     v.data = d;
     if (d.id !== myId) {
-      v.tx = d.x; v.tz = d.z; v.trot = d.rot; v.state = d.state; v.jy = d.jy || 0;
+      v.tx = d.x; v.tz = d.z; v.trot = d.rot; v.state = d.state; v.jy = d.jy || 0; v.jg = d.jg;
       if (d.bobber && !v.bobberPos) v.fly = { t: 0, from: v.tip.getWorldPosition(new THREE.Vector3()), remote: true };
       if (d.state === 'bite' && prevState !== 'bite' && d.bobber) fx.ripple(d.bobber.x, d.bobber.z, 0.8, 0.9, 0.5);
       v.bobberPos = d.bobber;
@@ -2391,11 +2396,12 @@ function jump() {
   const m = me();
   if (!m || !alive() || openPanel || chatOpen || phase !== 'idle' || boating() || m.swimming) return;
   // pressing jump a hair before you land still jumps the moment you touch down
-  if (jumpY > 0) { jumpBufferAt = audioT; return; }
+  if (!grounded) { jumpBufferAt = audioT; return; }
   // hopping again right as you land builds a speed boost; stopping the chain resets it
   hopBoost = nextHopBoost(hopBoost, audioT - landedAt);
   jumpV = JUMP_V;
-  jumpY = 0.001;
+  jumpY += 0.001;
+  grounded = false;
   fx.puff(m.x, 0.15, m.z, 0xD9CDB0, 3);
 }
 
@@ -2817,12 +2823,16 @@ function updateLocal(m, dt) {
   const rifleUp = isGun(held) && ownsGun(held) && cam.aim > 0.3;
   const wasBoat = boating();
   m.swimming = !wasBoat && inWater(m.x, m.z);
-  if (m.swimming && jumpY > 0) { jumpY = 0; jumpV = 0; }
+  if (m.swimming || wasBoat) { jumpY = 0; jumpV = 0; }
+  // stand on the highest low object under your feet; walking off its edge starts a fall
+  const floorH = m.swimming || wasBoat ? 0 : world.platformAt(m.x, m.z, jumpY);
+  grounded = jumpV <= 0 && jumpY <= floorH + 0.02;
+  if (grounded) jumpY = floorH;
   const inBoat = boating();
   const sprint = !rifleUp && !m.swimming && !inBoat && (keys.has('ShiftLeft') || keys.has('ShiftRight') || (touch && touch.state.sprint));
   const boatDef = W.boats[Math.max(0, (myData && myData.boatTier) ?? 0)] || W.boat;
   const baseSpeed = inBoat ? boatDef.speed : W.moveSpeed;
-  if (jumpY === 0 && audioT - landedAt > FEEL.hopWindow) hopBoost = 1;
+  if (grounded && audioT - landedAt > FEEL.hopWindow) hopBoost = 1;
   const maxSpeed = baseSpeed * ((myData && myData.moveMul) || 1) * (sprint ? W.sprint : 1) * (rifleUp ? 0.6 : 1) * (m.swimming ? 0.55 : 1) * (inBoat || m.swimming ? 1 : hopBoost);
   curMax = maxSpeed;
   const canMove = phase === 'idle' && (ix || iz);
@@ -2848,8 +2858,8 @@ function updateLocal(m, dt) {
     }
   } else {
     // on foot: quick to start and stop on the ground, free steering in the air (holding Space keeps hopping)
-    if (jumpY === 0 && (keys.has('Space') || audioT - jumpBufferAt < 0.12) && !chatOpen) { jumpBufferAt = -9; jump(); }
-    const airborne = jumpY > 0;
+    if (grounded && (keys.has('Space') || touchJump || audioT - jumpBufferAt < 0.12) && !chatOpen) { jumpBufferAt = -9; jump(); }
+    const airborne = !grounded;
     const moving = canMove && wlen > 0.05;
     const dirx = moving ? wx / wlen : 0;
     const dirz = moving ? wz / wlen : 0;
@@ -2861,7 +2871,7 @@ function updateLocal(m, dt) {
     const stepZ = vel.z * dt;
     if (ok(m.x + stepX, m.z)) m.x += stepX;
     if (ok(m.x, m.z + stepZ)) m.z += stepZ;
-    world.collide(m, 0.35);
+    world.collide(m, 0.35, jumpY);
     pushOutOfBodies(m);
     if (!ok(m.x, m.z)) { m.x = ox; m.z = oz; }
     // whatever stopped us (walls, bodies, the shoreline) takes the speed with it
@@ -2873,7 +2883,11 @@ function updateLocal(m, dt) {
   }
   m.walking = Math.hypot(m.x - ox, m.z - oz) > 0.001;
   stepSprint = sprint;
-  if (m.walking && !inBoat && !m.swimming && jumpY === 0) sfx.step(audioT, sprint);
+  if (m.walking && !inBoat && !m.swimming && grounded) {
+    sfx.step(audioT, sprint);
+    // kick up a little dust when running fast
+    if (Math.hypot(vel.x, vel.z) > 8 && Math.random() < dt * 9) fx.puff(m.x - Math.sin(m.trot) * 0.2, jumpY + 0.1, m.z - Math.cos(m.trot) * 0.2, 0xD9CDB0, 2);
+  }
   if (m.walking && m.swimming && Math.random() < dt * 5) fx.ripple(m.x, m.z, 0.7, 1, 0.4);
   if (!canMove && (phase === 'charging' || rifleUp)) m.trot = aimRot;
   if (lmbHeld && !openPanel && !chatOpen) {
@@ -2885,20 +2899,28 @@ function updateLocal(m, dt) {
     if (power >= 1) { power = 1; powerDir = -1; }
     if (power <= 0) { power = 0; powerDir = 1; }
   }
-  if (jumpY > 0) {
+  if (!grounded || jumpV > 0) {
     // let go of Space early for a short hop, and fall a touch faster than you rise
+    const prevY = jumpY;
     const g = JUMP_G * (jumpV > 0 && !keys.has('Space') ? 2.3 : jumpV < 0 ? 1.2 : 1);
     jumpV -= g * dt;
     jumpY += jumpV * dt;
-    if (jumpY <= 0) { jumpY = 0; jumpV = 0; landedAt = audioT; fx.puff(m.x, 0.15, m.z, 0xD9CDB0, 4); }
+    // land on whatever you were above (judged from where you were, so you cannot tunnel through a thin platform)
+    const fl = world.platformAt(m.x, m.z, prevY);
+    if (jumpV <= 0 && jumpY <= fl) {
+      const hit = -jumpV;
+      jumpY = fl; jumpV = 0; grounded = true; landedAt = audioT;
+      fx.puff(m.x, fl + 0.15, m.z, 0xD9CDB0, hit > 6 ? 8 : 4);
+      if (hit > 6.5) { cam.shake += 0.1; sfx.thud(false, 0.35); }
+    }
   }
   m.tx = m.x;
   m.tz = m.z;
   sendTimer += dt;
   if (sendTimer >= 0.05) {
     sendTimer = 0;
-    if (m.x !== lastSent.x || m.z !== lastSent.z || m.trot !== lastSent.rot || held !== lastSent.held || jumpY !== lastSent.jy || Math.abs(aimRot - (lastSent.aim || 0)) > 0.01) {
-      lastSent = { x: m.x, z: m.z, rot: m.trot, aim: aimRot, held, jy: jumpY };
+    if (m.x !== lastSent.x || m.z !== lastSent.z || m.trot !== lastSent.rot || held !== lastSent.held || jumpY !== lastSent.jy || (grounded ? 1 : 0) !== lastSent.jg || Math.abs(aimRot - (lastSent.aim || 0)) > 0.01) {
+      lastSent = { x: m.x, z: m.z, rot: m.trot, aim: aimRot, held, jy: jumpY, jg: grounded ? 1 : 0 };
       socket.emit('move', lastSent);
     }
   }
@@ -3026,7 +3048,8 @@ function updateView(v, dt, t) {
   if (!isMe) v.jyS = (v.jyS || 0) + ((v.jy || 0) - (v.jyS || 0)) * k;
   const jOff = isMe ? jumpY : v.jyS || 0;
   const wasAir = !!v.airborne;
-  v.airborne = jOff > 0.06 && aliveNow;
+  const onGround = isMe ? grounded : v.jg !== undefined ? v.jg !== 0 : jOff <= 0.06;
+  v.airborne = jOff > 0.06 && !onGround && aliveNow;
   if (wasAir && !v.airborne) v.squash = 1; // landing: a quick squash, then it springs back
   v.squash = Math.max(0, (v.squash || 0) - dt * 7);
   const bob = aliveNow && v.walking && !v.airborne ? Math.abs(Math.sin(t * 10)) * 0.06 : 0;
@@ -3326,7 +3349,8 @@ function updateCamera(m, dt, t) {
   const shoulder = rifleOut ? lerp(0.45, 0.8, cam.aim) : cam.aim * 0.3;
   const sy = Math.sin(cam.yaw);
   const cy = Math.cos(cam.yaw);
-  const target = tmpB.set(m.x + cy * shoulder, (m.y || 0) + 1.55 + cam.aim * 0.1, m.z - sy * shoulder);
+  camLift += (jumpY * 0.8 - camLift) * Math.min(1, dt * 9);
+  const target = tmpB.set(m.x + cy * shoulder, (m.y || 0) + 1.55 + cam.aim * 0.1 + camLift, m.z - sy * shoulder);
   const horiz = Math.cos(cam.pitch) * dist;
   camera.position.set(target.x + sy * horiz, target.y + Math.sin(cam.pitch) * dist, target.z + cy * horiz);
   // pull the camera in rather than letting it sit inside the shack or Moss's stand

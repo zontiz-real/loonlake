@@ -41,7 +41,7 @@ WASD to walk, Shift to run. Click the game to lock the mouse, Esc to release it.
 
 - **Left click** uses whatever is in your hands: cast and reel with the rod, fire a gun (hold for full auto on the SMG), punch with fists, or take a drug.
 - **Right click** (hold) zooms. With a gun out it aims down the sights, and you can still shoot while zoomed.
-- **Space** jumps (about 1.5 m, hold it longer for a higher hop). Movement is Roblox-style: you reach full speed almost instantly, stop just as fast, and steer freely in the air. Hold Space to keep hopping, and each hop you land right into adds speed (up to +35%) until you stop.
+- **Space** jumps (about 1.5 m, hold it longer for a higher hop). Jumping is real: hop onto rocks, the fire benches, barrels, the beached boat, and the crate staircase behind Moss's stand (0.6 m, 1.1 m, then 1.6 m). Low things you can step onto; taller ones you have to jump. Walk off an edge and you fall. Movement is Roblox-style: you reach full speed almost instantly, stop just as fast, and steer freely in the air. Hold Space to keep hopping, and each hop you land right into adds speed (up to +35%) until you stop.
 - **R** reloads. Guns have magazines and share a pool of spare rounds.
 - **1-0, -, =** or the **scroll wheel** switch hotbar items: fists, rod, bait, then whichever guns you own, then the drugs and your bag. Ctrl + wheel moves the camera.
 - **Q** reels your line in. **E** talks to Moss, sits at the shack, or launches/leaves your boat. **F** throws a punch.
