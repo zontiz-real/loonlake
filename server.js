@@ -27,6 +27,12 @@ const WORLD = {
   sprint: 1.5,
   castMin: 4,
   bagMax: 16,
+  bags: [
+    { name: 'Canvas satchel', cap: 16, price: 0, desc: 'Holds 16 fish.' },
+    { name: 'Tackle bag', cap: 24, price: 150, desc: 'Holds 24 fish.' },
+    { name: 'Fishing vest', cap: 36, price: 400, desc: 'Holds 36 fish, with a pocket for everything.' },
+    { name: "Angler's pack", cap: 50, price: 900, desc: 'Holds 50 fish. You will not need to run back to Moss.' },
+  ],
   dayMs: DAY_MS,
   // a channel runs south from the lake out to the big water
   channel: { minX: -4.5, maxX: 4.5, minZ: -124, maxZ: -26 },
@@ -421,7 +427,7 @@ function storeProfile(p) {
   if (!p || p.guest) return;
   profiles[p.token] = {
     name: p.name, color: p.color, look: p.look, skin: p.skin, cash: p.cash, rod: p.rod, bait: p.bait,
-    guns: p.guns, mag: p.mag, att: p.att, glvl: p.glvl, ammo: p.ammo, pocket: p.pocket, bag: p.bag, ownsBoat: !!p.ownsBoat, boatTier: p.boatTier,
+    guns: p.guns, mag: p.mag, att: p.att, glvl: p.glvl, ammo: p.ammo, pocket: p.pocket, bag: p.bag, bagTier: p.bagTier, ownsBoat: !!p.ownsBoat, boatTier: p.boatTier,
     journal: p.journal, caught: p.caught, earned: p.earned, derbyWins: p.derbyWins,
     best: p.best, xp: p.xp, quests: p.quests, seen: nowMs(),
   };
@@ -672,13 +678,16 @@ function spawnPickup(kind, amount, x, z, name) {
   if (pickups.length > 48) pickups.shift();
 }
 
+const bagCap = (p) => WORLD.bags[Math.max(0, Math.min(WORLD.bags.length - 1, p.bagTier || 0))].cap;
+
 function giveFish(p, name, lbs, value) {
-  if (p.bag.length >= WORLD.bagMax) {
+  if (p.bag.length >= bagCap(p)) {
     p.cash += value;
     p.earned += value;
     return false;
   }
-  p.bag.push({ id: 'b' + (bagSerial++), name, lbs, value });
+  const sp = SPECIES.find((x) => x.name === name);
+  p.bag.push({ id: 'b' + (bagSerial++), name, sid: sp ? sp.id : null, rarity: sp ? sp.rarity : 'common', lbs, value, locked: false });
   return true;
 }
 
@@ -1132,6 +1141,8 @@ function privateState(p) {
     guns: p.guns, mag: p.mag, att: p.att, glvl: p.glvl, reloadGun: p.reloadGun, reloadLeft: p.reloadGun ? Math.max(0, p.reloadUntil - nowMs()) : 0, boatTier: p.boatTier,
     cash: p.cash, ammo: p.ammo, rod: p.rod, bait: p.bait, pocket: p.pocket,
     bag: { n: p.bag.length, value: p.bag.reduce((s, f) => s + f.value, 0) },
+    bagItems: p.bag.map((f) => ({ id: f.id, name: f.name, sid: f.sid || null, rarity: f.rarity || 'common', lbs: f.lbs, value: f.value, locked: !!f.locked })),
+    bagMax: bagCap(p), bagTier: p.bagTier || 0,
     high: highFlags(p), highLeft: highLeft(p), moveMul: moveMul(p), hp: Math.max(0, p.hp),
     alive: p.alive, safe: inCamp(p) || nowMs() < p.safeUntil, state: p.state,
     xp: p.xp, level: levelOf(p.xp), xpLow: xpFloor(levelOf(p.xp)), xpNext: xpFloor(levelOf(p.xp) + 1), quests: p.quests, boat: !!p.boat, ownsBoat: !!p.ownsBoat,
@@ -1241,6 +1252,15 @@ function debugCommand(p, socket, text) {
   if (cmd === 'hour') { setHour(Number(args[0]) || 12); return say('Clock set.'); }
   if (cmd === 'derby') { if (derby.active) derby.endsAt = nowMs(); else derby.nextAt = nowMs(); return say('Derby toggled.'); }
   if (cmd === 'gear') { p.rod = WORLD.rods.length - 1; p.bait = WORLD.baits.length - 1; GUN_IDS.forEach((g) => { p.guns[g] = true; Object.keys(WORLD.attachments).forEach((k) => { p.att[g][k] = !WORLD.attachments[k].only || WORLD.attachments[k].only.includes(g); }); p.mag[g] = effGun(p, g).mag; }); GUN_IDS.forEach((g) => { p.glvl[g] = WORLD.gunLevels.names.length - 1; }); p.ammo += 200; p.boatTier = WORLD.boats.length - 1; p.ownsBoat = true; return say('Maxed out.'); }
+  if (cmd === 'bag') {
+    const n = Math.min(60, Number(args[0]) || 8);
+    for (let i = 0; i < n; i++) {
+      const sp = SPECIES[Math.floor(Math.random() * SPECIES.length)];
+      const lbs = Math.round((sp.lbs[0] + (sp.lbs[1] - sp.lbs[0]) * Math.random()) * 10) / 10;
+      giveFish(p, sp.name, lbs, Math.max(1, Math.round(sp.base * (0.6 + 0.9 * Math.random()))));
+    }
+    return say(`Added ${n} fish.`);
+  }
   if (cmd === 'boattier') { p.boatTier = Math.max(0, Math.min(WORLD.boats.length - 1, Number(args[0]) || 0)); p.ownsBoat = true; return say(`Boat tier ${p.boatTier}.`); }
   if (cmd === 'boat') { p.ownsBoat = true; p.boatTier = Math.max(p.boatTier, 0); return say('You own a boat.'); }
   if (cmd === 'sea' || cmd === 'channel') {
@@ -1288,7 +1308,7 @@ io.on('connection', (socket) => {
       x: s.x, z: s.z, rot: s.rot, aim: s.rot,
       state: 'idle', bobber: null, fish: null,
       lastMove: nowMs(), budget: 2, lastChat: 0,
-      cash: COMBAT.stake, hp: COMBAT.hp, alive: true, guns: freshGuns(), mag: freshMag(), att: freshAtt(), glvl: freshLvl(), reloadGun: null, reloadUntil: 0, boatTier: -1, swim: false, ammo: 0, rod: 0, bait: 0, held: 'rod',
+      cash: COMBAT.stake, hp: COMBAT.hp, alive: true, guns: freshGuns(), mag: freshMag(), att: freshAtt(), glvl: freshLvl(), bagTier: 0, reloadGun: null, reloadUntil: 0, boatTier: -1, swim: false, ammo: 0, rod: 0, bait: 0, held: 'rod',
       pocket: freshPocket(), bag: [], high: { weed: 0, whiskey: 0, crank: 0 },
       journal: {}, caught: 0, earned: 0, derbyWins: 0, best: null, xp: 0, quests: [], jy: 0,
       nextShot: 0, respawnAt: 0, bj: null, safeUntil: nowMs() + COMBAT.spawnSafe,
@@ -1298,6 +1318,7 @@ io.on('connection', (socket) => {
         cash: prof.cash ?? COMBAT.stake, ammo: prof.ammo || 0,
         guns: { ...freshGuns(), ...(prof.guns || {}), rifle: !!(prof.rifle || (prof.guns && prof.guns.rifle)) },
         mag: { ...freshMag(), ...(prof.mag || {}) },
+        bagTier: Math.max(0, Math.min(WORLD.bags.length - 1, Number(prof.bagTier) || 0)),
         glvl: Object.fromEntries(GUN_IDS.map((g) => [g, Math.max(0, Math.min(WORLD.gunLevels.names.length - 1, Number((prof.glvl || {})[g]) || 0))])),
         att: Object.fromEntries(GUN_IDS.map((g) => [g, { laser: false, drum: false, switch: false, ...((prof.att || {})[g] || {}) }])),
         boatTier: Number.isInteger(prof.boatTier) ? Math.min(prof.boatTier, WORLD.boats.length - 1) : prof.ownsBoat ? 0 : -1,
@@ -1447,6 +1468,15 @@ io.on('connection', (socket) => {
       storeProfile(p);
       return reply({ ok: true, msg: `${list[next].name} is yours.`, gear: true });
     }
+    if (item === 'bagup') {
+      const next = (p.bagTier || 0) + 1;
+      if (next >= WORLD.bags.length) return reply({ ok: false, msg: 'You already have the biggest pack Moss sells.' });
+      const bag = WORLD.bags[next];
+      if (!pay(bag.price)) return reply({ ok: false, msg: `The ${bag.name.toLowerCase()} is $${bag.price}.` });
+      p.bagTier = next;
+      storeProfile(p);
+      return reply({ ok: true, msg: `${bag.name}: room for ${bag.cap} fish.` });
+    }
     if (item === 'boat') {
       const next = p.boatTier + 1;
       if (next >= WORLD.boats.length) return reply({ ok: false, msg: 'You already have the best boat there is.' });
@@ -1533,18 +1563,26 @@ io.on('connection', (socket) => {
   });
 
   // the phone's fish buyer comes to you, and takes a cut
+  // sell fish from the bag. Locked fish are always kept. At Moss you get full price; anywhere else a buyer takes a cut.
+  const sellFish = (list, atMoss) => {
+    if (!list.length) return null;
+    const full = list.reduce((sum, f) => sum + f.value, 0);
+    const total = atMoss ? full : Math.floor(full * WORLD.market.remote);
+    const gone = new Set(list.map((f) => f.id));
+    p.bag = p.bag.filter((f) => !gone.has(f.id));
+    p.cash += total;
+    p.earned += total;
+    storeProfile(p);
+    return { total, count: list.length };
+  };
+
   socket.on('sellRemote', (_, ack) => {
     const reply = replyFn(ack);
     if (!p || !p.alive) return reply({ ok: false, msg: 'Not right now.' });
     if (!p.bag.length) return reply({ ok: false, msg: 'Your bag is empty.' });
-    const full = p.bag.reduce((sum, fish) => sum + fish.value, 0);
-    const total = Math.floor(full * WORLD.market.remote);
-    const count = p.bag.length;
-    p.cash += total;
-    p.earned += total;
-    p.bag = [];
-    storeProfile(p);
-    reply({ ok: true, total, count, msg: `Sold ${count} fish to the buyer for $${total}.` });
+    const res = sellFish(p.bag.filter((f) => !f.locked), false);
+    if (!res) return reply({ ok: false, msg: 'Everything in your bag is locked.' });
+    reply({ ok: true, total: res.total, count: res.count, msg: `Sold ${res.count} fish to the buyer for $${res.total}.` });
   });
 
   socket.on('sell', (_, ack) => {
@@ -1552,14 +1590,36 @@ io.on('connection', (socket) => {
     if (!p || !p.alive || p.state !== 'idle') return reply({ ok: false, msg: 'Reel in first.' });
     if (!atDealer(p)) return reply({ ok: false, msg: 'Walk up to Moss to sell.' });
     if (!p.bag.length) return reply({ ok: false, msg: 'Your bag is empty.' });
-    const total = p.bag.reduce((s, fish) => s + fish.value, 0);
-    const count = p.bag.length;
-    p.cash += total;
-    p.earned += total;
-    p.bag = [];
-    feed(`${p.name} sold ${count} fish for $${total}`, 'shop');
-    storeProfile(p);
-    reply({ ok: true, msg: `Sold ${count} fish for $${total}.`, total });
+    const res = sellFish(p.bag.filter((f) => !f.locked), true);
+    if (!res) return reply({ ok: false, msg: 'Everything in your bag is locked.' });
+    feed(`${p.name} sold ${res.count} fish for $${res.total}`, 'shop');
+    reply({ ok: true, msg: `Sold ${res.count} fish for $${res.total}.`, total: res.total });
+  });
+
+  // one fish at a time from the inventory screen: lock it, sell it, or let it go
+  socket.on('bag', (b, ack) => {
+    const reply = replyFn(ack);
+    if (!p || !p.alive || !b) return reply({ ok: false });
+    const fish = p.bag.find((f) => f.id === b.id);
+    if (!fish) return reply({ ok: false, msg: 'That fish is gone.' });
+    if (b.action === 'lock') {
+      fish.locked = !fish.locked;
+      storeProfile(p);
+      return reply({ ok: true, locked: fish.locked });
+    }
+    if (b.action === 'release') {
+      if (fish.locked) return reply({ ok: false, msg: 'Unlock it first.' });
+      p.bag = p.bag.filter((f) => f.id !== fish.id);
+      storeProfile(p);
+      return reply({ ok: true, msg: `You let the ${fish.name.toLowerCase()} go.` });
+    }
+    if (b.action === 'sell') {
+      if (fish.locked) return reply({ ok: false, msg: 'Unlock it first.' });
+      if (p.state !== 'idle') return reply({ ok: false, msg: 'Reel in first.' });
+      const res = sellFish([fish], atDealer(p));
+      return reply({ ok: true, total: res.total, msg: `Sold the ${fish.name.toLowerCase()} for $${res.total}.` });
+    }
+    reply({ ok: false });
   });
 
   socket.on('useDrug', (name, ack) => {

@@ -1519,6 +1519,7 @@ addEventListener('keydown', (e) => {
     case 'KeyE': if (!e.repeat) interact(); break;
     case 'KeyF': quickPunch(); break;
     case 'KeyJ': if (!e.repeat) togglePanel('journal'); break;
+    case 'KeyI': case 'Tab': e.preventDefault(); if (!e.repeat) togglePanel('inventory'); break;
     case 'KeyP': if (!e.repeat) togglePanel('phone'); break;
     case 'KeyH': if (!e.repeat) togglePanel('help'); break;
     case 'Enter': e.preventDefault(); openChat(); break;
@@ -1606,7 +1607,7 @@ function flashPrompt(text, cls, ms) {
 
 // ================================================================ panels
 
-const PANELS = ['shop', 'shack', 'journal', 'help', 'phone'];
+const PANELS = ['shop', 'shack', 'journal', 'help', 'phone', 'inventory'];
 let shopSig = '';
 
 function togglePanel(name) {
@@ -1621,6 +1622,7 @@ function togglePanel(name) {
   if (name === 'shop') renderShop();
   if (name === 'shack') renderShack();
   if (name === 'journal') renderJournal();
+  if (name === 'inventory') { invSig = ''; renderInventory(); }
   if (name === 'help') syncSettingsUI();
   if (name === 'phone') { showApp('home'); renderPhone(); }
   sfx.ui();
@@ -1856,7 +1858,7 @@ function itemButton(action, title, desc, price, disabled, owned) {
 function renderShop() {
   if (openPanel !== 'shop' || !myData || !W) return;
   const d = myData;
-  const sig = [d.cash, d.boatTier, d.rod, d.bait, Object.values(d.guns || {}).join(''), JSON.stringify(d.att || 0), JSON.stringify(d.glvl || 0), d.ammo, d.bag.n, d.bag.value, d.pocket.weed, d.pocket.whiskey, d.pocket.crank].join('|');
+  const sig = [d.cash, d.boatTier, d.bagTier, d.rod, d.bait, Object.values(d.guns || {}).join(''), JSON.stringify(d.att || 0), JSON.stringify(d.glvl || 0), d.ammo, d.bag.n, d.bag.value, d.pocket.weed, d.pocket.whiskey, d.pocket.crank].join('|');
   if (sig === shopSig) return;
   shopSig = sig;
   const sell = $('sellBtn');
@@ -1878,6 +1880,11 @@ function renderShop() {
 
   const gear = $('gearList');
   gear.replaceChildren();
+  const nextBag = W.bags[(d.bagTier || 0) + 1];
+  const curBag = W.bags[d.bagTier || 0];
+  gear.append(nextBag
+    ? itemButton('bagup', nextBag.name, `${nextBag.desc} Now: ${curBag.name.toLowerCase()}, ${curBag.cap} fish.`, `$${nextBag.price}`, d.cash < nextBag.price)
+    : itemButton(null, curBag.name, `${curBag.desc} The biggest pack Moss sells.`, 'Owned', true, true));
   const nextBoat = W.boats[(d.boatTier ?? -1) + 1];
   const boat = W.boats[d.boatTier];
   gear.append(nextBoat
@@ -2189,6 +2196,175 @@ function completeGoal(id, silent) {
   }
   renderGoal();
 }
+// ================================================================ inventory
+
+let invTab = 'bag';
+let invSort = 'new';
+let invSig = '';
+const SORTS = {
+  new: ['Newest first', () => 0],
+  value: ['Most valuable', (x, y) => y.value - x.value],
+  weight: ['Heaviest', (x, y) => (y.lbs || 0) - (x.lbs || 0)],
+  rarity: ['Rarest', (x, y) => (RARITY_RANK[y.rarity] || 0) - (RARITY_RANK[x.rarity] || 0) || y.value - x.value],
+  name: ['A to Z', (x, y) => x.name.localeCompare(y.name)],
+};
+
+function invEl(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+
+function bagAction(action, id) {
+  socket.emit('bag', { action, id }, (res) => {
+    if (!res) return;
+    if (res.ok && action === 'sell') { sfx.coin(); buzz(25); const m = me(); if (m) fx.floater(m.x, 2.3, m.z, `+$${res.total}`, 'cash', 1.6); completeGoal('sell'); }
+    else if (res.ok && action === 'release') sfx.ui();
+    else if (res.ok) sfx.ui();
+    if (res.msg) flashPrompt(res.msg, res.ok ? 'good' : '', 1500);
+    invSig = '';
+  });
+}
+
+function fishCard(f) {
+  const card = invEl('div', 'icard' + (f.locked ? ' locked' : ''));
+  card.style.borderTopColor = RARITY_COLOR[f.rarity] || RARITY_COLOR.common;
+  const sp = f.sid ? speciesById[f.sid] : null;
+  const art = invEl('div', 'iart');
+  art.innerHTML = `<svg viewBox="0 0 120 48" aria-hidden="true">${fishSvg(f.sid || 'perch', sp ? sp.color : RARITY_COLOR[f.rarity], false)}</svg>`;
+  const name = invEl('h4', '', f.name);
+  const meta = invEl('p', '', `${f.lbs != null ? f.lbs + ' lb' : 'Caught by a shot'} · $${f.value}`);
+  const tag = invEl('span', 'itag', RARITY_LABEL[f.rarity] || '');
+  tag.style.color = RARITY_COLOR[f.rarity] || '';
+  const row = invEl('div', 'irow');
+  const lock = invEl('button', 'mini' + (f.locked ? ' on' : ''), f.locked ? 'Locked' : 'Lock');
+  lock.title = f.locked ? 'Unlock so it can be sold or released' : 'Lock it so Sell all keeps it';
+  lock.addEventListener('click', () => { lock.blur(); bagAction('lock', f.id); });
+  const sell = invEl('button', 'mini', 'Sell');
+  sell.disabled = f.locked;
+  sell.addEventListener('click', () => { sell.blur(); bagAction('sell', f.id); });
+  const rel = invEl('button', 'mini ghost', 'Release');
+  rel.disabled = f.locked;
+  rel.addEventListener('click', () => { rel.blur(); bagAction('release', f.id); });
+  row.append(lock, sell, rel);
+  card.append(tag, art, name, meta, row);
+  return card;
+}
+
+function renderInventory() {
+  if (openPanel !== 'inventory' || !myData || !W) return;
+  const d = myData;
+  const m = me();
+  const atMoss = !!(m && near(m, W.camp.dealer));
+  const sig = JSON.stringify([invTab, invSort, atMoss, d.cash, d.bagItems, d.bagMax, d.rod, d.bait, d.guns, d.mag, d.att, d.glvl, d.ammo, d.pocket, d.high, d.boatTier, d.bagTier]);
+  if (sig === invSig) return;
+  invSig = sig;
+  $('invCash').textContent = `$${d.cash}`;
+  document.querySelectorAll('#invTabs button').forEach((b) => {
+    const on = b.dataset.tab === invTab;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-selected', String(on));
+  });
+  const body = $('invBody');
+  const keep = body.scrollTop;
+  body.replaceChildren();
+
+  if (invTab === 'bag') {
+    const items = (d.bagItems || []).slice();
+    const total = items.reduce((s, f) => s + f.value, 0);
+    const sellable = items.filter((f) => !f.locked);
+    const sellValue = sellable.reduce((s, f) => s + f.value, 0);
+    const bar = invEl('div', 'icap');
+    const fill = invEl('i');
+    fill.style.width = `${Math.min(100, (items.length / d.bagMax) * 100)}%`;
+    if (items.length >= d.bagMax) bar.classList.add('full');
+    bar.append(fill);
+    const head = invEl('div', 'ihead');
+    head.append(invEl('span', '', `${W.bags[d.bagTier || 0].name}: ${items.length} of ${d.bagMax} fish`), invEl('span', 'muted', `Worth $${total}`));
+    const tools = invEl('div', 'itools');
+    const sortSel = invEl('select');
+    for (const [k, [label]] of Object.entries(SORTS)) { const o = invEl('option', '', label); o.value = k; sortSel.append(o); }
+    sortSel.value = invSort;
+    sortSel.addEventListener('change', () => { invSort = sortSel.value; invSig = ''; renderInventory(); });
+    const sellAll = invEl('button', 'primary', sellable.length
+      ? atMoss ? `Sell ${sellable.length} unlocked for $${sellValue}` : `Sell ${sellable.length} unlocked to a buyer for $${Math.floor(sellValue * W.market.remote)}`
+      : 'Nothing to sell');
+    sellAll.disabled = !sellable.length;
+    sellAll.addEventListener('click', () => {
+      sellAll.blur();
+      if (atMoss) sell(); else socket.emit('sellRemote', {}, (res) => {
+        if (res && res.ok) { sfx.coin(); completeGoal('sell'); buzz(30); }
+        if (res && res.msg) flashPrompt(res.msg, res.ok ? 'good' : '', 1600);
+        invSig = '';
+      });
+      invSig = '';
+    });
+    tools.append(sortSel, sellAll);
+    body.append(head, bar, tools);
+    if (invSort !== 'new') items.sort(SORTS[invSort][1]); else items.reverse();
+    if (!items.length) body.append(invEl('p', 'iempty', 'Your bag is empty. Go catch something.'));
+    else {
+      const grid = invEl('div', 'igrid');
+      items.forEach((f) => grid.append(fishCard(f)));
+      body.append(grid);
+      body.append(invEl('p', 'ihint', atMoss ? 'You are at Moss, so fish sell for full price.' : 'Away from Moss a buyer takes 30%. Locked fish are never sold in bulk.'));
+    }
+  } else if (invTab === 'gear') {
+    const rod = W.rods[d.rod];
+    const bait = W.baits[d.bait];
+    const boat = W.boats[d.boatTier];
+    const list = invEl('div', 'igrid gear');
+    const gearCard = (title, sub, lines, actions) => {
+      const cd = invEl('div', 'icard wide');
+      cd.append(invEl('h4', '', title), invEl('p', 'muted', sub));
+      lines.forEach((t) => cd.append(invEl('p', '', t)));
+      if (actions) { const r = invEl('div', 'irow'); actions.forEach((a) => r.append(a)); cd.append(r); }
+      return cd;
+    };
+    const holdBtn = (act, label) => { const b = invEl('button', 'mini' + (held === act ? ' on' : ''), held === act ? 'In hand' : label || 'Hold'); b.addEventListener('click', () => { b.blur(); selectHold(act, false); invSig = ''; renderInventory(); }); return b; };
+    list.append(gearCard(rod.name, `Rod ${d.rod + 1} of ${W.rods.length}`, [`Casts up to ${rod.castMax} m. ${rod.desc}`], [holdBtn('rod')]));
+    list.append(gearCard(bait.name, `Bait ${d.bait + 1} of ${W.baits.length}`, [bait.desc]));
+    list.append(gearCard(W.bags[d.bagTier || 0].name, 'Bag', [W.bags[d.bagTier || 0].desc]));
+    list.append(gearCard(boat ? boat.name : 'No boat yet', 'Boat', [boat ? `Top speed ${boat.speed}. Launch from any shore with E.` : `Moss sells one from $${W.boats[0].price}, or rent for $${W.boat.rent}.`]));
+    for (const id of GUN_ORDER) {
+      if (!d.guns[id]) continue;
+      const g = W.guns[id];
+      const e = effGun(id);
+      const lvl = d.glvl[id] || 0;
+      const at = d.att[id] || {};
+      const tags = [at.drum && 'Drum mag', at.laser && 'Laser', at.switch && 'Auto switch'].filter(Boolean).join(', ');
+      list.append(gearCard(`${g.name} ${W.gunLevels.names[lvl]}`, `${d.mag[id] || 0} of ${e.mag} loaded`, [
+        `${Math.round(e.damage)} damage${g.pellets > 1 ? ' per pellet' : ''} · ${e.auto ? 'full auto' : 'semi'} · range ${g.range} m`,
+        tags ? `Fitted: ${tags}` : 'No attachments',
+      ], [holdBtn(id)]));
+    }
+    body.append(list);
+  } else {
+    const list = invEl('div', 'igrid gear');
+    DRUGS.forEach((name) => {
+      const n = d.pocket[name] || 0;
+      const active = d.high[name];
+      const cd = invEl('div', 'icard wide' + (n ? '' : ' dim'));
+      cd.append(invEl('h4', '', `${name[0].toUpperCase()}${name.slice(1)}${active ? ' (active)' : ''}`), invEl('p', 'muted', `${n} in your pocket`), invEl('p', '', DRUG_INFO[name]));
+      const r = invEl('div', 'irow');
+      const use = invEl('button', 'mini', 'Use one');
+      use.disabled = !n;
+      use.addEventListener('click', () => { use.blur(); useDrug(name); setTimeout(() => { invSig = ''; }, 250); });
+      r.append(use);
+      cd.append(r);
+      list.append(cd);
+    });
+    const ammo = invEl('div', 'icard wide');
+    ammo.append(invEl('h4', '', 'Spare ammo'), invEl('p', 'muted', `${d.ammo} rounds`), invEl('p', '', 'Shared by all your guns. Press R to reload. Moss sells more.'));
+    list.append(ammo);
+    body.append(list);
+  }
+  body.scrollTop = keep;
+}
+
+document.querySelectorAll('#invTabs button').forEach((b) => b.addEventListener('click', () => { b.blur(); invTab = b.dataset.tab; invSig = ''; renderInventory(); sfx.ui(); }));
+
 function renderGoal() {
   const idx = GOALS.findIndex((g) => !goalsDone.has(g.id));
   const box = $('goal');
@@ -2393,8 +2569,7 @@ function usePrimary() {
   else if (held === 'bait') flashPrompt('Your bait goes on the hook when you cast.', '', 1500);
   else if (held === 'bag') {
     lmbHeld = false;
-    if (near(me(), W.camp.dealer)) sell();
-    else flashPrompt(myData && myData.bag.n ? 'Sell your bag to Moss, or from your phone (P).' : 'Your bag is empty.', '', 1600);
+    togglePanel('inventory');
   }
 }
 
@@ -2557,12 +2732,7 @@ $('slots').addEventListener('click', (e) => {
   const m = me();
   const act = btn.dataset.act;
   if (!hotbarList().includes(act)) return;
-  if (act === 'bag') {
-    if (near(m, W.camp.dealer)) sell();
-    else if (myData && myData.bag.n) openPhone('market');
-    else flashPrompt('Your bag is empty.', '', 1400);
-    return;
-  }
+  if (act === 'bag') { togglePanel('inventory'); return; }
   if (held !== act) { selectHold(act, false); return; }
   if (DRUGS.includes(act)) useDrug(act);
   else if (act === 'bag') {
@@ -3222,7 +3392,7 @@ let hotbarSig = '';
 function renderHotbar() {
   const d = myData;
   if (!d || !W) return;
-  const bagMax = W.bagMax;
+  const bagMax = d.bagMax || W.bagMax;
   const gunSig = Object.keys(d.guns || {}).map((g) => `${d.guns[g] ? 1 : 0}${d.mag[g] || 0}`).join('') + JSON.stringify(d.att || 0);
   const sig = [held, d.rod, d.bait, gunSig, d.reloadGun, d.ammo, d.pocket.weed, d.pocket.whiskey, d.pocket.crank, d.bag.n, d.bag.value, d.highLeft.weed, d.highLeft.whiskey, d.highLeft.crank].join('|');
   if (sig === hotbarSig) return;
@@ -3486,7 +3656,7 @@ function promptFor() {
   if (phase === 'idle' && m) {
     if (near(m, W.camp.dealer)) return [myData.bag.n ? (isTouch ? `Tap Moss to sell ${myData.bag.n} fish for $${myData.bag.value}` : `E to sell ${myData.bag.n} fish for $${myData.bag.value} and shop`) : (isTouch ? 'Tap Moss to trade' : 'E to trade with Moss'), 'good'];
     if (near(m, W.camp.shack)) return [isTouch ? 'Tap Shack to sit down' : 'E to sit down at the shack', ''];
-    if (myData.bag.n >= W.bagMax) return [isTouch ? 'Your bag is full. Sell to Moss or on your phone.' : 'Your bag is full. Sell to Moss, or press P and use the Market app.', ''];
+    if (myData.bag.n >= (myData.bagMax || W.bagMax)) return [isTouch ? 'Your bag is full. Sell to Moss or on your phone.' : 'Your bag is full. Sell to Moss, or press P and use the Market app.', ''];
     if (boating() && nearLandEdge(m)) return [isTouch ? 'Tap Use to step ashore' : 'E to step ashore', ''];
     if (!boating() && myData.ownsBoat && nearWaterEdge(m)) return [isTouch ? 'Tap Use to launch your boat' : 'E to launch your boat', ''];
     if (!boating() && !myData.ownsBoat && onDock(m.x, m.z) && m.z < W.dock.minZ + 5) return [isTouch ? `Tap Use to rent a boat for $${W.boat.rent}` : `E to rent a boat for $${W.boat.rent}`, ''];
@@ -3581,6 +3751,7 @@ function updateHud(dt, t) {
   renderHotbar();
   renderDerby();
   if (openPanel === 'shop') renderShop();
+  if (openPanel === 'inventory') renderInventory();
   if (openPanel === 'phone') { renderPhone(); if (phoneApp === 'map') drawBigMap(); }
   if (openPanel === 'shack') renderShack();
   if (d) {

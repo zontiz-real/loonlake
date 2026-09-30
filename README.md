@@ -21,7 +21,8 @@ Fish for cash, climb through better rods and bait, fill out your journal, and wi
 - **Hot spots.** Bubbling patches that drift around the lake. They bite faster and hold bigger fish. They show as gold rings on the minimap.
 - **Day and night.** A full day takes 12 minutes.
 - **Derbies.** Every 6 minutes a derby runs for 2.5 minutes. The heaviest fish takes the pot, which grows with each player who weighs in. If you log off, you still get paid.
-- **Selling.** Walk up to Moss and press E; the prompt shows what your bag is worth. Tapping the bag slot near Moss sells in one tap. Anywhere else, press P and use the Market app on your phone: a buyer comes to you and keeps 30%.
+- **Inventory.** Press I or Tab (or click the bag slot). The Bag tab shows every fish as its own card with rarity, weight and value: sort them, lock the ones you want to keep, sell or release them one at a time, or sell everything unlocked at once. The Gear tab shows your rod, bait, bag, boat and every gun with its level and attachments, and lets you pick one up. The Items tab holds your pocket items and spare ammo. Moss sells bigger bags (16, 24, 36, then 50 fish).
+- **Selling.** Walk up to Moss and press E, or sell from the inventory; at Moss you get full price. Anywhere else, use the inventory or the Market app on your phone (P): a buyer comes to you and keeps 30%. Locked fish are never sold in bulk.
 - **Your phone (P).** Market, a map of the whole area, your boat, messages, a camera that saves a clean screenshot, the journal, and settings.
 - **Boats.** Buy one from Moss ($180) or rent for $15 a trip at the end of the dock. Press E at any shoreline to launch, and E near land to step ashore. You can fish and shoot from the boat.
 - **The big water.** A channel runs south from the lake past a lighthouse out to open water with real swells. Out there you'll find cisco, whitefish, coho salmon, lake trout, a shipwreck bell, and, if the old-timers are right, Pressie.
@@ -45,7 +46,7 @@ WASD to walk, Shift to run. Click the game to lock the mouse, Esc to release it.
 - **1-0, -, =** or the **scroll wheel** switch hotbar items: fists, rod, bait, then whichever guns you own, then the drugs and your bag. Ctrl + wheel moves the camera.
 - **Q** reels your line in. **E** talks to Moss, sits at the shack, or launches/leaves your boat. **F** throws a punch.
 - Walk into the water to swim. You can't fish while swimming. Players are solid, so you can't walk through each other.
-- **P** phone, **J** journal, **H** help, **Enter** chat.
+- **I** or **Tab** inventory, **P** phone, **J** journal, **H** help, **Enter** chat.
 
 ## Debug commands
 

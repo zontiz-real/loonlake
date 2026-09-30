@@ -173,6 +173,12 @@
     </div>
   </section>
 
+  <section id="inventory" class="sheet inv" hidden aria-label="Inventory">
+    <header><h2>Inventory</h2><p id="invCash"></p><button type="button" class="x" data-close aria-label="Close">×</button></header>
+    <nav id="invTabs" role="tablist"><button type="button" role="tab" data-tab="bag">Bag</button><button type="button" role="tab" data-tab="gear">Gear</button><button type="button" role="tab" data-tab="items">Items</button></nav>
+    <div id="invBody"></div>
+  </section>
+
   <section id="journal" class="sheet" hidden aria-label="Journal">
     <header><h2>Journal</h2><p id="journalCount"></p><button type="button" class="x" data-close aria-label="Close">×</button></header>
     <div id="journalGrid"></div>
@@ -194,6 +200,7 @@
         <div><dt>1–0, -, =</dt><dd>Hold that hotbar item (the scroll wheel flips through them; Ctrl + wheel moves the camera). 1 is your fists, guns fill in as you buy them, then the drugs and your bag. Walk into the water to swim.</dd></div>
         <div><dt>F</dt><dd>Throw a punch. Every third punch in a row is a haymaker.</dd></div>
         <div><dt>P</dt><dd>Your phone: sell fish anywhere, the map, your boat, messages, and the camera.</dd></div>
+        <div><dt>I or Tab</dt><dd>Inventory: your fish (sell, lock, or release each one), your gear, and your items.</dd></div>
         <div><dt>J</dt><dd>Journal of every species you've landed.</dd></div>
         <div><dt>Enter</dt><dd>Chat.</dd></div>
         <div><dt>H</dt><dd>This page.</dd></div>
