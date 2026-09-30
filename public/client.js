@@ -742,7 +742,31 @@ const GM = {
   laser: new THREE.MeshStandardMaterial({ color: 0x552222, emissive: 0xFF2A2A, emissiveIntensity: 1.4, roughness: 0.4 }),
   switchPlate: new THREE.MeshStandardMaterial({ color: 0xC9A227, roughness: 0.3, metalness: 0.8 }),
 };
+// attachments for a gun that came from a model file: a laser module under the muzzle and a drum under the receiver
+function dressRealGun(g, a) {
+  const b = g.userData.bounds;
+  if (a.laser) {
+    const z = b.maxZ * 0.72;
+    const y = 0.02;
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.02, 0.05), GM.poly);
+    body.position.set(0, y, z);
+    const lens = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.012, 0.012), GM.laser);
+    lens.position.set(0, y, z + 0.03);
+    g.add(body, lens);
+  }
+  if (a.drum) {
+    const d = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.07, 16), GM.poly);
+    d.position.set(0, -0.14, 0.06);
+    d.rotation.z = Math.PI / 2;
+    d.castShadow = true;
+    g.add(d);
+  }
+  return g;
+}
+
 function buildGunModel(id, a = {}) {
+  const real = kit && kit.gunModel(id);
+  if (real) return dressRealGun(real, a);
   const g = new THREE.Group();
   const part = (geo, mat, x, y, z, rx = 0, rz = 0) => {
     const m = new THREE.Mesh(geo, mat);
@@ -2784,7 +2808,7 @@ function useDrug(name) {
 }
 
 // the hotbar only shows what you own, in order, and number keys pick by position
-const GUN_ORDER = ['pistol', 'glock', 'arp', 'smg', 'draco', 'shotgun', 'rifle', 'sniper'];
+const GUN_ORDER = ['pistol', 'glock', 'arp', 'smg', 'draco', 'shotgun', 'rifle', 'm4a1', 'm60', 'sniper', 'minigun'];
 const SLOT_KEYS_LABEL = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '='];
 function hotbarList() {
   const owned = myData && myData.guns ? GUN_ORDER.filter((g) => myData.guns[g]) : [];
@@ -3167,7 +3191,7 @@ function updateView(v, dt, t) {
   v.rifle.visible = aliveNow && !fishing && gunHeld;
   if (gunHeld) {
     const ga = (isMe ? myData && myData.att && myData.att[inHand] : v.data.ga) || {};
-    const key = `${inHand}|${ga.drum ? 'd' : ''}${ga.laser ? 'l' : ''}${ga.switch ? 's' : ''}`;
+    const key = `${inHand}|${ga.drum ? 'd' : ''}${ga.laser ? 'l' : ''}${ga.switch ? 's' : ''}|${kit && kit.gunReady(inHand) ? 'm' : ''}`;
     if (v.gunKey !== key) {
       if (v.gunMesh) v.rifle.remove(v.gunMesh);
       v.gunMesh = buildGunModel(inHand, ga);
@@ -3518,6 +3542,9 @@ const SLOT_ART = {
 SLOT_ART.glock = SLOT_ART.pistol;
 SLOT_ART.arp = SLOT_ART.smg;
 SLOT_ART.draco = SLOT_ART.rifle;
+SLOT_ART.m4a1 = SLOT_ART.rifle;
+SLOT_ART.m60 = SLOT_ART.sniper;
+SLOT_ART.minigun = SLOT_ART.shotgun;
 let hotbarSig = '';
 function renderHotbar() {
   const d = myData;

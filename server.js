@@ -61,13 +61,16 @@ const WORLD = {
     smg: { name: 'SMG', price: 380, mag: 30, reload: 1900, damage: 11, cooldown: 95, spread: 0.075, pellets: 1, range: 42, auto: true, start: 60, zoom: 50, look: 0.75, recoil: 0.008, sound: 'smg', desc: 'Hold the button and hang on.' },
     arp: { name: 'AR pistol', price: 520, mag: 30, reload: 1900, damage: 17, cooldown: 82, spread: 0.062, pellets: 1, range: 52, auto: true, start: 90, zoom: 50, look: 0.8, recoil: 0.01, sound: 'smg', desc: 'Rifle round, pistol size. Full auto.' },
     draco: { name: 'Draco', price: 720, mag: 30, reload: 2100, damage: 28, cooldown: 115, spread: 0.07, pellets: 1, range: 58, auto: true, start: 90, zoom: 48, look: 0.85, recoil: 0.018, sound: 'rifle', desc: 'AK pistol. Hits hard, kicks harder. Takes a drum.' },
+    m4a1: { name: 'M4A1', price: 1100, mag: 30, reload: 2000, damage: 24, cooldown: 90, spread: 0.045, pellets: 1, range: 68, auto: true, start: 90, zoom: 46, look: 0.8, recoil: 0.012, sound: 'rifle', desc: 'Accurate full-auto carbine. Takes a laser and a drum.' },
+    m60: { name: 'M60', price: 2400, mag: 100, reload: 4200, damage: 26, cooldown: 100, spread: 0.085, range: 70, pellets: 1, auto: true, start: 200, zoom: 50, look: 0.6, recoil: 0.014, sound: 'rifle', desc: 'A hundred-round belt of suppressing fire. Heavy to turn.' },
     sniper: { name: 'Sniper rifle', price: 900, mag: 4, reload: 3000, damage: 90, cooldown: 1300, spread: 0.006, pellets: 1, range: 110, auto: false, start: 8, zoom: 18, look: 1.25, recoil: 0.06, sound: 'sniper', desc: 'One or two shots at any distance.' },
+    minigun: { name: 'M134 Minigun', price: 5000, mag: 200, reload: 5500, damage: 14, cooldown: 45, spread: 0.1, pellets: 1, range: 55, auto: true, start: 400, zoom: 54, look: 0.45, recoil: 0.006, sound: 'smg', desc: 'Two hundred rounds in ten seconds. Ammo not included.' },
   },
   // gun upgrades: each level adds damage; the price is a share of the gun's own price
   gunLevels: { names: ['Mk I', 'Mk II', 'Mk III', 'Mk IV', 'Mk V'], mul: [1, 1.12, 1.25, 1.4, 1.6], price: [0, 0.6, 1, 1.6, 2.4] },
   attachments: {
     laser: { name: 'Laser beam', price: 90, spreadMul: 0.55, desc: 'A red beam shows where it points, and shots group tighter.', only: null },
-    drum: { name: 'Drum mag', price: 180, magMul: 2.5, reloadAdd: 700, desc: 'Two and a half times the rounds. Slower to reload.', only: ['glock', 'smg', 'arp', 'draco'] },
+    drum: { name: 'Drum mag', price: 180, magMul: 2.5, reloadAdd: 700, desc: 'Two and a half times the rounds. Slower to reload.', only: ['glock', 'smg', 'arp', 'draco', 'm4a1'] },
     switch: { name: 'Auto switch', price: 320, cooldownMul: 0.3, spreadMul: 1.5, desc: 'Turns it full auto. Burns through the mag.', only: ['glock', 'pistol'] },
   },
   rods: [
@@ -388,9 +391,9 @@ function advanceQuests(p, species, hot) {
 // ---------------------------------------------------------------- guns
 
 // critical hit chance per gun, and how hard a kill shot shoves the body
-const CRIT = { pistol: 0.1, glock: 0.08, rifle: 0.12, shotgun: 0.05, smg: 0.05, arp: 0.07, draco: 0.09, sniper: 0.3 };
+const CRIT = { pistol: 0.1, glock: 0.08, rifle: 0.12, shotgun: 0.05, smg: 0.05, arp: 0.07, draco: 0.09, m4a1: 0.08, m60: 0.06, minigun: 0.03, sniper: 0.3 };
 const CRIT_MUL = { sniper: 2 };
-const KICK = { pistol: 7, glock: 6, rifle: 11, shotgun: 16, smg: 6, arp: 8, draco: 11, sniper: 22 };
+const KICK = { pistol: 7, glock: 6, rifle: 11, shotgun: 16, smg: 6, arp: 8, draco: 11, m4a1: 9, m60: 10, minigun: 4, sniper: 22 };
 // full damage up close, fading to 55% at the end of a gun's range
 function falloff(dist, range) {
   const near = range * 0.4;

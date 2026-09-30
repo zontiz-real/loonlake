@@ -389,6 +389,68 @@ export async function loadModels(onProgress) {
     };
   };
 
+  // ---------- guns: the heavier models load in the background the first time a gun is held
+  // fwd is the axis the muzzle points along in the file; len is the gun's length in metres;
+  // grip is [how far along from the rear, how far up from the bottom] as fractions of the model's size
+  const GUN_SPECS = {
+    pistol: { file: 'gun_revolver', fwd: '-x', len: 0.3, grip: [0.15, 0.38], shadow: true },
+    draco: { file: 'gun_draco', fwd: '-z', len: 0.6, grip: [0.09, 0.59] },
+    m4a1: { file: 'gun_m4a1', fwd: '+x', len: 0.85, grip: [0.28, 0.3] },
+    m60: { file: 'gun_m60', fwd: '+x', len: 1.1, grip: [0.28, 0.27] },
+    minigun: { file: 'gun_minigun', fwd: '-x', len: 0.9, grip: [0.1, 0.75] },
+  };
+  const FWD_YAW = { '+z': 0, '+x': -Math.PI / 2, '-x': Math.PI / 2, '-z': Math.PI };
+  const gunLoads = {};
+  const gunTemplates = {};
+  function prepGun(id, scene) {
+    const spec = GUN_SPECS[id];
+    // the pack materials are shiny metal, which goes black without an environment map
+    scene.traverse((o) => {
+      if (!o.isMesh) return;
+      o.castShadow = !!spec.shadow;
+      o.receiveShadow = false;
+      if (o.isSkinnedMesh) o.frustumCulled = false;
+      (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => {
+        // the FBX to GLB conversion left the revolver and Draco glowing white (emissive 1,1,1)
+        if (m.emissive && !m.emissiveMap) m.emissive.setRGB(0, 0, 0);
+        if ('metalness' in m) { m.metalness = Math.min(m.metalness, 0.25); m.roughness = Math.max(m.roughness, 0.55); }
+      });
+    });
+    const wrap = new THREE.Group();
+    wrap.rotation.y = FWD_YAW[spec.fwd];
+    wrap.add(scene);
+    const holder = new THREE.Group();
+    holder.add(wrap);
+    holder.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(holder);
+    const size = box.getSize(new THREE.Vector3());
+    const s = spec.len / size.z;
+    wrap.scale.setScalar(s);
+    wrap.position.set(-(box.min.x + size.x / 2) * s, -(box.min.y + spec.grip[1] * size.y) * s, -(box.min.z + spec.grip[0] * size.z) * s);
+    holder.updateMatrixWorld(true);
+    const fit = new THREE.Box3().setFromObject(holder);
+    holder.userData.bounds = { minZ: fit.min.z, maxZ: fit.max.z, minY: fit.min.y, maxY: fit.max.y };
+    return holder;
+  }
+  kit.gunHasModel = (id) => !!GUN_SPECS[id];
+  kit.gunReady = (id) => !!gunTemplates[id];
+  // a normalized copy (muzzle toward +z, grip at the origin), or null while the file is still loading
+  kit.gunModel = (id) => {
+    if (!GUN_SPECS[id]) return null;
+    if (!gunTemplates[id]) {
+      if (!gunLoads[id]) {
+        gunLoads[id] = loader.loadAsync(`/models/${GUN_SPECS[id].file}.glb`)
+          .then((gltf) => { gunTemplates[id] = prepGun(id, gltf.scene); })
+          .catch((e) => { console.warn('gun model failed', id, e); });
+      }
+      return null;
+    }
+    const copy = SkeletonUtils.clone(gunTemplates[id]);
+    copy.userData.bounds = gunTemplates[id].userData.bounds;
+    return copy;
+  };
+  kit.gunSpecs = GUN_SPECS;
+
   return kit;
 }
 
