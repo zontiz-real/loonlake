@@ -307,8 +307,76 @@ export function createFx(scene, camera) {
     });
   }
 
+  // ---- shell casings: little rigid bodies that tumble, bounce off the ground, and sink in the water
+  const MAX_CASINGS = 64;
+  const casingGeo = new THREE.BoxGeometry(0.018, 0.018, 0.055);
+  const casingMesh = new THREE.InstancedMesh(casingGeo, new THREE.MeshStandardMaterial({ roughness: 0.35, metalness: 0.8 }), MAX_CASINGS);
+  casingMesh.frustumCulled = false;
+  casingMesh.castShadow = true;
+  scene.add(casingMesh);
+  const casings = Array.from({ length: MAX_CASINGS }, () => ({ life: 0 }));
+  let casingCursor = 0;
+  let floorAt = () => 0;
+  let isWater = () => false;
+  const cDummy = new THREE.Object3D();
+  const BRASS = new THREE.Color(0xC9A227);
+  const SHELL = new THREE.Color(0xC0392B);
+  // eject a casing from (x, y, z); dirx/dirz is the way the gun points
+  function casing(x, y, z, dirx, dirz, shell = false) {
+    const c = casings[casingCursor];
+    const i = casingCursor;
+    casingCursor = (casingCursor + 1) % MAX_CASINGS;
+    const rx = dirz; const rz = -dirx; // to the gun's right
+    c.x = x; c.y = y; c.z = z;
+    c.vx = rx * rand(1.2, 2.4) + dirx * rand(-0.3, 0.5);
+    c.vz = rz * rand(1.2, 2.4) + dirz * rand(-0.3, 0.5);
+    c.vy = rand(1.6, 2.8);
+    c.rx = Math.random() * 6; c.ry = Math.random() * 6; c.rz = Math.random() * 6;
+    c.wx = rand(-18, 18); c.wy = rand(-18, 18); c.wz = rand(-18, 18);
+    c.life = 6;
+    c.rest = false;
+    c.shell = shell;
+    casingMesh.setColorAt(i, shell ? SHELL : BRASS);
+    if (casingMesh.instanceColor) casingMesh.instanceColor.needsUpdate = true;
+  }
+
+  function updateCasings(dt) {
+    let dirty = false;
+    for (let i = 0; i < MAX_CASINGS; i++) {
+      const c = casings[i];
+      if (c.life <= 0) {
+        if (c.shown) { cDummy.scale.setScalar(0); cDummy.updateMatrix(); casingMesh.setMatrixAt(i, cDummy.matrix); c.shown = false; dirty = true; }
+        continue;
+      }
+      c.life -= dt;
+      if (!c.rest) {
+        c.vy -= 9.8 * dt;
+        c.x += c.vx * dt; c.y += c.vy * dt; c.z += c.vz * dt;
+        c.rx += c.wx * dt; c.ry += c.wy * dt; c.rz += c.wz * dt;
+        const floor = floorAt(c.x, c.z) + 0.012;
+        if (c.y < floor) {
+          if (isWater(c.x, c.z)) { splash(c.x, c.z, 3, 0.25); c.life = 0; } else if (c.vy < -0.9) {
+            // bounce, losing energy
+            c.y = floor; c.vy = -c.vy * 0.38; c.vx *= 0.55; c.vz *= 0.55; c.wx *= 0.5; c.wy *= 0.5; c.wz *= 0.5;
+          } else {
+            c.y = floor; c.rest = true; c.rx = 0; c.rz = 0;
+          }
+        }
+      }
+      cDummy.position.set(c.x, c.y, c.z);
+      cDummy.rotation.set(c.rx, c.ry, c.rz);
+      cDummy.scale.setScalar(c.shell ? 1.7 : 1);
+      cDummy.updateMatrix();
+      casingMesh.setMatrixAt(i, cDummy.matrix);
+      c.shown = true;
+      dirty = true;
+    }
+    if (dirty) casingMesh.instanceMatrix.needsUpdate = true;
+  }
+
   function update(dt) {
     time += dt;
+    updateCasings(dt);
     soft.update(dt);
     glow.update(dt);
     soft.mat.uniforms.uScale.value = glow.mat.uniforms.uScale.value = innerHeight / 2 / Math.tan((camera.fov * Math.PI) / 360);
@@ -360,5 +428,5 @@ export function createFx(scene, camera) {
     }
   }
 
-  return { ripple, floater, tracer, splash, bubbles, puff, sparkle, fire, firefly, blood, bloodPool, waterBlood, wake, update };
+  return { casing, setFloor: (fn, water) => { floorAt = fn; if (water) isWater = water; }, ripple, floater, tracer, splash, bubbles, puff, sparkle, fire, firefly, blood, bloodPool, waterBlood, wake, update };
 }

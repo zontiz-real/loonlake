@@ -249,10 +249,12 @@ function effGun(id) {
   if (a.drum) { mag = Math.round(mag * A.drum.magMul); reload += A.drum.reloadAdd; }
   if (a.switch) { cooldown = Math.round(cooldown * A.switch.cooldownMul); spread *= A.switch.spreadMul; auto = true; }
   if (a.laser) spread *= A.laser.spreadMul;
-  return { ...base, mag, reload, cooldown, spread, auto };
+  const level = (myData && myData.glvl && myData.glvl[id]) || 0;
+  return { ...base, mag, reload, cooldown, spread, auto, level, damage: base.damage * W.gunLevels.mul[level] };
 }
 const ownsGun = (h) => !!(myData && myData.guns && myData.guns[h]);
 const footOk = (x, z) => onLand(x, z) || inWater(x, z) || inChannel(x, z, 0.8) || Math.hypot(x, z) < W.shoreRadius;
+fx.setFloor((x, z) => surfaceAt(x, z, audioT), (x, z) => inWater(x, z));
 const boating = () => !!(myData && myData.boat);
 const near = (m, spot) => W && m && spot && Math.hypot(m.x - spot.x, m.z - spot.z) <= W.camp.range;
 const hotAt = (x, z) => hotspots.some((h) => Math.hypot(x - h.x, z - h.z) <= h.r);
@@ -505,6 +507,7 @@ function stepRagdoll(v, dt, t) {
       B.sub(ragTmp);
     }
     for (const q of R.P) {
+      world.collide(q.p, 0.12);
       const water = inWater(q.p.x, q.p.z);
       const floor = surfaceAt(q.p.x, q.p.z, t) + (water ? -0.12 : 0.06);
       if (q.p.y < floor) {
@@ -1126,6 +1129,13 @@ socket.on('shot', (shot) => {
   if (!shot || !shot.from || !shot.to) return;
   if (shot.surface) shot.to.y = surfaceAt(shot.to.x, shot.to.z, audioT) + 0.05;
   fx.tracer(shot.from, shot.to);
+  if (shot.gun) {
+    // brass (or a red shotgun shell) pops out to the gun's right and bounces
+    const cdx = shot.to.x - shot.from.x;
+    const cdz = shot.to.z - shot.from.z;
+    const cl = Math.hypot(cdx, cdz) || 1;
+    if (camera.position.distanceTo(tmpA.set(shot.from.x, 1.3, shot.from.z)) < 45) fx.casing(shot.from.x + cdz / cl * 0.15, 1.25, shot.from.z - cdx / cl * 0.15, cdx / cl, cdz / cl, shot.gun === 'shotgun');
+  }
   if (shot.surface === 'water') {
     fx.splash(shot.to.x, shot.to.z, 9, 0.55);
     fx.ripple(shot.to.x, shot.to.z, 0.9, 1.2, 0.5);
@@ -1188,6 +1198,15 @@ socket.on('hurt', (h) => {
       const d = Math.hypot(dx, dz) || 1;
       fx.blood(m.x, 1.2, m.z, dx / d, dz / d, 12, 0.9);
     }
+  }
+  if (m && h && h.from && !boating() && !m.swimming) {
+    // getting shot shoves you: a bigger hit is a bigger shove, and friction brings you back to a stop
+    const kx = m.x - h.from.x;
+    const kz = m.z - h.from.z;
+    const kd = Math.hypot(kx, kz) || 1;
+    const kick = clamp((h.dmg || 20) * 0.1, 1, 6);
+    vel.x += (kx / kd) * kick;
+    vel.z += (kz / kd) * kick;
   }
   buzz(h && h.how === 'punch' ? 40 : 70);
   if (h && h.by) flashPrompt(h.how === 'punch' ? `${h.by} is swinging at you.` : `${h.by} is shooting at you.`, 'alert', 1200);
@@ -1786,7 +1805,7 @@ function itemButton(action, title, desc, price, disabled, owned) {
 function renderShop() {
   if (openPanel !== 'shop' || !myData || !W) return;
   const d = myData;
-  const sig = [d.cash, d.boatTier, d.rod, d.bait, Object.values(d.guns || {}).join(''), JSON.stringify(d.att || 0), d.ammo, d.bag.n, d.bag.value, d.pocket.weed, d.pocket.whiskey, d.pocket.crank].join('|');
+  const sig = [d.cash, d.boatTier, d.rod, d.bait, Object.values(d.guns || {}).join(''), JSON.stringify(d.att || 0), JSON.stringify(d.glvl || 0), d.ammo, d.bag.n, d.bag.value, d.pocket.weed, d.pocket.whiskey, d.pocket.crank].join('|');
   if (sig === shopSig) return;
   shopSig = sig;
   const sell = $('sellBtn');
@@ -1820,6 +1839,14 @@ function renderShop() {
   }
   for (const id of GUN_ORDER) {
     if (!d.guns[id]) continue;
+    const L = W.gunLevels;
+    const lvl = d.glvl[id] || 0;
+    if (lvl + 1 < L.names.length) {
+      const cost = Math.max(60, Math.round(W.guns[id].price * L.price[lvl + 1]));
+      const dmgNow = Math.round(W.guns[id].damage * L.mul[lvl]);
+      const dmgNext = Math.round(W.guns[id].damage * L.mul[lvl + 1]);
+      gear.append(itemButton(`lvl:${id}`, `${W.guns[id].name}: ${L.names[lvl + 1]}`, `Damage ${dmgNow} to ${dmgNext} per shot${W.guns[id].pellets > 1 ? ' pellet' : ''}.`, `$${cost}`, d.cash < cost));
+    }
     for (const key of Object.keys(W.attachments)) {
       const at = W.attachments[key];
       if (d.att[id][key] || (at.only && !at.only.includes(id))) continue;
@@ -2401,6 +2428,7 @@ function tryShoot() {
     if (res.msg) flashPrompt(res.msg, '', 1500);
     if (res.hit === 'player' || res.hit === 'npc' || res.hit === 'fish') {
       showHitmark(res.killed);
+      if (res.dmg > 0 && res.x != null && res.hit !== 'fish') fx.floater(res.x, 2.1, res.z, res.crit ? `${res.dmg}!` : String(res.dmg), 'dmg', res.crit ? 1.15 : res.killed ? 1 : 0.8);
       buzz(20);
       if (res.killed) sfx.kill(); else sfx.hitmark();
       if (res.hit === 'fish') fx.splash(res.x, res.z, 10, 0.7);
@@ -3445,7 +3473,8 @@ function updateHud(dt, t) {
     const txt = d.reloadGun === held ? 'Reloading…' : `${d.mag[held] || 0} / ${d.ammo}`;
     const at = (d.att && d.att[held]) || {};
     const tags = [at.drum && 'Drum', at.laser && 'Laser', at.switch && 'Switch'].filter(Boolean).join(' · ');
-    const title = g.name + (tags ? ` · ${tags}` : '');
+    const lvl = (d.glvl && d.glvl[held]) || 0;
+    const title = `${g.name}${lvl ? ' ' + W.gunLevels.names[lvl] : ''}` + (tags ? ` · ${tags}` : '');
     if (ammoEl.dataset.t !== `${title}|${txt}`) {
       ammoEl.dataset.t = `${title}|${txt}`;
       ammoEl.replaceChildren();

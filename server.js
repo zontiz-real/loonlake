@@ -57,6 +57,8 @@ const WORLD = {
     draco: { name: 'Draco', price: 720, mag: 30, reload: 2100, damage: 28, cooldown: 115, spread: 0.07, pellets: 1, range: 58, auto: true, start: 90, zoom: 48, look: 0.85, recoil: 0.018, sound: 'rifle', desc: 'AK pistol. Hits hard, kicks harder. Takes a drum.' },
     sniper: { name: 'Sniper rifle', price: 900, mag: 4, reload: 3000, damage: 90, cooldown: 1300, spread: 0.006, pellets: 1, range: 110, auto: false, start: 8, zoom: 18, look: 1.25, recoil: 0.06, sound: 'sniper', desc: 'One or two shots at any distance.' },
   },
+  // gun upgrades: each level adds damage; the price is a share of the gun's own price
+  gunLevels: { names: ['Mk I', 'Mk II', 'Mk III', 'Mk IV', 'Mk V'], mul: [1, 1.12, 1.25, 1.4, 1.6], price: [0, 0.6, 1, 1.6, 2.4] },
   attachments: {
     laser: { name: 'Laser beam', price: 90, spreadMul: 0.55, desc: 'A red beam shows where it points, and shots group tighter.', only: null },
     drum: { name: 'Drum mag', price: 180, magMul: 2.5, reloadAdd: 700, desc: 'Two and a half times the rounds. Slower to reload.', only: ['glock', 'smg', 'arp', 'draco'] },
@@ -351,6 +353,18 @@ function advanceQuests(p, species, hot) {
 
 // ---------------------------------------------------------------- guns
 
+// critical hit chance per gun, and how hard a kill shot shoves the body
+const CRIT = { pistol: 0.1, glock: 0.08, rifle: 0.12, shotgun: 0.05, smg: 0.05, arp: 0.07, draco: 0.09, sniper: 0.3 };
+const CRIT_MUL = { sniper: 2 };
+const KICK = { pistol: 7, glock: 6, rifle: 11, shotgun: 16, smg: 6, arp: 8, draco: 11, sniper: 22 };
+// full damage up close, fading to 55% at the end of a gun's range
+function falloff(dist, range) {
+  const near = range * 0.4;
+  if (dist <= near) return 1;
+  return 1 - 0.45 * Math.min(1, (dist - near) / (range - near));
+}
+
+const freshLvl = () => Object.fromEntries(GUN_IDS.map((g) => [g, 0]));
 const freshAtt = () => Object.fromEntries(GUN_IDS.map((g) => [g, { laser: false, drum: false, switch: false }]));
 // a gun's real stats once its attachments are on
 function effGun(p, id) {
@@ -365,7 +379,9 @@ function effGun(p, id) {
   if (a.drum) { mag = Math.round(mag * A.drum.magMul); reload += A.drum.reloadAdd; }
   if (a.switch) { cooldown = Math.round(cooldown * A.switch.cooldownMul); spread *= A.switch.spreadMul; auto = true; }
   if (a.laser) spread *= A.laser.spreadMul;
-  return { ...base, mag, reload, cooldown, spread, auto };
+  const level = (p.glvl && p.glvl[id]) || 0;
+  const damage = base.damage * WORLD.gunLevels.mul[level];
+  return { ...base, id, mag, reload, cooldown, spread, auto, damage, level, crit: CRIT[id] || 0.06, critMul: CRIT_MUL[id] || 1.75 };
 }
 const freshGuns = () => Object.fromEntries(GUN_IDS.map((g) => [g, false]));
 const freshMag = () => Object.fromEntries(GUN_IDS.map((g) => [g, 0]));
@@ -396,7 +412,7 @@ function storeProfile(p) {
   if (!p || p.guest) return;
   profiles[p.token] = {
     name: p.name, color: p.color, look: p.look, skin: p.skin, cash: p.cash, rod: p.rod, bait: p.bait,
-    guns: p.guns, mag: p.mag, att: p.att, ammo: p.ammo, pocket: p.pocket, bag: p.bag, ownsBoat: !!p.ownsBoat, boatTier: p.boatTier,
+    guns: p.guns, mag: p.mag, att: p.att, glvl: p.glvl, ammo: p.ammo, pocket: p.pocket, bag: p.bag, ownsBoat: !!p.ownsBoat, boatTier: p.boatTier,
     journal: p.journal, caught: p.caught, earned: p.earned, derbyWins: p.derbyWins,
     best: p.best, xp: p.xp, quests: p.quests, seen: nowMs(),
   };
@@ -690,7 +706,8 @@ function sendRagdoll(id, x, z, from, verb) {
     dx = (x - from.x) / d;
     dz = (z - from.z) / d;
   }
-  io.emit('ragdoll', { id, dx, dz, force: verb === 'knocked out' ? 5 : 8 });
+  const kick = from && from.hitForce ? from.hitForce : 8;
+  io.emit('ragdoll', { id, dx, dz, force: verb === 'knocked out' ? 5 : kick });
 }
 
 function killPlayer(p, byName, verb = 'shot', from) {
@@ -732,7 +749,7 @@ function hurtPlayer(target, dmg, shooter, verb) {
     killPlayer(target, shooter.name, verb, shooter);
     return 'kill';
   }
-  if (sock) sock.emit('hurt', { hp: target.hp, by: shooter.name, how: verb === 'knocked out' ? 'punch' : 'shot', from: { x: shooter.x, z: shooter.z } });
+  if (sock) sock.emit('hurt', { hp: target.hp, dmg, by: shooter.name, how: verb === 'knocked out' ? 'punch' : 'shot', from: { x: shooter.x, z: shooter.z } });
   return 'hit';
 }
 
@@ -803,7 +820,7 @@ function applyHit(hit, shooter, dmg = COMBAT.damage) {
     const t = players.get(hit.id);
     const res = hurtPlayer(t, dmg, shooter);
     if (res === 'hit' && players.has(shooter.id)) feed(`${shooter.name} hit ${t.name}`, 'combat');
-    return { hit: res === 'safe' ? 'safe' : 'player', killed: res === 'kill', x: hit.x, z: hit.z };
+    return { hit: res === 'safe' ? 'safe' : 'player', killed: res === 'kill', x: hit.x, z: hit.z, dmg: res === 'safe' ? 0 : dmg };
   }
   const n = npcs.find((x) => x.id === hit.id);
   if (!n || !n.alive) return { hit: null };
@@ -814,17 +831,17 @@ function applyHit(hit, shooter, dmg = COMBAT.damage) {
   }
   const killed = n.hp <= 0;
   if (killed) killNpc(n, shooter.name, undefined, shooter);
-  return { hit: 'npc', killed, x: hit.x, z: hit.z };
+  return { hit: 'npc', killed, x: hit.x, z: hit.z, dmg };
 }
 
-function emitShot(from, rot, hit, by, result, missDist) {
+function emitShot(from, rot, hit, by, result, missDist, gunId) {
   const aimed = !hit && Number.isFinite(missDist);
   const dist = hit ? hit.dist : aimed ? missDist : COMBAT.range * 0.65;
   const to = pointAlong(from.x, from.z, rot, dist);
   to.y = hit ? 0.9 : aimed ? 0.05 : 1.1;
   const surface = aimed ? (inWater(to.x, to.z) ? 'water' : 'ground') : null;
   const kind = result && result.hit;
-  io.emit('shot', { from: { x: from.x, y: 1.35, z: from.z }, to, by, rot, surface, hit: kind === 'safe' ? null : kind || null, killed: !!(result && result.killed) });
+  io.emit('shot', { from: { x: from.x, y: 1.35, z: from.z }, to, by, rot, surface, gun: gunId || null, hit: kind === 'safe' ? null : kind || null, killed: !!(result && result.killed) });
 }
 
 function alertAnglers(p, rot) {
@@ -848,16 +865,25 @@ function playerFire(p, aimRot, aiming, g, aimDist) {
   const missDist = Number.isFinite(aimDist) && aimDist > 0 && aimDist < g.range ? aimDist : null;
   const spread = g.spread * spreadMul(p) * (aiming ? 0.45 : 1);
   p.rot = aimRot;
-  let out = { hit: null };
+  p.hitForce = KICK[g.id] || 8;
+  let out = { hit: null, dmg: 0, crit: false };
   for (let i = 0; i < g.pellets; i++) {
     const rot = aimRot + (Math.random() - 0.5) * 2 * spread;
     const hit = firstHit(p.x, p.z, rot, COMBAT.cone, range, p.id);
-    const res = applyHit(hit, p, g.damage);
-    if (i < 4) emitShot(p, rot, hit, p.id, res, missDist);
-    if (res && res.hit && (!out.hit || res.killed)) out = { ...res };
+    // damage fades with distance, and some shots are critical hits
+    const crit = !!hit && hit.kind !== 'fish' && Math.random() < g.crit;
+    const dmg = hit ? g.damage * falloff(hit.dist, g.range) * (crit ? g.critMul : 1) : 0;
+    const res = applyHit(hit, p, dmg);
+    if (i < 4) emitShot(p, rot, hit, p.id, res, missDist, i === 0 ? g.id : null);
+    if (res && res.hit) {
+      out.dmg += res.dmg || 0;
+      out.crit = out.crit || crit;
+      if (!out.hit || res.killed) out = { ...out, ...res, dmg: out.dmg };
+    }
   }
+  p.hitForce = 0;
   alertAnglers(p, aimRot);
-  return { ...out, ammo: p.ammo };
+  return { ...out, dmg: Math.round(out.dmg), ammo: p.ammo };
 }
 
 function npcFire(n, target) {
@@ -1094,7 +1120,7 @@ function snapshot() {
 function privateState(p) {
   tickReload(p);
   return {
-    guns: p.guns, mag: p.mag, att: p.att, reloadGun: p.reloadGun, reloadLeft: p.reloadGun ? Math.max(0, p.reloadUntil - nowMs()) : 0, boatTier: p.boatTier,
+    guns: p.guns, mag: p.mag, att: p.att, glvl: p.glvl, reloadGun: p.reloadGun, reloadLeft: p.reloadGun ? Math.max(0, p.reloadUntil - nowMs()) : 0, boatTier: p.boatTier,
     cash: p.cash, ammo: p.ammo, rod: p.rod, bait: p.bait, pocket: p.pocket,
     bag: { n: p.bag.length, value: p.bag.reduce((s, f) => s + f.value, 0) },
     high: highFlags(p), highLeft: highLeft(p), moveMul: moveMul(p), hp: Math.max(0, p.hp),
@@ -1205,7 +1231,7 @@ function debugCommand(p, socket, text) {
   }
   if (cmd === 'hour') { setHour(Number(args[0]) || 12); return say('Clock set.'); }
   if (cmd === 'derby') { if (derby.active) derby.endsAt = nowMs(); else derby.nextAt = nowMs(); return say('Derby toggled.'); }
-  if (cmd === 'gear') { p.rod = WORLD.rods.length - 1; p.bait = WORLD.baits.length - 1; GUN_IDS.forEach((g) => { p.guns[g] = true; Object.keys(WORLD.attachments).forEach((k) => { p.att[g][k] = !WORLD.attachments[k].only || WORLD.attachments[k].only.includes(g); }); p.mag[g] = effGun(p, g).mag; }); p.ammo += 200; p.boatTier = WORLD.boats.length - 1; p.ownsBoat = true; return say('Maxed out.'); }
+  if (cmd === 'gear') { p.rod = WORLD.rods.length - 1; p.bait = WORLD.baits.length - 1; GUN_IDS.forEach((g) => { p.guns[g] = true; Object.keys(WORLD.attachments).forEach((k) => { p.att[g][k] = !WORLD.attachments[k].only || WORLD.attachments[k].only.includes(g); }); p.mag[g] = effGun(p, g).mag; }); GUN_IDS.forEach((g) => { p.glvl[g] = WORLD.gunLevels.names.length - 1; }); p.ammo += 200; p.boatTier = WORLD.boats.length - 1; p.ownsBoat = true; return say('Maxed out.'); }
   if (cmd === 'boattier') { p.boatTier = Math.max(0, Math.min(WORLD.boats.length - 1, Number(args[0]) || 0)); p.ownsBoat = true; return say(`Boat tier ${p.boatTier}.`); }
   if (cmd === 'boat') { p.ownsBoat = true; p.boatTier = Math.max(p.boatTier, 0); return say('You own a boat.'); }
   if (cmd === 'sea' || cmd === 'channel') {
@@ -1253,7 +1279,7 @@ io.on('connection', (socket) => {
       x: s.x, z: s.z, rot: s.rot, aim: s.rot,
       state: 'idle', bobber: null, fish: null,
       lastMove: nowMs(), budget: 2, lastChat: 0,
-      cash: COMBAT.stake, hp: COMBAT.hp, alive: true, guns: freshGuns(), mag: freshMag(), att: freshAtt(), reloadGun: null, reloadUntil: 0, boatTier: -1, swim: false, ammo: 0, rod: 0, bait: 0, held: 'rod',
+      cash: COMBAT.stake, hp: COMBAT.hp, alive: true, guns: freshGuns(), mag: freshMag(), att: freshAtt(), glvl: freshLvl(), reloadGun: null, reloadUntil: 0, boatTier: -1, swim: false, ammo: 0, rod: 0, bait: 0, held: 'rod',
       pocket: freshPocket(), bag: [], high: { weed: 0, whiskey: 0, crank: 0 },
       journal: {}, caught: 0, earned: 0, derbyWins: 0, best: null, xp: 0, quests: [], jy: 0,
       nextShot: 0, respawnAt: 0, bj: null, safeUntil: nowMs() + COMBAT.spawnSafe,
@@ -1263,6 +1289,7 @@ io.on('connection', (socket) => {
         cash: prof.cash ?? COMBAT.stake, ammo: prof.ammo || 0,
         guns: { ...freshGuns(), ...(prof.guns || {}), rifle: !!(prof.rifle || (prof.guns && prof.guns.rifle)) },
         mag: { ...freshMag(), ...(prof.mag || {}) },
+        glvl: Object.fromEntries(GUN_IDS.map((g) => [g, Math.max(0, Math.min(WORLD.gunLevels.names.length - 1, Number((prof.glvl || {})[g]) || 0))])),
         att: Object.fromEntries(GUN_IDS.map((g) => [g, { laser: false, drum: false, switch: false, ...((prof.att || {})[g] || {}) }])),
         boatTier: Number.isInteger(prof.boatTier) ? Math.min(prof.boatTier, WORLD.boats.length - 1) : prof.ownsBoat ? 0 : -1,
         rod: Math.min(prof.rod || 0, WORLD.rods.length - 1), bait: Math.min(prof.bait || 0, WORLD.baits.length - 1),
@@ -1432,6 +1459,18 @@ io.on('connection', (socket) => {
       feed(`${p.name} bought a ${g.name.toLowerCase()}`, 'shop');
       storeProfile(p);
       return reply({ ok: true, msg: `${g.name} bought, loaded, with ${g.start} spare rounds.` });
+    }
+    if (typeof item === 'string' && item.startsWith('lvl:')) {
+      const gunId = item.slice(4);
+      if (!WORLD.guns[gunId] || !p.guns[gunId]) return reply({ ok: false, msg: 'You do not own that gun.' });
+      const L = WORLD.gunLevels;
+      const next = p.glvl[gunId] + 1;
+      if (next >= L.names.length) return reply({ ok: false, msg: 'That gun is fully upgraded.' });
+      const cost = Math.max(60, Math.round(WORLD.guns[gunId].price * L.price[next]));
+      if (!pay(cost)) return reply({ ok: false, msg: `The ${L.names[next]} upgrade is $${cost}.` });
+      p.glvl[gunId] = next;
+      storeProfile(p);
+      return reply({ ok: true, msg: `${WORLD.guns[gunId].name} is now ${L.names[next]}: ${Math.round((L.mul[next] - 1) * 100)}% more damage.` });
     }
     if (typeof item === 'string' && item.startsWith('att:')) {
       const [, gunId, key] = item.split(':');
