@@ -1055,7 +1055,7 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     scene.add(plaza);
 
     // signposts at the junctions and where the road runs out
-    signpost(3.4, 34.2, ['Camp', 'Dock']);
+    signpost(-3.8, 34.6, ['Camp', 'Dock']);
     signpost(...at(R - 2.8, 0.78), ['Road Stop']);
     signpost(...at(R - 2.8, -0.78), ['Old Cabin']);
     signpost(-(R - 2.8), 3.4, ['Boat ramp']);

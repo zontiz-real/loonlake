@@ -397,12 +397,11 @@ function makeModelAvatar(color, name, look, skin) {
   hat.scale.setScalar(0.62);
   const pivot = new THREE.Group();
   const rodMat = new THREE.MeshStandardMaterial({ color: 0xC9A36A, roughness: 0.5, metalness: 0.15 });
-  const rod = new THREE.Mesh(GEO.rod, rodMat);
-  rod.position.y = 1.25;
-  rod.castShadow = true;
-  const tip = new THREE.Object3D();
-  tip.position.y = 2.5;
-  pivot.add(rod, tip);
+  const rodKit = makeRod(rodMat);
+  rodKit.setTier(0, '#C9A36A');
+  const rod = rodKit.group;
+  const tip = rodKit.tip;
+  pivot.add(rod);
   const rifle = new THREE.Group();
   const gun = kit.prop('rifle', 0.2);
   const gs = kit.baked('rifle', 0.2).size;
@@ -427,7 +426,7 @@ function makeModelAvatar(color, name, look, skin) {
   group.add(hat, pivot, rifle, hand, highMark, label, hp.sprite);
   return {
     group, model, hat, body: new THREE.Object3D(), pivot, tip, rifle, hand, highMark, label, hp,
-    cloth: model.flashMat, rodMat, limbs: null, bubble: null, bubbleUntil: 0, flash: 0, punchT: 1, punchSide: 'r', punchHeavy: false, speed: 0,
+    cloth: model.flashMat, rodMat, rodKit, limbs: null, bubble: null, bubbleUntil: 0, flash: 0, punchT: 1, punchSide: 'r', punchHeavy: false, speed: 0,
   };
 }
 
@@ -641,12 +640,11 @@ function makeBlockAvatar(color, name, skin = 0) {
   const pivot = new THREE.Group();
   pivot.position.set(0.6, 1.05, 0.35);
   const rodMat = new THREE.MeshStandardMaterial({ color: 0xC9A36A, roughness: 0.5, metalness: 0.15 });
-  const rod = new THREE.Mesh(GEO.rod, rodMat);
-  rod.position.y = 1.25;
-  rod.castShadow = true;
-  const tip = new THREE.Object3D();
-  tip.position.y = 2.5;
-  pivot.add(rod, tip);
+  const rodKit = makeRod(rodMat);
+  rodKit.setTier(0, '#C9A36A');
+  const rod = rodKit.group;
+  const tip = rodKit.tip;
+  pivot.add(rod);
 
   const rifle = new THREE.Group();
   rifle.position.set(0.34, 1.32, 0.3);
@@ -683,7 +681,7 @@ function makeBlockAvatar(color, name, skin = 0) {
   armR.add(hand);
   group.add(body, belt, legL, legR, armL, armR, head, eyeL, eyeR, nose, brim, crown, pivot, rifle, highMark, label, hp.sprite);
   return {
-    group, body, pivot, tip, rifle, hand, highMark, label, hp, cloth, rodMat, limbs: { legL, legR, armL, armR },
+    group, body, pivot, tip, rifle, hand, highMark, label, hp, cloth, rodMat, rodKit, limbs: { legL, legR, armL, armR },
     bubble: null, bubbleUntil: 0, flash: 0, punchT: 1, punchSide: 'r', punchHeavy: false,
   };
 }
@@ -899,12 +897,108 @@ function makeBeam() {
 
 function makeBobber() {
   const g = new THREE.Group();
-  const top = new THREE.Mesh(new THREE.SphereGeometry(0.14, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0xE0452B, roughness: 0.4 }));
-  const bottom = new THREE.Mesh(new THREE.SphereGeometry(0.14, 12, 8, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0xF1F4EE, roughness: 0.4 }));
-  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.14, 5), new THREE.MeshStandardMaterial({ color: 0x1D2A25 }));
-  stem.position.y = 0.17;
-  g.add(top, bottom, stem);
+  const lathe = (pts, mat) => { const m = new THREE.Mesh(new THREE.LatheGeometry(pts.map(([r, y]) => new THREE.Vector2(r, y)), 14), mat); m.castShadow = true; return m; };
+  const red = new THREE.MeshStandardMaterial({ color: 0xE0352B, roughness: 0.28, metalness: 0.05 });
+  const white = new THREE.MeshStandardMaterial({ color: 0xF4F6F2, roughness: 0.3 });
+  // a classic float: white belly, red top, a black seam, and a bright antenna that shows from far off
+  const belly = lathe([[0, -0.115], [0.045, -0.1], [0.075, -0.05], [0.085, 0.0], [0.086, 0.012]], white);
+  const top = lathe([[0.086, 0.012], [0.078, 0.06], [0.048, 0.105], [0.016, 0.125], [0, 0.128]], red);
+  const seam = new THREE.Mesh(new THREE.TorusGeometry(0.086, 0.006, 5, 16), new THREE.MeshStandardMaterial({ color: 0x151A18, roughness: 0.6 }));
+  seam.rotation.x = Math.PI / 2;
+  seam.position.y = 0.012;
+  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.013, 0.24, 6), new THREE.MeshStandardMaterial({ color: 0xFFB020, roughness: 0.5, emissive: 0x4A2E00 }));
+  stem.position.y = 0.24;
+  const cap = new THREE.Mesh(new THREE.SphereGeometry(0.02, 8, 6), new THREE.MeshStandardMaterial({ color: 0xFF3A2A, emissive: 0x7A1008, roughness: 0.4 }));
+  cap.position.y = 0.365;
+  const weight = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.07, 6), new THREE.MeshStandardMaterial({ color: 0x1D2A25 }));
+  weight.position.y = -0.15;
+  g.add(belly, top, seam, stem, cap, weight);
+  g.scale.setScalar(1.25);
   return g;
+}
+
+// A fishing rod: cork grip, reel with a turning crank, a tapering blank in segments that can bend, and line guides.
+// Tier 0 (the cane pole) is plain bamboo with knots; better rods add the reel and guides and richer fittings.
+function makeRod(blankMat) {
+  const root = new THREE.Group();
+  const mat = (color, o = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.55, ...o });
+  const cork = mat(0xB98A52, { roughness: 0.9 });
+  const steel = mat(0xB8BEC4, { roughness: 0.3, metalness: 0.7 });
+  const dark = mat(0x23282B);
+  const accent = mat(0xF2F2EC);
+  const add = (parent, geo, material, x = 0, y = 0, z = 0) => { const m = new THREE.Mesh(geo, material); m.position.set(x, y, z); m.castShadow = true; parent.add(m); return m; };
+  // grip
+  add(root, new THREE.CylinderGeometry(0.034, 0.03, 0.58, 10), cork, 0, 0.09, 0);
+  for (const y of [-0.12, -0.02, 0.08, 0.18, 0.28]) add(root, new THREE.CylinderGeometry(0.037, 0.037, 0.012, 10), mat(0x7A5A34), 0, y, 0);
+  add(root, new THREE.CylinderGeometry(0.036, 0.036, 0.03, 10), dark, 0, -0.21, 0);
+  add(root, new THREE.CylinderGeometry(0.04, 0.04, 0.1, 10), steel, 0, 0.45, 0);
+  // reel on the underside (local +z), with a crank that turns while reeling
+  const reel = new THREE.Group();
+  reel.position.set(0, 0.42, 0.075);
+  add(reel, new THREE.BoxGeometry(0.03, 0.09, 0.05), steel, 0, 0.03, -0.035);
+  add(reel, new THREE.CylinderGeometry(0.055, 0.055, 0.075, 12), mat(0x2B3034, { metalness: 0.5 }), 0, 0, 0).rotation.z = Math.PI / 2;
+  add(reel, new THREE.CylinderGeometry(0.047, 0.047, 0.03, 12), steel, 0, 0, 0).rotation.z = Math.PI / 2;
+  const crank = new THREE.Group();
+  crank.position.set(0.05, 0, 0);
+  add(crank, new THREE.BoxGeometry(0.012, 0.012, 0.1), steel, 0.006, 0, 0.05);
+  add(crank, new THREE.CylinderGeometry(0.014, 0.014, 0.035, 8), dark, 0.02, 0, 0.1).rotation.z = Math.PI / 2;
+  reel.add(crank);
+  root.add(reel);
+  // the blank: six tapering segments, each hanging off the one below so the rod can bend along its length
+  const SEG = 6;
+  const segLen = (2.5 - 0.5) / SEG;
+  const segs = [];
+  let parent = root;
+  for (let i = 0; i < SEG; i++) {
+    const g = new THREE.Group();
+    g.position.y = i === 0 ? 0.5 : segLen;
+    const r0 = 0.027 - (0.019 * i) / SEG;
+    const r1 = 0.027 - (0.019 * (i + 1)) / SEG;
+    add(g, new THREE.CylinderGeometry(r1, r0, segLen, 7), blankMat, 0, segLen / 2, 0);
+    // a thread wrap at the joint, a bamboo knot for the cane pole, and (past the first) a guide ring on the underside
+    const wrap = add(g, new THREE.CylinderGeometry(r0 + 0.003, r0 + 0.003, 0.035, 7), accent, 0, 0.012, 0);
+    const knot = add(g, new THREE.CylinderGeometry(r0 + 0.006, r0 + 0.006, 0.02, 7), mat(0x6A4A22), 0, segLen * 0.5, 0);
+    let ring = null;
+    let foot = null;
+    if (i > 0) {
+      const gr = 0.03 - i * 0.0035;
+      ring = add(g, new THREE.TorusGeometry(gr, 0.0045, 4, 10), steel, 0, 0.02, r0 + gr * 0.9);
+      ring.rotation.y = Math.PI / 2;
+      foot = add(g, new THREE.BoxGeometry(0.006, 0.014, r0 + 0.004), steel, 0, 0.02, (r0 + 0.004) / 2);
+    }
+    g.userData = { wrap, knot, ring, foot };
+    parent.add(g);
+    segs.push(g);
+    parent = g;
+  }
+  const tip = new THREE.Object3D();
+  tip.position.y = segLen;
+  parent.add(tip);
+  const tipRing = add(parent, new THREE.TorusGeometry(0.014, 0.0035, 4, 10), steel, 0, segLen, 0.012);
+  tipRing.rotation.y = Math.PI / 2;
+  return {
+    group: root, tip, reel, crank, segs, tipRing,
+    // tier 0 is a bamboo cane; the rest get the reel, guides and thread wraps, richer as they climb
+    setTier(i, hex) {
+      reel.visible = i >= 1;
+      tipRing.visible = i >= 1;
+      for (const g of segs) {
+        const u = g.userData;
+        if (u.ring) u.ring.visible = u.foot.visible = i >= 1;
+        u.wrap.visible = i >= 1;
+        u.knot.visible = i === 0;
+        u.wrap.material = mat(i >= 5 ? 0xF2B134 : new THREE.Color(hex).offsetHSL(0, 0, 0.3).getHex(), i >= 5 ? { metalness: 0.7, roughness: 0.3, emissive: 0x4A3000 } : {});
+      }
+      blankMat.emissive.setHex(i >= 6 ? 0x4A3300 : 0x000000);
+    },
+    bend: 0,
+    update(dt, bend, spin) {
+      this.bend += (bend - this.bend) * Math.min(1, dt * 10);
+      const each = this.bend / SEG;
+      segs.forEach((g, i) => { g.rotation.x = each * (0.6 + i * 0.16); });
+      if (spin) crank.rotation.x += dt * 14;
+    },
+  };
 }
 
 const LONG_FISH = new Set(['walleye', 'pike', 'muskie', 'eelpout', 'sturgeon', 'golden', 'catfish']);
@@ -1130,7 +1224,7 @@ socket.on('state', (s) => {
     } else if (d.alive === false) {
       v.x = v.tx = d.x; v.z = v.tz = d.z;
     }
-    if (v.rodLevel !== d.rod && W.rods[d.rod]) { v.rodLevel = d.rod; v.rodMat.color.set(W.rods[d.rod].color); }
+    if (v.rodLevel !== d.rod && W.rods[d.rod]) { v.rodLevel = d.rod; v.rodMat.color.set(W.rods[d.rod].color); v.rodKit.setTier(d.rod, W.rods[d.rod].color); }
   }
   for (const [id, v] of views) if (!seen.has(id)) { removeView(v); views.delete(id); }
   syncNpcs(s.npcs || []);
@@ -3472,6 +3566,11 @@ function updateView(v, dt, t) {
   if (fpNow) tilt += 0.4; // the rod points out over the water, not up at the sky
   v.pivot.rotation.x += (tilt - v.pivot.rotation.x) * Math.min(1, dt * (isMe ? 18 : 12));
   v.pivot.rotation.z = isMe && reel ? -reel.side * 0.3 : 0;
+  if (v.rodKit) {
+    // the rod bows under a hooked fish and a little under the line's weight; the crank turns while reeling
+    const bend = isMe && reel ? 0.25 + reel.tension * 0.9 : state === 'reeling' ? 0.5 : state === 'bite' ? 0.45 : state === 'waiting' ? 0.14 : 0.04;
+    v.rodKit.update(dt, bend, state === 'reeling');
+  }
   paintHigh(v, v.data.high);
   if (fpNow) v.highMark.visible = false;
   // ambient signs of what someone is on
@@ -3526,6 +3625,11 @@ function updateLine(v, dt, t, isMe, state) {
     }
   }
   v.bobber.position.copy(pos);
+  // bigger the farther it is from you, so you can still see it out on the water
+  v.bobber.scale.setScalar(clamp(0.9 + camera.position.distanceTo(pos) * 0.04, 1.2, 3.4));
+  v.bobber.rotation.z = Math.sin(t * 1.6 + v.x) * 0.1 + (state === 'bite' ? Math.sin(t * 25) * 0.25 : 0);
+  v.bobber.rotation.x = Math.cos(t * 1.3 + v.z) * 0.08;
+  if (state === 'waiting' && !v.fly && t > (v.rippleAt || 0)) { v.rippleAt = t + 2.2 + Math.random() * 1.6; fx.ripple(pos.x, pos.z, 0.3, 1.3, 0.28); }
   v.bobber.visible = v.line.visible = true;
   if (isMe) v.line.material.color.copy(lineWhite).lerp(lineRed, reel ? clamp((reel.tension - 0.4) / 0.6, 0, 1) : 0);
 
