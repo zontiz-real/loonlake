@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { sfx } from './sfx.js';
 import { initTouch } from './touch.js';
+import { HIGHWAY, CAMP_ROAD, GAS, TRAIL, WATER_TOWER, RADIO_TOWER } from './layout.js';
 import { createWorld, makeLabel, wave, WATER_Y, DOCK_Y, isNightHour, isGoldenHour, groundHeight } from './world.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { createFx } from './fx.js';
@@ -243,13 +244,18 @@ let touch = null;
 const me = () => views.get(myId);
 const alive = () => !myData || myData.alive !== false;
 
-const onDock = (x, z) => W && x >= W.dock.minX && x <= W.dock.maxX && z >= W.dock.minZ && z <= W.dock.maxZ;
+const inRect = (d, x, z) => x >= d.minX && x <= d.maxX && z >= d.minZ && z <= d.maxZ;
+const onDock = (x, z) => W && W.docks.some((d) => inRect(d, x, z));
+// only the lake dock rents boats; the pier out on the big water is just a pier
+const onMainDock = (x, z) => W && inRect(W.dock, x, z);
+const dockH = (x, z) => (W && W.docks.indexOf(W.docks.find((d) => inRect(d, x, z))) > 0 ? W.pierY : DOCK_Y);
+const inSeaObstacle = (x, z) => W && W.sea.some((o) => (x - o.x) ** 2 + (z - o.z) ** 2 < o.r * o.r);
 const inChannel = (x, z, m = 0) => W && x >= W.channel.minX - m && x <= W.channel.maxX + m && z >= W.channel.minZ - m && z <= W.channel.maxZ + m;
 const inOcean = (x, z) => W && x > W.ocean.minX && x < W.ocean.maxX && z > W.ocean.minZ && z < W.ocean.maxZ;
 const onLand = (x, z) => onDock(x, z) || (Math.hypot(x, z) >= W.shoreRadius && Math.abs(x) <= W.bounds && Math.abs(z) <= W.bounds && !inChannel(x, z, 0.8));
-const inWater = (x, z) => W && !onDock(x, z) && (Math.hypot(x, z) < W.lakeRadius - 0.3 || inChannel(x, z) || inOcean(x, z));
+const inWater = (x, z) => W && !onDock(x, z) && !inSeaObstacle(x, z) && (Math.hypot(x, z) < W.lakeRadius - 0.3 || inChannel(x, z) || inOcean(x, z));
 // where a body or boat rests: water surface, dock planks, or the ground
-const surfaceAt = (x, z, t) => (inWater(x, z) ? WATER_Y + wave(x, z, t) : onDock(x, z) ? DOCK_Y : groundHeight(x, z));
+const surfaceAt = (x, z, t) => (inWater(x, z) ? WATER_Y + wave(x, z, t) : onDock(x, z) ? dockH(x, z) : groundHeight(x, z));
 const isGun = (h) => !!(W && W.guns && W.guns[h]);
 const gunOf = (h) => (W && W.guns ? W.guns[h] : null);
 // a gun's stats once its attachments are on (mirrors the server)
@@ -1676,7 +1682,7 @@ function interact() {
   if (boating()) { boatAction('land'); return; }
   if (near(m, W.camp.dealer)) togglePanel('shop');
   else if (near(m, W.camp.shack)) togglePanel('shack');
-  else if (nearWaterEdge(m)) boatAction('launch', !myData.ownsBoat && onDock(m.x, m.z));
+  else if (nearWaterEdge(m)) boatAction('launch', !myData.ownsBoat && onMainDock(m.x, m.z));
 }
 
 function nearWaterEdge(m) {
@@ -1839,31 +1845,79 @@ function renderMessages() {
   }
   list.scrollTop = list.scrollHeight;
 }
+// roads, the gas station, the towers and everything out in the big water, drawn with whatever projection the map uses
+function drawPlaces(g, map, k, big) {
+  const path = (pts) => { g.beginPath(); pts.forEach(([x, z], i) => { const [px, pz] = map(x, z); if (i) g.lineTo(px, pz); else g.moveTo(px, pz); }); };
+  const line = (pts, width, color) => { g.strokeStyle = color; g.lineWidth = Math.max(1.2, width * k); g.lineJoin = 'round'; path(pts); g.stroke(); };
+  const box = (x0, z0, x1, z1, fill) => { g.fillStyle = fill; path([[x0, z0], [x1, z0], [x1, z1], [x0, z1]]); g.closePath(); g.fill(); };
+  const dot = (x, z, r, fill) => { const [px, pz] = map(x, z); g.fillStyle = fill; g.beginPath(); g.arc(px, pz, Math.max(1.5, r * k), 0, Math.PI * 2); g.fill(); };
+  const badge = (x, z, letter, bg) => {
+    const [px, pz] = map(x, z);
+    g.fillStyle = bg; g.beginPath(); g.arc(px, pz, big ? 11 : 12, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#FFF'; g.font = '600 14px Fredoka, system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(letter, px, pz + 1);
+  };
+  line([[HIGHWAY.x, HIGHWAY.z0], [HIGHWAY.x, HIGHWAY.z1]], HIGHWAY.w + 1.6, '#8A7E66');
+  line([[HIGHWAY.x, HIGHWAY.z0], [HIGHWAY.x, HIGHWAY.z1]], HIGHWAY.w, '#4A4E52');
+  line([[HIGHWAY.x, HIGHWAY.z0], [HIGHWAY.x, HIGHWAY.z1]], 0.4, '#E8B824');
+  line([[CAMP_ROAD.x0, CAMP_ROAD.z], [HIGHWAY.x, CAMP_ROAD.z]], CAMP_ROAD.w, '#A89878');
+  line(TRAIL, 1.8, '#B89A6A');
+  const lot = GAS.lot;
+  box(lot.x0, lot.z0, lot.x1, lot.z1, '#5A5E62');
+  const st = GAS.store;
+  box(st.x - st.w / 2, st.z - st.d / 2, st.x + st.w / 2, st.z + st.d / 2, '#E9E2CE');
+  box(GAS.canopy.x - GAS.canopy.w / 2, GAS.canopy.z - GAS.canopy.d / 2, GAS.canopy.x + GAS.canopy.w / 2, GAS.canopy.z + GAS.canopy.d / 2, 'rgba(242, 160, 61, .75)');
+  dot(WATER_TOWER.x, WATER_TOWER.z, 3, '#B9C0C4');
+  dot(RADIO_TOWER.x, RADIO_TOWER.z, 2, '#C43B2B');
+  for (const d of W.docks.slice(1)) box(d.minX, d.minZ, d.maxX, d.maxZ, '#9A7650');
+  for (const o of W.sea) {
+    if (o.id === 'island') { dot(o.x, o.z, o.r, '#D6C6A0'); dot(o.x, o.z, o.r * 0.68, '#5E7A46'); }
+    else if (o.id === 'rig') { box(o.x - 7.5, o.z - 7.5, o.x + 7.5, o.z + 7.5, '#8A9096'); dot(o.x + 2.5, o.z - 1, 2, '#C43B2B'); }
+    else if (o.id === 'sail') dot(o.x, o.z, 3.2, '#F1EFE8');
+    else dot(o.x, o.z, o.r * 0.85, '#6E6C66');
+  }
+  if (big) {
+    badge(GAS.canopy.x - 4, GAS.canopy.z, 'G', '#1F7A78');
+    badge(WATER_TOWER.x, WATER_TOWER.z, 'W', '#5D7C8C');
+    badge(RADIO_TOWER.x, RADIO_TOWER.z, 'R', '#8C4A4A');
+    const rig = W.sea.find((o) => o.id === 'rig');
+    const isl = W.sea.find((o) => o.id === 'island');
+    const pier = W.docks[1];
+    if (rig) badge(rig.x, rig.z, 'O', '#6B6F73');
+    if (isl) badge(isl.x, isl.z, 'I', '#4E7A3A');
+    if (pier) badge((pier.minX + pier.maxX) / 2, pier.maxZ - 8, 'P', '#9A7650');
+  } else {
+    const mini = (x, z, letter, bg) => { const [px, pz] = map(x, z); g.fillStyle = bg; g.beginPath(); g.arc(px, pz, 9, 0, Math.PI * 2); g.fill(); g.fillStyle = '#FFF'; g.font = '600 12px Fredoka, system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(letter, px, pz + 1); };
+    mini(GAS.canopy.x - 4, GAS.canopy.z, 'G', '#1F7A78');
+    const pier = W.docks[1];
+    if (pier) mini((pier.minX + pier.maxX) / 2, pier.maxZ - 8, 'P', '#9A7650');
+  }
+}
 function drawBigMap() {
   const c = $('bigMap');
   const g = c.getContext('2d');
   const m = me();
   if (!W || !m) return;
-  // north-up: x from -70 to 70, z from 60 down to -150
-  const S = c.width / 140;
-  const map = (x, z) => [(x + 70) * S, (60 - z) * S];
+  // north-up: x from -130 to 130, z from 70 down to -270
+  const S = c.width / 260;
+  const map = (x, z) => [(x + 130) * S, (70 - z) * S];
   g.fillStyle = '#4A6A3C';
   g.fillRect(0, 0, c.width, c.height);
   const rect = (x0, z0, x1, z1, fill) => { const [a, b] = map(x0, z0); const [e, f] = map(x1, z1); g.fillStyle = fill; g.fillRect(a, b, e - a, f - b); };
-  rect(-80, W.ocean.maxZ + 12, 80, -200, '#C9B98E');
-  rect(-80, W.ocean.maxZ, 80, -200, '#1E5E7A');
+  rect(-140, W.ocean.maxZ + 12, 140, -300, '#C9B98E');
+  rect(-140, W.ocean.maxZ, 140, -300, '#1E5E7A');
   rect(W.channel.minX - 1.5, W.channel.maxZ, W.channel.maxX + 1.5, W.channel.minZ, '#C9B98E');
   rect(W.channel.minX, W.channel.maxZ, W.channel.maxX, W.channel.minZ, '#2E7F86');
   const [lx, lz] = map(0, 0);
   g.fillStyle = '#C9B98E'; g.beginPath(); g.arc(lx, lz, (W.shoreRadius + 2) * S, 0, Math.PI * 2); g.fill();
   g.fillStyle = '#2E7F86'; g.beginPath(); g.arc(lx, lz, W.lakeRadius * S, 0, Math.PI * 2); g.fill();
   rect(W.dock.minX, W.dock.maxZ, W.dock.maxX, W.dock.minZ, '#9A7650');
-  for (const h of hotspots) { const [x, z] = map(h.x, h.z); g.strokeStyle = '#F2B134'; g.lineWidth = 3; g.beginPath(); g.arc(x, z, h.r * S, 0, Math.PI * 2); g.stroke(); }
-  const label = (x, z, t, bg) => { const [px, pz] = map(x, z); g.fillStyle = bg; g.beginPath(); g.arc(px, pz, 13, 0, Math.PI * 2); g.fill(); g.fillStyle = '#fff'; g.font = '600 15px Fredoka, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(t, px, pz + 1); };
+  drawPlaces(g, map, S, true);
+  for (const h of hotspots) { const [x, z] = map(h.x, h.z); g.strokeStyle = '#F2B134'; g.lineWidth = 2; g.beginPath(); g.arc(x, z, h.r * S, 0, Math.PI * 2); g.stroke(); }
+  const label = (x, z, t, bg) => { const [px, pz] = map(x, z); g.fillStyle = bg; g.beginPath(); g.arc(px, pz, 11, 0, Math.PI * 2); g.fill(); g.fillStyle = '#fff'; g.font = '600 14px Fredoka, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(t, px, pz + 1); };
   label(W.camp.dealer.x, W.camp.dealer.z, 'M', '#C73A28');
   label(W.camp.shack.x, W.camp.shack.z, 'S', '#6B4A32');
   const [fx0, fz0] = map(13, -109);
-  g.fillStyle = '#F2EFE6'; g.fillRect(fx0 - 4, fz0 - 9, 8, 18);
+  g.fillStyle = '#F2EFE6'; g.fillRect(fx0 - 3, fz0 - 6, 6, 12);
   for (const v of views.values()) {
     if (v.data.alive === false) continue;
     const [x, z] = map(v.x, v.z);
@@ -1871,7 +1925,8 @@ function drawBigMap() {
     g.beginPath(); g.arc(x, z, v.data.id === myId ? 8 : 6, 0, Math.PI * 2); g.fill(); g.stroke();
   }
   g.fillStyle = '#EEF2EC'; g.font = '600 14px Fredoka, sans-serif'; g.textAlign = 'center';
-  g.fillText('The big water', c.width / 2, map(0, -140)[1]);
+  g.fillText('The big water', c.width / 2, map(0, -215)[1]);
+  g.fillText('Route 61', map(HIGHWAY.x - 18, 0)[0], map(0, 62)[1]);
   g.fillText('N', c.width / 2, 16);
 }
 $('phone').addEventListener('click', (e) => {
@@ -3027,7 +3082,7 @@ function updateCastMarker(m, t) {
   const hot = valid && hotAt(x, z);
   castInfo = { valid, hot, dock: onDock(x, z) };
   castMarker.visible = true;
-  const y = valid ? WATER_Y + wave(x, z, t) + 0.05 : onDock(x, z) ? DOCK_Y + 0.02 : 0.06;
+  const y = valid ? WATER_Y + wave(x, z, t) + 0.05 : onDock(x, z) ? dockH(x, z) + 0.02 : 0.06;
   castMarker.position.set(x, y, z);
   const s = 1 + Math.sin(t * 8) * 0.06;
   castMarker.scale.set(s, 1, s);
@@ -3143,7 +3198,7 @@ function updateView(v, dt, t) {
   } else {
     if (v.boatMesh) v.boatMesh.visible = false;
     const swimNow = isMe ? !!v.swimming : !!v.data.swim;
-    const restY = swimNow ? WATER_Y + wave(v.x, v.z, t) - 0.3 : onDock(v.x, v.z) ? DOCK_Y : 0;
+    const restY = swimNow ? WATER_Y + wave(v.x, v.z, t) - 0.3 : onDock(v.x, v.z) ? dockH(v.x, v.z) : 0;
     v.y += (restY - v.y) * k;
     v.swimLean = (v.swimLean || 0) + ((swimNow && aliveNow ? 1.1 : 0) - (v.swimLean || 0)) * k;
   }
@@ -3298,13 +3353,13 @@ function updateNpc(v, dt, t) {
   const combat = aliveNow && d.state === 'combat';
   v.group.rotation.y = v.rot;
   if (v.model) {
-    v.group.position.set(v.x, onDock(v.x, v.z) ? DOCK_Y : 0, v.z);
+    v.group.position.set(v.x, onDock(v.x, v.z) ? dockH(v.x, v.z) : 0, v.z);
     v.rifle.visible = combat;
     v.pivot.visible = aliveNow && d.role === 'angler' && !combat;
     v.speed = moving ? 2 : 0;
     animateModel(v, dt, moving, false, !aliveNow ? 'idle' : combat ? 'rifle' : d.role === 'angler' ? 'rod' : 'idle', aliveNow);
   } else {
-    const y = (onDock(v.x, v.z) ? DOCK_Y : 0) + (moving ? Math.abs(Math.sin(t * 10)) * 0.06 : 0) + (aliveNow ? 0 : 0.35);
+    const y = (onDock(v.x, v.z) ? dockH(v.x, v.z) : 0) + (moving ? Math.abs(Math.sin(t * 10)) * 0.06 : 0) + (aliveNow ? 0 : 0.35);
     v.group.position.set(v.x, y, v.z);
     v.group.rotation.z = aliveNow ? 0 : Math.PI / 2;
     v.rifle.visible = combat || (aliveNow && d.role !== 'angler');
@@ -3733,6 +3788,7 @@ function drawMinimap(t) {
     if (i) g.lineTo(px, pz); else g.moveTo(px, pz);
   });
   g.fill();
+  drawPlaces(g, map, k, false);
   g.fillStyle = 'rgba(255, 255, 255, .07)';
   [W.camp.dealer, W.camp.shack, W.camp.fire].forEach((s) => {
     const [x, z] = map(s.x, s.z);
@@ -3818,7 +3874,7 @@ function promptFor() {
     if (myData.bag.n >= (myData.bagMax || W.bagMax)) return [isTouch ? 'Your bag is full. Sell to Moss or on your phone.' : 'Your bag is full. Sell to Moss, or press P and use the Market app.', ''];
     if (boating() && nearLandEdge(m)) return [isTouch ? 'Tap Use to step ashore' : 'E to step ashore', ''];
     if (!boating() && myData.ownsBoat && nearWaterEdge(m)) return [isTouch ? 'Tap Use to launch your boat' : 'E to launch your boat', ''];
-    if (!boating() && !myData.ownsBoat && onDock(m.x, m.z) && m.z < W.dock.minZ + 5) return [isTouch ? `Tap Use to rent a boat for $${W.boat.rent}` : `E to rent a boat for $${W.boat.rent}`, ''];
+    if (!boating() && !myData.ownsBoat && onMainDock(m.x, m.z) && m.z < W.dock.minZ + 5) return [isTouch ? `Tap Use to rent a boat for $${W.boat.rent}` : `E to rent a boat for $${W.boat.rent}`, ''];
   }
   return ['', ''];
 }
@@ -3929,7 +3985,7 @@ function updateHud(dt, t) {
     if (m && phase === 'idle' && !useLabel && d) {
       if (d.boat && nearLandEdge(m)) useLabel = 'Ashore';
       else if (!d.boat && d.ownsBoat && nearWaterEdge(m)) useLabel = 'Boat';
-      else if (!d.boat && onDock(m.x, m.z) && m.z < W.dock.minZ + 5) useLabel = 'Rent boat';
+      else if (!d.boat && onMainDock(m.x, m.z) && m.z < W.dock.minZ + 5) useLabel = 'Rent boat';
     }
     const fishLabel = { idle: 'Cast', charging: 'Let go', casting: 'Cast', out: 'Hook', bite: 'Hook', reeling: 'Reel' }[phase] || 'Cast';
     const attackLabel = phase !== 'idle' ? null : held === 'fists' ? 'Punch' : isGun(held) && ownsGun(held) ? 'Shoot' : null;

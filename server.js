@@ -87,6 +87,23 @@ const WORLD = {
   ],
 };
 
+// a fishing pier reached by boat: a stem out from the beach and a T-shaped head, both raised above the swell
+WORLD.pierY = 0.95;
+WORLD.docks = [
+  WORLD.dock,
+  { minX: -22, maxX: -18.8, minZ: -152, maxZ: -104 },
+  { minX: -40, maxX: -18.8, minZ: -158, maxZ: -152 },
+];
+// things standing in the big water: boats stay off them and a cast that lands on one counts as landing on shore
+WORLD.sea = [
+  { id: 'rig', x: 105, z: -190, r: 9 },
+  { id: 'island', x: -100, z: -185, r: 17 },
+  { id: 'stack1', x: 160, z: -225, r: 6 },
+  { id: 'stack2', x: -165, z: -235, r: 5 },
+  { id: 'stack3', x: 30, z: -250, r: 4 },
+  { id: 'sail', x: -45, z: -165, r: 3.5 },
+];
+
 const TIMING = { biteMin: 3000, biteMax: 9000, biteWindow: 1400 };
 
 // weather rolls forward on its own: clear spells, clouds, rain, and the odd storm. Fish bite sooner in the wet.
@@ -223,10 +240,8 @@ function angleDiff(a, b) {
   return d;
 }
 
-const onDock = (x, z) => {
-  const d = WORLD.dock;
-  return x >= d.minX && x <= d.maxX && z >= d.minZ && z <= d.maxZ;
-};
+const onDock = (x, z) => WORLD.docks.some((d) => x >= d.minX && x <= d.maxX && z >= d.minZ && z <= d.maxZ);
+const inSeaObstacle = (x, z) => WORLD.sea.some((o) => (x - o.x) ** 2 + (z - o.z) ** 2 < o.r * o.r);
 const inChannel = (x, z, m = 0) => {
   const c = WORLD.channel;
   return x >= c.minX - m && x <= c.maxX + m && z >= c.minZ - m && z <= c.maxZ + m;
@@ -238,7 +253,7 @@ const inOcean = (x, z) => {
 const onLand = (x, z) =>
   onDock(x, z) ||
   (Math.hypot(x, z) >= WORLD.shoreRadius && Math.abs(x) <= WORLD.bounds && Math.abs(z) <= WORLD.bounds && !inChannel(x, z, 0.8));
-const inWater = (x, z) => !onDock(x, z) && (Math.hypot(x, z) < WORLD.lakeRadius - 0.3 || inChannel(x, z) || inOcean(x, z));
+const inWater = (x, z) => !onDock(x, z) && !inSeaObstacle(x, z) && (Math.hypot(x, z) < WORLD.lakeRadius - 0.3 || inChannel(x, z) || inOcean(x, z));
 // boats stay a couple of metres off the beach so the hull never digs into the sand
 const boatOk = (x, z) => inWater(x, z) && (Math.hypot(x, z) < WORLD.lakeRadius - 2.2 || inChannel(x, z) || inOcean(x, z));
 // on foot you can also wade and swim: land, any water, or the shoreline strip between them
@@ -1341,13 +1356,20 @@ function debugCommand(p, socket, text) {
   if (cmd === 'boat') { p.ownsBoat = true; p.boatTier = Math.max(p.boatTier, 0); return say('You own a boat.'); }
   if (cmd === 'sea' || cmd === 'channel') {
     resetLine(p);
-    Object.assign(p, { ownsBoat: true, boat: true, x: cmd === 'sea' ? 6 : 0, z: cmd === 'sea' ? -132 : -70, rot: Math.PI, budget: 2 });
+    const at = { x: cmd === 'sea' ? 6 : 0, z: cmd === 'sea' ? -132 : -70 };
+    if (cmd === 'sea' && args.length >= 2) {
+      const ax = Number(args[0]);
+      const az = Number(args[1]);
+      if (!boatOk(ax, az)) return say('That spot is not open water. Try /sea x z in the big water, clear of the rig, island and pier.');
+      at.x = ax; at.z = az;
+    }
+    Object.assign(p, { ownsBoat: true, boat: true, x: at.x, z: at.z, rot: Math.PI, budget: 2 });
     socket.emit('respawn', { x: p.x, z: p.z, rot: p.rot, hp: p.hp });
     return say('Out on the water.');
   }
   if (cmd === 'weather') { const k = ['clear', 'cloudy', 'rain', 'storm'].includes(args[0]) ? args[0] : 'clear'; setWeather(k); WEATHER.until = nowMs() + 30 * 60 * 1000; return say(`Weather: ${k} (held for 30 minutes).`); }
   if (cmd === 'fast') { p.fastBite = !p.fastBite; return say(p.fastBite ? 'Fast bites on.' : 'Fast bites off.'); }
-  return say('Commands: /cash N, /tp moss|shack|camp|dock, /hour H, /derby, /gear, /fast, /boat, /sea, /channel');
+  return say('Commands: /cash N, /tp moss|shack|camp|dock, /hour H, /derby, /gear, /fast, /boat, /sea [x z], /channel');
 }
 
 // ---------------------------------------------------------------- sockets
