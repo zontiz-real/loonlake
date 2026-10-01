@@ -206,6 +206,7 @@
         <div><dt>I or Tab</dt><dd>Inventory: your fish (sell, lock, or release each one), your gear, and your items.</dd></div>
         <div><dt>J</dt><dd>Journal of every species you've landed.</dd></div>
         <div><dt>Enter</dt><dd>Chat.</dd></div>
+        <div><dt>Y</dt><dd>Switch between first and third person.</dd></div>
         <div><dt>H</dt><dd>This page.</dd></div>
       </dl>
       <div id="settings">
@@ -216,6 +217,12 @@
         <label class="check"><input type="checkbox" id="setInvert"> Invert look up and down</label>
         <label class="check"><input type="checkbox" id="setShake"> Camera shake</label>
         <label class="check"><input type="checkbox" id="setBlood"> Blood</label>
+        <label>Camera
+          <select id="setView">
+            <option value="first">First person</option>
+            <option value="third">Third person</option>
+          </select>
+        </label>
         <label>Graphics
           <select id="setQuality">
             <option value="auto">Auto</option>

@@ -52,7 +52,7 @@ if (!/^[A-Za-z0-9_-]{16,64}$/.test(token || '')) {
   store.set('loonlake.token', token);
 }
 
-const settings = { sens: 1, volume: 0.8, bright: 0.8, invertY: false, shake: true, quality: 'auto', blood: true, ...store.get('loonlake.settings', {}) };
+const settings = { sens: 1, volume: 0.8, bright: 0.8, invertY: false, shake: true, quality: 'auto', blood: true, view: 'first', ...store.get('loonlake.settings', {}) };
 sfx.setVolume(settings.volume);
 
 const isTouch = matchMedia('(pointer: coarse)').matches || (navigator.maxTouchPoints > 0 && !matchMedia('(pointer: fine)').matches);
@@ -455,18 +455,33 @@ function animateModel(v, dt, moving, fast, pose, aliveNow, sit) {
   } else ch.play('idle');
   ch.mixer.update(dt);
   v.group.updateMatrixWorld(true);
-  if (aliveNow && audioT >= ch.punchUntil && pose !== 'idle') ch.aimArms(v.useDirs || pose, v.group.quaternion);
+  ch.bones.head.scale.setScalar(v.fpHide ? 0.001 : 1); // first person: no head in the way of the camera
+  ch.headWorld(tmpHead);
+  v.group.worldToLocal(tmpHead);
+  const eyeLocal = fpTmp.set(tmpHead.x, tmpHead.y + 0.03, tmpHead.z + 0.09);
+  v.fpEye = (v.fpEye || new THREE.Vector3()).copy(eyeLocal);
+  v.group.localToWorld(v.fpEye);
+  if (aliveNow && audioT >= ch.punchUntil && pose !== 'idle') {
+    if (v.fpT) {
+      const c = Math.cos(v.fpPitch);
+      const sn = Math.sin(v.fpPitch);
+      const at = (o) => new THREE.Vector3(eyeLocal.x + o[0], eyeLocal.y + o[1] * c - o[2] * sn, eyeLocal.z + o[1] * sn + o[2] * c);
+      ch.reach('R', at(v.fpT[0]), POLE_R);
+      if (v.fpT[1]) ch.reach('L', at(v.fpT[1]), POLE_L);
+    } else ch.aimArms(v.useDirs || pose, v.group.quaternion);
+  }
   if (aliveNow && sit) ch.sit(v.group.quaternion);
   v.group.updateMatrixWorld(true);
   ch.handWorld(tmpHand);
   v.group.worldToLocal(tmpHand);
   v.pivot.position.copy(tmpHand);
   v.rifle.position.copy(tmpHand);
+  v.rifle.rotation.x = v.fpHide ? v.fpPitch * 0.9 + (v.fpGun || 0) : 0; // the gun follows where you look
   v.hand.position.copy(tmpHand);
   ch.headWorld(tmpHead);
   v.group.worldToLocal(tmpHead);
   v.hat.position.set(tmpHead.x, tmpHead.y + 0.19, tmpHead.z + 0.01);
-  v.hat.visible = aliveNow;
+  v.hat.visible = aliveNow && !v.fpHide;
 }
 
 const RAG_BONES = ['Hips', 'Neck', 'Head', 'UpperArmL', 'LowerArmL', 'PalmL', 'UpperArmR', 'LowerArmR', 'PalmR', 'UpperLegL', 'LowerLegL', 'FootL', 'UpperLegR', 'LowerLegR', 'FootR'];
@@ -1619,6 +1634,7 @@ addEventListener('keydown', (e) => {
     case 'KeyI': case 'Tab': e.preventDefault(); if (!e.repeat) togglePanel('inventory'); break;
     case 'KeyP': if (!e.repeat) togglePanel('phone'); break;
     case 'KeyH': if (!e.repeat) togglePanel('help'); break;
+    case 'KeyY': if (!e.repeat) toggleView(); break;
     case 'Enter': e.preventDefault(); openChat(); break;
     case 'Escape': closePanels(); break;
     case 'Digit1': case 'Digit2': case 'Digit3': case 'Digit4': case 'Digit5':
@@ -2319,6 +2335,13 @@ function syncSettingsUI() {
   $('setShake').checked = settings.shake;
   $('setBlood').checked = settings.blood;
   $('setQuality').value = settings.quality;
+  $('setView').value = settings.view;
+}
+function toggleView() {
+  settings.view = settings.view === 'first' ? 'third' : 'first';
+  store.set('loonlake.settings', settings);
+  syncSettingsUI();
+  flashPrompt(settings.view === 'first' ? 'First person' : 'Third person', '', 900);
 }
 function saveSettings() {
   settings.sens = Number($('setSens').value);
@@ -2329,12 +2352,13 @@ function saveSettings() {
   settings.shake = $('setShake').checked;
   settings.blood = $('setBlood').checked;
   settings.quality = $('setQuality').value;
+  settings.view = $('setView').value;
   $('qualityNote').hidden = quality() === loadQuality;
   applyQuality();
   sfx.setVolume(settings.volume);
   store.set('loonlake.settings', settings);
 }
-['setSens', 'setVol', 'setBright', 'setInvert', 'setShake', 'setQuality', 'setBlood'].forEach((id) => $(id).addEventListener('input', saveSettings));
+['setSens', 'setVol', 'setBright', 'setInvert', 'setShake', 'setQuality', 'setBlood', 'setView'].forEach((id) => $(id).addEventListener('input', saveSettings));
 
 // ---------- goals
 
@@ -2805,6 +2829,7 @@ function tryShoot() {
   const shotRot = isTouch ? assistRot(aimRot, 60, 0.1) : aimRot;
   if (m) { m.trot = m.rot = shotRot; }
   sfx.shot(g.sound);
+  fpKick = 1;
   cam.shake += 0.08 + g.pellets * 0.015;
   cam.pitch -= g.recoil || 0.015;
   const gun = held;
@@ -2940,7 +2965,7 @@ function computeAim(m) {
   tmpA.copy(o).addScaledVector(tmpD, t);
   const dx = tmpA.x - m.x;
   const dz = tmpA.z - m.z;
-  aimRot = Math.hypot(dx, dz) > 1.5 ? Math.atan2(dx, dz) : cam.yaw + Math.PI;
+  aimRot = fpOn() ? cam.yaw + Math.PI : Math.hypot(dx, dz) > 1.5 ? Math.atan2(dx, dz) : cam.yaw + Math.PI;
   aimDist = tmpD.y < -0.02 ? Math.hypot(dx, dz) : 0;
 }
 
@@ -3009,7 +3034,7 @@ function updateLocal(m, dt) {
       if (ok(m.x, m.z + wz * step)) m.z += wz * step;
       if (!inBoat) { world.collide(m, 0.35); pushOutOfBodies(m); }
       if (!ok(m.x, m.z)) { m.x = ox; m.z = oz; }
-      m.trot = rifleUp ? aimRot : Math.atan2(wx, wz);
+      m.trot = rifleUp || fpOn() ? aimRot : Math.atan2(wx, wz);
     }
   } else {
     // on foot: quick to start and stop on the ground, free steering in the air (holding Space keeps hopping)
@@ -3021,7 +3046,7 @@ function updateLocal(m, dt) {
     const wishSpeed = moving ? Math.min(wlen, 1) * maxSpeed : 0;
     if (airborne) airMove(vel, dirx, dirz, wishSpeed, dt);
     else groundMove(vel, dirx, dirz, wishSpeed, dt);
-    if (moving) m.trot = rifleUp ? aimRot : Math.atan2(wx, wz);
+    if (moving) m.trot = rifleUp || fpOn() ? aimRot : Math.atan2(wx, wz);
     const stepX = vel.x * dt;
     const stepZ = vel.z * dt;
     if (ok(m.x + stepX, m.z)) m.x += stepX;
@@ -3045,7 +3070,7 @@ function updateLocal(m, dt) {
     if (Math.hypot(vel.x, vel.z) > 8 && Math.random() < dt * 9) fx.puff(m.x - Math.sin(m.trot) * 0.2, jumpY + 0.1, m.z - Math.cos(m.trot) * 0.2, 0xD9CDB0, 2);
   }
   if (m.walking && m.swimming && Math.random() < dt * 5) fx.ripple(m.x, m.z, 0.7, 1, 0.4);
-  if (!canMove && (phase === 'charging' || rifleUp)) m.trot = aimRot;
+  if (!canMove && (phase === 'charging' || rifleUp || fpOn())) m.trot = aimRot;
   if (lmbHeld && !openPanel && !chatOpen) {
     if (isGun(held) && effGun(held).auto) tryShoot();
     else if (held === 'fists') tryPunch();
@@ -3173,6 +3198,67 @@ function startPunch(v, side, heavy) {
   v.punchHeavy = !!heavy;
 }
 
+// ---------- first person: the camera sits at the avatar's head (hidden), and its own arms reach to hand targets
+const fpOn = () => settings.view === 'first' && !!myId && alive() && !!(me() && me().model);
+let fpKick = 0; // 1 on each shot, fades; kicks the gun and arms back
+const lerp3 = (a, b, k) => [lerp(a[0], b[0], k), lerp(a[1], b[1], k), lerp(a[2], b[2], k)];
+const hump = (p, a, b) => Math.sin(Math.PI * clamp((p - a) / (b - a), 0, 1)); // 0 outside [a, b], up to 1 and back inside
+const POLE_R = new THREE.Vector3(-0.5, -1, -0.2);
+const POLE_L = new THREE.Vector3(0.5, -1, -0.2);
+const fpTmp = new THREE.Vector3();
+// hand targets in camera-frame offsets from the eye (x is negative on the right); returns [R, L|null] or null
+function fpArmTargets(v, pose, t) {
+  const spd = Math.min(1.4, Math.hypot(vel.x, vel.z) / 6);
+  const by = Math.sin(t * 10) * 0.012 * spd;
+  const bx = Math.cos(t * 5) * 0.009 * spd;
+  let R;
+  let L = null;
+  v.fpGun = 0;
+  const dbg = window.__fpDbg || {}; // test hook: freeze aim, recoil and reload progress
+  if (dbg.kick != null) fpKick = dbg.kick;
+  if (pose === 'rifle') {
+    const aim = dbg.aim != null ? dbg.aim : cam.aim;
+    R = lerp3([-0.2, -0.33, 0.5], [0, -0.145, 0.4], aim);
+    L = lerp3([0.12, -0.3, 0.78], [0.02, -0.2, 0.64], aim);
+    if (stepSprint && aim < 0.2) { R[1] -= 0.09; L[1] -= 0.09; R[2] -= 0.06; }
+    R[2] -= 0.07 * fpKick; R[1] += 0.02 * fpKick; L[2] -= 0.05 * fpKick;
+    v.fpGun = -0.08 * fpKick;
+    const g = effGun(held);
+    const rl = dbg.reload != null ? dbg.reload : myData && g && myData.reloadGun === held ? 1 - clamp(myData.reloadLeft / g.reload, 0, 1) : -1;
+    if (rl >= 0) {
+      const kind = g.sound;
+      if (kind === 'shotgun') {
+        const pump = Math.abs(Math.sin(rl * Math.PI * 3));
+        L[2] -= 0.22 * pump; R[1] -= 0.04; v.fpGun += 0.15 * hump(rl, 0, 1);
+      } else if (kind === 'rifle' || kind === 'sniper') {
+        const bolt = hump(rl, 0.4, 0.75);
+        R = [R[0] + 0.06 * bolt, R[1] - 0.03 * hump(rl, 0, 1), R[2] - 0.16 * bolt];
+        v.fpGun += 0.12 * hump(rl, 0, 1);
+      } else if (kind === 'lmg' || kind === 'minigun') {
+        L = [0.0, -0.5 * hump(rl, 0.05, 0.95) + L[1] * (1 - hump(rl, 0.05, 0.95)), 0.5 + 0.2 * (1 - hump(rl, 0.05, 0.95))];
+        R[1] -= 0.06 * hump(rl, 0, 1); v.fpGun += 0.3 * hump(rl, 0, 1);
+      } else {
+        const d = hump(rl, 0.1, 0.8);
+        L = [lerp(L[0], 0.06, d), lerp(L[1], -0.42, d), lerp(L[2], 0.5, d)];
+        R[1] -= 0.08 * hump(rl, 0, 1); v.fpGun += 0.45 * hump(rl, 0, 1);
+      }
+    }
+  } else if (pose === 'rod') {
+    const rest = [-0.2, -0.32, 0.55];
+    R = rest;
+    if (phase === 'charging') R = lerp3(rest, [-0.26, -0.1, 0.2], power);
+    else if (castSwing > 0) R = lerp3(rest, [-0.26, -0.1, 0.2], castSwing);
+    else if (phase === 'reeling' || reel) { const ph = t * 12; R = [rest[0] + 0.04 * Math.cos(ph), rest[1] + 0.04 * Math.sin(ph), rest[2] - 0.08]; }
+  } else {
+    const bounce = Math.sin(t * (spd > 0.1 ? 10 : 4)) * 0.03;
+    R = [-0.2, -0.3 + bounce, 0.42];
+    L = [0.2, -0.3 - bounce, 0.42];
+  }
+  R = [R[0] + bx, R[1] + by, R[2]];
+  if (L) L = [L[0] + bx, L[1] + by, L[2]];
+  return [R, L];
+}
+
 // ---------- drug use animations (realistic avatars). Arm directions are in the avatar's own space (facing +z, its right side is -x)
 const R_REST = [[-0.2, -0.85, 0.45], [0.15, 0.75, 0.65]];
 const R_MOUTH = [[-0.1, -0.7, 0.7], [0.5, 0.8, -0.2]];
@@ -3223,7 +3309,10 @@ function updateView(v, dt, t) {
     v.x += (v.tx - v.x) * k;
     v.z += (v.tz - v.z) * k;
   }
-  v.rot += angleDiff(v.trot, v.rot) * Math.min(1, dt * (isMe ? 16 : 12));
+  const fpNow = isMe && fpOn();
+  if (fpNow) v.rot = v.trot = cam.yaw + Math.PI; // the body always faces where you look
+  else v.rot += angleDiff(v.trot, v.rot) * Math.min(1, dt * (isMe ? 16 : 12));
+  v.fpHide = fpNow;
   const inBoat = isMe ? boating() : !!v.data.boat;
   if (inBoat && aliveNow) {
     const bt = isMe ? Math.max(0, (myData && myData.boatTier) ?? 0) : v.data.bt || 0;
@@ -3321,6 +3410,12 @@ function updateView(v, dt, t) {
   }
   v.label.visible = !isMe && aliveNow;
   const pose = !aliveNow || (emNow && !fishing) ? 'idle' : fishing || inHand === 'rod' ? 'rod' : gunHeld ? 'rifle' : inHand === 'fists' ? 'fists' : drug ? 'drug' : 'idle';
+  v.fpT = null;
+  v.fpPitch = cam.pitch;
+  if (fpNow) {
+    fpKick *= Math.exp(-dt * 14);
+    if (!v.useDirs && (pose === 'rifle' || pose === 'rod' || pose === 'fists')) v.fpT = fpArmTargets(v, pose, t);
+  }
   if (v.model) {
     const px = v.px ?? v.x;
     const pz = v.pz ?? v.z;
@@ -3364,6 +3459,7 @@ function updateView(v, dt, t) {
   v.pivot.rotation.x += (tilt - v.pivot.rotation.x) * Math.min(1, dt * (isMe ? 18 : 12));
   v.pivot.rotation.z = isMe && reel ? -reel.side * 0.3 : 0;
   paintHigh(v, v.data.high);
+  if (fpNow) v.highMark.visible = false;
   // ambient signs of what someone is on
   const hh = v.data.high;
   if (hh && aliveNow && (hh.weed || hh.crank)) {
@@ -3596,7 +3692,8 @@ function updateCamera(m, dt, t) {
     cam.yaw -= d.x * s;
     cam.pitch += d.y * s * (settings.invertY ? -1 : 1);
   }
-  cam.pitch = clamp(cam.pitch, -0.35, 1.25);
+  const fp = fpOn() && m.fpEye;
+  cam.pitch = fp ? clamp(cam.pitch, -1.3, 1.4) : clamp(cam.pitch, -0.35, 1.25);
   const rifleOut = isGun(held) && ownsGun(held) && phase === 'idle' && alive();
   const aiming = aimHeld && alive() && !openPanel;
   cam.aim += ((aiming ? 1 : 0) - cam.aim) * Math.min(1, dt * 12);
@@ -3607,9 +3704,10 @@ function updateCamera(m, dt, t) {
   camLift += (jumpY * 0.8 - camLift) * Math.min(1, dt * 9);
   const target = tmpB.set(m.x + cy * shoulder, (m.y || 0) + 1.55 + cam.aim * 0.1 + camLift, m.z - sy * shoulder);
   const horiz = Math.cos(cam.pitch) * dist;
-  camera.position.set(target.x + sy * horiz, target.y + Math.sin(cam.pitch) * dist, target.z + cy * horiz);
+  if (fp) camera.position.copy(m.fpEye);
+  else camera.position.set(target.x + sy * horiz, target.y + Math.sin(cam.pitch) * dist, target.z + cy * horiz);
   // pull the camera in rather than letting it sit inside the shack or Moss's stand
-  for (let i = 1; i <= 14; i++) {
+  for (let i = 1; i <= (fp ? 0 : 14); i++) {
     const f = i / 14;
     const px = lerp(target.x, camera.position.x, f);
     const py = lerp(target.y, camera.position.y, f);
@@ -3621,7 +3719,7 @@ function updateCamera(m, dt, t) {
     }
   }
   const floor = surfaceAt(camera.position.x, camera.position.z, audioT) + 0.45;
-  if (camera.position.y < floor) camera.position.y = floor;
+  if (!fp && camera.position.y < floor) camera.position.y = floor;
   const high = (myData && myData.high) || {};
   let sway = 0;
   const dr = myData && myData.drug;
@@ -3635,7 +3733,8 @@ function updateCamera(m, dt, t) {
   }
   if (reel) cam.shake = Math.max(cam.shake, reel.tension > TUNING.redline ? 0.04 : 0);
   const shake = settings.shake && !reducedMotion ? Math.min(cam.shake, 0.6) : 0;
-  camera.lookAt(target);
+  if (fp) camera.lookAt(camera.position.x - sy * Math.cos(cam.pitch), camera.position.y - Math.sin(cam.pitch), camera.position.z - cy * Math.cos(cam.pitch));
+  else camera.lookAt(target);
   if (shake > 0.001) {
     camera.rotation.x += (Math.random() - 0.5) * shake * 0.08;
     camera.rotation.y += (Math.random() - 0.5) * shake * 0.08;
@@ -3643,7 +3742,7 @@ function updateCamera(m, dt, t) {
   cam.shake *= Math.exp(-dt * 8);
   const zoomFov = rifleOut ? gunOf(held).zoom : 40;
   const speedKick = clamp((Math.hypot(vel.x, vel.z) - 6.5) / 6, 0, 1) * 4 * (1 - cam.aim);
-  const fov = lerp(60, zoomFov, cam.aim) + (high.crank ? 7 : 0) + speedKick;
+  const fov = lerp(fp ? 72 : 60, zoomFov, cam.aim) + (high.crank ? 7 : 0) + speedKick;
   if (Math.abs(camera.fov - fov) > 0.05) {
     camera.fov += (fov - camera.fov) * Math.min(1, dt * 8);
     camera.updateProjectionMatrix();

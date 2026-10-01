@@ -188,6 +188,31 @@ export async function loadModels(onProgress) {
         if (dirs.R) { aimBone(bones.upR, bones.loR, d(dirs.R[0])); aimBone(bones.loR, bones.palmR, d(dirs.R[1])); }
         if (dirs.L) { aimBone(bones.upL, bones.loL, d(dirs.L[0])); aimBone(bones.loL, bones.palmL, d(dirs.L[1])); }
       },
+      // first person: put a hand at a point in the avatar's own space with a two-bone solve; the elbow bends toward `pole`
+      reach(side, target, pole) {
+        const up = bones['up' + side];
+        const lo = bones['lo' + side];
+        const palm = bones['palm' + side];
+        if (!up || !lo || !palm) return;
+        root.updateMatrixWorld(true);
+        const gq = group.getWorldQuaternion(new THREE.Quaternion());
+        const S = group.worldToLocal(up.getWorldPosition(new THREE.Vector3()));
+        const E0 = group.worldToLocal(lo.getWorldPosition(new THREE.Vector3()));
+        const H0 = group.worldToLocal(palm.getWorldPosition(new THREE.Vector3()));
+        const a = S.distanceTo(E0);
+        const b = E0.distanceTo(H0);
+        const dir = target.clone().sub(S);
+        let d = dir.length() || 1e-3;
+        dir.divideScalar(d);
+        d = Math.min(Math.max(d, Math.abs(a - b) + 0.02), a + b - 0.01);
+        const x = (a * a - b * b + d * d) / (2 * d);
+        const h = Math.sqrt(Math.max(0, a * a - x * x));
+        const bend = pole.clone().sub(dir.clone().multiplyScalar(pole.dot(dir))).normalize();
+        const elbow = S.clone().addScaledVector(dir, x).addScaledVector(bend, h);
+        const hand = S.clone().addScaledVector(dir, d);
+        aimBone(up, lo, elbow.clone().sub(S).normalize().applyQuaternion(gq));
+        aimBone(lo, palm, hand.sub(elbow).normalize().applyQuaternion(gq));
+      },
       // sitting in a boat: thighs forward, shins down
       sit(groupQuat) {
         const d = (x, y, z) => new THREE.Vector3(x, y, z).normalize().applyQuaternion(groupQuat);
