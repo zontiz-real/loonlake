@@ -153,7 +153,7 @@ const BOSSES = {
     hint: 'One hook, twenty piranhas. Thin the swarm, then reel in the king.',
     moves: [{ name: 'Swarm', kind: 'spike', r: 6, dmg: 10 }, { name: 'Frenzy', kind: 'spike', r: 0, dmg: 0 }] },
   gator: { id: 'gatorking', name: 'Gator King', tier: 2, rodMin: 1, where: 'lake', hp: 1400, wearCap: 0.55, landAt: 0.35, radius: 3, lbs: [400, 700], base: 700, color: '#4A5A2E',
-    hint: 'A scarred old alligator. Death rolls drag you off your feet.',
+    hint: 'A scarred old alligator. Death rolls and tail whips hit anyone near it.',
     moves: [{ name: 'Death roll', kind: 'spike', r: 7, dmg: 18 }, { name: 'Tail whip', kind: 'spike', r: 8, dmg: 16 }, { name: 'Submerge', kind: 'slack', r: 0, dmg: 0 }] },
   eel: { id: 'voltaiceel', name: 'Voltaic Eel', tier: 2, rodMin: 2, where: 'lake', hp: 1200, wearCap: 0.55, landAt: 0.35, radius: 2.4, lbs: [90, 160], base: 650, color: '#3AC8E8',
     hint: 'Glows blue. Every few seconds it discharges into the water and everyone near it.',
@@ -161,7 +161,7 @@ const BOSSES = {
   leviathan: { id: 'leviathan', name: 'Leviathan Sturgeon', tier: 3, rodMin: 3, where: 'lake', hp: 3000, wearCap: 0.7, landAt: 0.35, radius: 4, lbs: [900, 1600], base: 1500, color: '#6E7A88',
     hint: 'Armored plates you have to shoot off. It dives, goes slack, and breaches.',
     moves: [{ name: 'Dive', kind: 'slack', r: 0, dmg: 0 }, { name: 'Breach', kind: 'spike', r: 9, dmg: 20 }, { name: 'Ram', kind: 'spike', r: 6, dmg: 16 }] },
-  kraken: { id: 'kraken', name: 'The Kraken', tier: 3, rodMin: 4, where: 'ocean', hp: 5000, wearCap: 0.75, landAt: 0.35, radius: 5, lbs: [2000, 3200], base: 4000, color: '#7A2A5A',
+  kraken: { id: 'kraken', name: 'The Kraken', tier: 3, rodMin: 4, where: 'ocean', hp: 4200, wearCap: 0.75, landAt: 0.35, radius: 5, lbs: [2000, 3200], base: 4000, color: '#7A2A5A',
     hint: 'Only in the big water. Tentacles slam the deck and it blots the screen with ink.',
     moves: [{ name: 'Tentacle slam', kind: 'spike', r: 9, dmg: 22 }, { name: 'Ink', kind: 'ink', r: 0, dmg: 0 }, { name: 'Grab', kind: 'spike', r: 7, dmg: 18 }] },
 };
