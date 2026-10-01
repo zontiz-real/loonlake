@@ -163,7 +163,8 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
   scene.add(hemi);
   const sun = new THREE.DirectionalLight(0xFFF6E4, 1.5);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(isTouch ? 1024 : 2048, isTouch ? 1024 : 2048);
+  const shadowRes = isTouch ? 1024 : high ? 4096 : 2048;
+  sun.shadow.mapSize.set(shadowRes, shadowRes);
   Object.assign(sun.shadow.camera, { left: -42, right: 42, top: 42, bottom: -42, near: 1, far: 160 });
   sun.shadow.bias = -0.0004;
   sun.shadow.normalBias = 0.03;
@@ -338,6 +339,19 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
   const WHITE = new THREE.Color(1, 1, 1);
   const moonDir = new THREE.Vector3();
 
+  // ---------- roads: ribbons laid on the ground, sampled so trees, grass and rocks keep off them
+  const roads = [];
+  const PLAZA = { x: -1, z: 43.5, r: 8 };
+  const roadPts = [];
+  const nearRoad = (x, z, pad = 0) => {
+    if ((x - PLAZA.x) ** 2 + (z - PLAZA.z) ** 2 < (PLAZA.r + pad) ** 2) return true;
+    for (const p of roadPts) {
+      const r = p[2] + pad;
+      if ((x - p[0]) ** 2 + (z - p[1]) ** 2 < r * r) return true;
+    }
+    return false;
+  };
+
   function flat(mesh, y) {
     mesh.rotation.x = -Math.PI / 2;
     mesh.position.y = y;
@@ -373,6 +387,8 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
   }
 
   let boats = [];
+  let birdFlock = null;
+  const birdDummy = new THREE.Object3D();
   function build(w, kit) {
     W = w;
     waterU.uRadius.value = w.lakeRadius;
@@ -418,11 +434,32 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     });
     grass.repeat.set((GROUND.x1 - GROUND.x0) / 22, (GROUND.z1 - GROUND.z0) / 22);
     const groundGeo = gridGeometry(GROUND.x0, GROUND.x1, GROUND.z0, GROUND.z1, 0, true);
-    const ground = new THREE.Mesh(groundGeo, new THREE.MeshStandardMaterial({ map: grass, roughness: 1 }));
+    const groundMat = new THREE.MeshStandardMaterial({ map: grass, roughness: 1 });
+    // broad patches of lush and dry grass, so the meadow doesn't read as one repeating tile
+    groundMat.onBeforeCompile = (sh) => {
+      sh.vertexShader = sh.vertexShader
+        .replace('#include <common>', '#include <common>\nvarying vec3 vWPos;')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWPos = (modelMatrix * vec4(position, 1.0)).xyz;');
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <common>', `#include <common>
+          varying vec3 vWPos;
+          float gh(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+          float gn(vec2 p){ vec2 i = floor(p); vec2 f = fract(p); vec2 u = f*f*(3.0-2.0*f);
+            return mix(mix(gh(i), gh(i+vec2(1.0,0.0)), u.x), mix(gh(i+vec2(0.0,1.0)), gh(i+vec2(1.0,1.0)), u.x), u.y); }`)
+        .replace('#include <map_fragment>', `#include <map_fragment>
+          float m1 = gn(vWPos.xz * 0.045);
+          float m2 = gn(vWPos.xz * 0.17 + 7.0);
+          float m3 = gn(vWPos.xz * 0.6);
+          vec3 dry = vec3(1.16, 1.05, 0.74);
+          vec3 lush = vec3(0.84, 1.04, 0.82);
+          diffuseColor.rgb *= mix(lush, dry, smoothstep(0.35, 0.75, m1)) * (0.88 + 0.24 * m2) * (0.94 + 0.12 * m3);`);
+    };
+    const ground = new THREE.Mesh(groundGeo, groundMat);
     ground.receiveShadow = true;
     scene.add(ground);
     flat(new THREE.Mesh(new THREE.RingGeometry(w.lakeRadius - 1.2, w.shoreRadius + 2.4, 128), new THREE.MeshStandardMaterial({ map: sand, roughness: 1 })), 0.02);
     flat(new THREE.Mesh(new THREE.CircleGeometry(w.lakeRadius, 96), new THREE.MeshStandardMaterial({ color: 0x1A3A3E, roughness: 1 })), 0.015);
+    buildRoads(w, kit);
 
     const waterGeo = new THREE.RingGeometry(0.01, w.lakeRadius, 140, 34);
     waterGeo.rotateX(-Math.PI / 2);
@@ -609,6 +646,7 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
       const z = (rnd() * 2 - 1) * spread;
       if (Math.hypot(x, z) < w.shoreRadius + 7) continue;
       if (nearWaterArea(x, z, 3)) continue;
+      if (nearRoad(x, z, 2.2)) continue;
       if (Math.abs(x) < 6 && z > 0 && z < 50) continue;
       if (Math.hypot(x - camp.dealer.x, z - camp.dealer.z) < 8) continue;
       if (Math.hypot(x - camp.shack.x, z - camp.shack.z) < 11) continue;
@@ -649,6 +687,7 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
       const z = Math.cos(a) * r;
       if (Math.abs(x) < 7 && z > 0 && z < 52) continue;
       if (nearWaterArea(x, z, 2)) continue;
+      if (nearRoad(x, z, 1.6)) continue;
       if (Math.hypot(x - camp.dealer.x, z - camp.dealer.z) < 8 || Math.hypot(x - camp.shack.x, z - camp.shack.z) < 11 || Math.hypot(x - f.x, z - f.z) < 7) continue;
       if (colliders.some((c) => Math.hypot(c.x - x, c.z - z) < c.r + 1.2)) continue;
       const s = 0.8 + rnd() * 0.5;
@@ -716,6 +755,7 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
       if (Math.abs(x) > w.bounds + 12 || Math.abs(z) > w.bounds + 12) continue;
       if (Math.abs(x) < 2.4 && z > w.dock.minZ && z < w.dock.maxZ + 3) continue;
       if (nearWaterArea(x, z, 0.5)) continue;
+      if (nearRoad(x, z, 0.5)) continue;
       if (clear.some((c) => (c.x - x) ** 2 + (c.z - z) ** 2 < (c.r + 0.4) ** 2)) continue;
       const s = 0.7 + rnd() * 0.6;
       dummy.position.set(x, groundHeight(x, z), z);
@@ -729,6 +769,53 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     }
     grassField.count = gi;
     scene.add(grassField);
+
+    // wildflowers in clumps through the meadow (not on the Low setting)
+    if (high) {
+      const flowerN = 700;
+      const stemGeo = new THREE.CylinderGeometry(0.008, 0.01, 0.3, 3);
+      stemGeo.translate(0, 0.15, 0);
+      const headGeo = new THREE.SphereGeometry(0.05, 6, 4);
+      headGeo.scale(1, 0.55, 1);
+      headGeo.translate(0, 0.31, 0);
+      const stems = new THREE.InstancedMesh(stemGeo, new THREE.MeshStandardMaterial({ color: 0x4F7A34, roughness: 1 }), flowerN);
+      const heads = new THREE.InstancedMesh(headGeo, new THREE.MeshStandardMaterial({ color: 0xFFFFFF, roughness: 0.7 }), flowerN);
+      const palette = ['#F6F1E4', '#F2D54A', '#B58BE0', '#F08AA8', '#F2A04A', '#8EB8F0'];
+      let fi = 0;
+      for (let tries = 0; fi < flowerN && tries < flowerN * 8; tries++) {
+        const a = rnd() * Math.PI * 2;
+        const r = w.shoreRadius + 3 + rnd() * 44;
+        const x = Math.sin(a) * r;
+        const z = Math.cos(a) * r;
+        if (Math.abs(x) > w.bounds - 2 || Math.abs(z) > w.bounds - 2) continue;
+        if (nearWaterArea(x, z, 1) || nearRoad(x, z, 0.8)) continue;
+        if (Math.abs(x) < 2.4 && z > w.dock.minZ && z < w.dock.maxZ + 3) continue;
+        const patch = Math.sin(x * 0.21) + Math.cos(z * 0.17) + Math.sin((x + z) * 0.11);
+        if (patch < 0.6 && rnd() < 0.85) continue; // mostly in patches
+        if (clear.some((c) => (c.x - x) ** 2 + (c.z - z) ** 2 < (c.r + 0.4) ** 2)) continue;
+        const sc = 0.8 + rnd() * 0.7;
+        dummy.position.set(x, groundHeight(x, z), z);
+        dummy.scale.setScalar(sc);
+        dummy.rotation.set(0, rnd() * 6.28, 0);
+        dummy.updateMatrix();
+        stems.setMatrixAt(fi, dummy.matrix);
+        heads.setMatrixAt(fi, dummy.matrix);
+        tint.set(palette[Math.floor(rnd() * palette.length)]);
+        heads.setColorAt(fi, tint);
+        fi++;
+      }
+      stems.count = heads.count = fi;
+      stems.frustumCulled = heads.frustumCulled = false;
+      scene.add(stems, heads);
+    }
+
+    // a loose flock wheeling high over the lake in daylight
+    const birdGeo = new THREE.BufferGeometry();
+    birdGeo.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0.2, -0.55, 0.06, -0.12, 0, 0, -0.14, 0, 0, 0.2, 0, 0, -0.14, 0.55, 0.06, -0.12], 3));
+    birdGeo.computeVertexNormals();
+    birdFlock = new THREE.InstancedMesh(birdGeo, new THREE.MeshBasicMaterial({ color: 0x1F2626, side: THREE.DoubleSide }), 14);
+    birdFlock.frustumCulled = false;
+    scene.add(birdFlock);
 
     if (kit) buildModelScenery(w, kit, rnd, dummy, tint, camp, f);
     const rockMat = new THREE.MeshStandardMaterial({ color: 0x8A8680, roughness: 1, flatShading: true });
@@ -857,9 +944,180 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     colliders.push({ x: lx, z: lz, r: 1.5 });
   }
 
+  function dirtTexture(ruts) {
+    return canvasTex(256, 256, (g, cw, ch) => {
+      const r = mulberry32(ruts ? 5 : 9);
+      g.fillStyle = '#8E7656';
+      g.fillRect(0, 0, cw, ch);
+      for (let i = 0; i < 2600; i++) {
+        g.fillStyle = r() > 0.5 ? 'rgba(66, 48, 30, .32)' : 'rgba(176, 152, 114, .34)';
+        g.fillRect(r() * cw, r() * ch, 1 + r() * 3, 1 + r() * 2.5);
+      }
+      for (let i = 0; i < 110; i++) {
+        g.fillStyle = r() > 0.5 ? 'rgba(120, 110, 98, .55)' : 'rgba(150, 138, 120, .5)';
+        g.beginPath(); g.ellipse(r() * cw, r() * ch, 1.5 + r() * 3, 1 + r() * 2, r() * 3, 0, Math.PI * 2); g.fill();
+      }
+      if (ruts) {
+        for (const rx of [0.3, 0.7]) {
+          const gr = g.createLinearGradient((rx - 0.1) * cw, 0, (rx + 0.1) * cw, 0);
+          gr.addColorStop(0, 'rgba(58, 42, 26, 0)');
+          gr.addColorStop(0.5, 'rgba(58, 42, 26, .5)');
+          gr.addColorStop(1, 'rgba(58, 42, 26, 0)');
+          g.fillStyle = gr;
+          g.fillRect((rx - 0.1) * cw, 0, 0.2 * cw, ch);
+        }
+        for (let i = 0; i < 260; i++) { g.fillStyle = 'rgba(86, 120, 56, .5)'; g.fillRect((0.44 + r() * 0.12) * cw, r() * ch, 1.5, 2 + r() * 4); }
+      }
+      // soft, ragged edges
+      g.globalCompositeOperation = 'destination-in';
+      if (ruts) {
+        const gr = g.createLinearGradient(0, 0, cw, 0);
+        gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(0.16, 'rgba(0,0,0,1)'); gr.addColorStop(0.84, 'rgba(0,0,0,1)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+        g.fillStyle = gr; g.fillRect(0, 0, cw, ch);
+      } else {
+        const gr = g.createRadialGradient(cw / 2, ch / 2, cw * 0.28, cw / 2, ch / 2, cw * 0.5);
+        gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+        g.fillStyle = gr; g.fillRect(0, 0, cw, ch);
+      }
+    });
+  }
+
+  function roadMesh(pts, width, mat) {
+    const curve = new THREE.CatmullRomCurve3(pts.map(([x, z]) => new THREE.Vector3(x, 0, z)), false, 'centripetal');
+    const n = Math.max(6, Math.ceil(curve.getLength() / 1.2));
+    const pos = [];
+    const uv = [];
+    const idx = [];
+    const line = [];
+    let dist = 0;
+    let prev = null;
+    for (let i = 0; i <= n; i++) {
+      const p = curve.getPoint(i / n);
+      const tg = curve.getTangent(i / n);
+      const hw = (width / 2) * (1 + 0.07 * Math.sin(i * 0.8 + pts[0][0] * 0.3));
+      if (prev) dist += Math.hypot(p.x - prev.x, p.z - prev.z);
+      prev = p;
+      const nx = -tg.z;
+      const nz = tg.x;
+      for (const sd of [1, -1]) pos.push(p.x + nx * hw * sd, groundHeight(p.x, p.z) + 0.05, p.z + nz * hw * sd);
+      uv.push(0, dist / 6, 1, dist / 6);
+      if (i) { const a = (i - 1) * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+      line.push([p.x, p.z]);
+      if (i % 2 === 0) roadPts.push([p.x, p.z, width / 2 + 0.4]);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.receiveShadow = true;
+    mesh.renderOrder = 1;
+    scene.add(mesh);
+    roads.push({ pts: line, width });
+  }
+
+  function signpost(x, z, labels) {
+    box(0.14, 2.3, 0.14, 0x4A3322, x, 1.15, z);
+    labels.forEach((t, i) => {
+      const s = makeLabel(t, { bg: 'rgba(92, 58, 30, .92)', fg: '#F6E7BE', height: 0.5 });
+      s.position.set(x, 2.55 + i * 0.52, z);
+      scene.add(s);
+    });
+    colliders.push({ x, z, r: 0.2 });
+  }
+
+  function buildRoads(w, kit) {
+    const ruts = new THREE.MeshStandardMaterial({ map: dirtTexture(true), roughness: 1, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    const flatDirt = new THREE.MeshStandardMaterial({ map: dirtTexture(false), roughness: 1, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    ruts.map.wrapS = THREE.ClampToEdgeWrapping;
+    const R = w.shoreRadius + 5.5;
+    const gap = 0.26; // the channel breaks the ring at the south
+    const arc = (r, a0, a1, n) => Array.from({ length: n + 1 }, (_, i) => { const a = a0 + ((a1 - a0) * i) / n; return [Math.sin(a) * r, Math.cos(a) * r]; });
+    const at = (r, a) => [Math.sin(a) * r, Math.cos(a) * r];
+    const defs = [
+      [3.6, arc(R, -(Math.PI - gap), Math.PI - gap, 40)],
+      [4.2, [[0, w.shoreRadius + 2.3], [-0.3, 35.5], [-0.9, 38]]],
+      [4, [[-1.2, 49], [-1.35, 53], [-1.35, 57], [-1.2, 60]]],
+      [3.6, [at(R, 0.85), [36, 33], [43, 41], [49, 50]]],
+      [3.6, [at(R, -0.85), [-36, 33], [-43, 41], [-49, 50]]],
+      [3, [[-R, 0], [-(w.shoreRadius + 2.2), 0]]],
+      [3.2, [at(R, Math.PI - gap), [9.8, -40], [10.6, -48], [10.2, -58]]],
+      [3.2, [at(R, -(Math.PI - gap)), [-9.8, -40], [-10.6, -48], [-10.2, -58]]],
+    ];
+    defs.forEach(([width, pts]) => roadMesh(pts, width, ruts));
+    // the clearing round the fire
+    const plaza = new THREE.Mesh(new THREE.CircleGeometry(PLAZA.r + 1.5, 48), flatDirt);
+    plaza.rotation.x = -Math.PI / 2;
+    plaza.position.set(PLAZA.x, 0.045, PLAZA.z);
+    plaza.receiveShadow = true;
+    plaza.renderOrder = 1;
+    scene.add(plaza);
+
+    // signposts at the junctions and where the road runs out
+    signpost(3.4, 34.2, ['Camp', 'Dock']);
+    signpost(...at(R - 2.8, 0.78), ['Road Stop']);
+    signpost(...at(R - 2.8, -0.78), ['Old Cabin']);
+    signpost(-(R - 2.8), 3.4, ['Boat ramp']);
+    signpost(...at(R - 2.8, Math.PI - gap - 0.12), ['Channel']);
+    signpost(...at(R - 2.8, -(Math.PI - gap - 0.12)), ['Channel']);
+    signpost(12.4, -56.5, ['Boats only', 'past here']);
+    signpost(-12.4, -56.5, ['Boats only', 'past here']);
+    // lamps round the ring that glow at night
+    for (let k = 0; k < 8; k++) {
+      const [lx, lz] = at(R + 2.7, -2.6 + k * 0.75);
+      lantern(lx, 2.2, lz, false);
+    }
+
+    // the boat ramp: a concrete slab running into the water, with two bollards
+    const concrete = new THREE.MeshStandardMaterial({ color: 0x9A9A94, roughness: 0.95 });
+    box(6.5, 0.14, 4, 0, -(w.lakeRadius + 1.4), 0.12, 0, { mat: concrete, rz: 0.05 });
+    for (const bz of [-1.7, 1.7]) box(0.22, 0.5, 0.22, 0x3A3F44, -(w.lakeRadius + 3.8), 0.3, bz);
+
+    // set pieces where the two corner roads end
+    const piece = (cx, cz, fx, fz, title, extras) => {
+      const ry = Math.atan2(fx, fz);
+      if (kit) {
+        const barn = kit.prop('barn', 4.4);
+        barn.position.set(cx, 0, cz);
+        barn.rotation.y = ry + BARN_YAW;
+        scene.add(barn);
+      } else {
+        box(5.6, 3.1, 4.4, 0x6B4A32, cx, 1.55, cz, { ry });
+        box(6.4, 0.45, 5.2, 0x3A2418, cx, 3.35, cz, { ry });
+      }
+      colliders.push({ x: cx, z: cz, r: 3.2 });
+      signpost(cx + fx * 6.2 + fz * 3.2, cz + fz * 6.2 - fx * 3.2, [title]);
+      extras(cx, cz, fx, fz);
+    };
+    const barrel = (x, z) => {
+      if (kit) { const b = kit.prop('barrel', 0.9); b.position.set(x, 0, z); scene.add(b); } else box(0.7, 0.9, 0.7, 0x6A4328, x, 0.45, z);
+      colliders.push({ x, z, r: 0.5, h: 0.9 });
+    };
+    const fence = (x, z, ry) => {
+      if (kit) { const f = kit.prop('fence', 1.1); f.position.set(x, 0, z); f.rotation.y = ry; scene.add(f); }
+      for (let k = -2; k <= 2; k += 1) colliders.push({ x: x + Math.cos(ry) * k, z: z - Math.sin(ry) * k, r: 0.35 });
+    };
+    piece(51.6, 54.4, -0.55, -0.83, 'Road Stop', (cx, cz) => {
+      [[-4.6, -2.3], [-3.7, -3.2], [-5, -3.4]].forEach(([dx, dz]) => barrel(cx + dx, cz + dz));
+      box(1.1, 0.9, 1.1, 0x7A5A38, cx - 6.2, 0.45, cz + 0.2);
+      box(1, 0.7, 1, 0x6A4A2E, cx - 6.4, 1.25, cz + 0.2);
+      fence(cx - 1.5, cz - 6.2, 0.3);
+      fence(cx + 4.4, cz - 6.6, 0.1);
+    });
+    piece(-51.6, 54.4, 0.55, -0.83, 'Old Cabin', (cx, cz) => {
+      if (kit) { const well = kit.prop('well', 2.3); well.position.set(cx + 5.2, 0, cz - 4.6); scene.add(well); colliders.push({ x: cx + 5.2, z: cz - 4.6, r: 0.9 }); }
+      for (let k = 0; k < 3; k++) box(1.8, 0.28, 0.28, 0x5A3A22, cx + 4.6, 0.16 + k * 0.28, cz + 0.4 + (k % 2) * 0.05, { ry: 0.2 });
+      for (let k = 0; k < 2; k++) box(1.8, 0.28, 0.28, 0x6A4A2E, cx + 4.6, 0.3 + k * 0.28, cz + 0.8, { ry: 0.2 });
+      fence(cx + 1.5, cz - 6.2, -0.3);
+      fence(cx - 4.4, cz - 6.6, -0.1);
+    });
+  }
+
   function buildModelScenery(w, kit, rnd, dummy, tint, camp, f) {
     const avoid = (x, z, pad) =>
       nearWaterArea(x, z, pad) ||
+      nearRoad(x, z, pad + 0.6) ||
       (Math.abs(x) < 5 && z > 0 && z < 52) ||
       Math.hypot(x - camp.dealer.x, z - camp.dealer.z) < 7 + pad ||
       Math.hypot(x - camp.shack.x, z - camp.shack.z) < 10 + pad ||
@@ -883,6 +1141,7 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
       const z = Math.cos(a) * r;
       if (Math.abs(x) < 3 && z > 0) continue;
       if (Math.abs(x) < 7 && z < 0) continue;
+      if (nearRoad(x, z, 1.2)) continue;
       const k = i % 3;
       if (rockCount[k] >= 16) continue;
       tint.setHSL(0.08, 0.05, 0.75 + rnd() * 0.35);
@@ -955,6 +1214,7 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     solids.push({ x: well.position.x, z: well.position.z, r: 0.9, h: 2.3 });
     const fenceZ = camp.fire.z + 8.5;
     for (let x = -22; x < 20; x += 5.9) {
+      if (Math.abs(x + 4.3) < 0.05) continue; // the gate: the north road runs through here
       const fence = kit.prop('fence', 1.1);
       fence.position.set(x + 2.95, 0, fenceZ + Math.sin(x) * 0.25);
       fence.rotation.y = Math.sin(x * 0.7) * 0.05;
@@ -1047,6 +1307,24 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
       skyU.uGlow.value *= 1 - wet * 0.95;
     }
     grassTime.value = t;
+    if (birdFlock) {
+      birdFlock.visible = day.night < 0.6 && wet < 0.5;
+      if (birdFlock.visible) {
+        for (let i = 0; i < 14; i++) {
+          const ang = t * (0.09 + (i % 3) * 0.01) + i * 0.55;
+          const rad = 55 + (i % 4) * 9;
+          const cx = Math.sin(t * 0.017) * 14;
+          const cz = Math.cos(t * 0.013) * 14;
+          birdDummy.position.set(cx + Math.sin(ang) * rad, 38 + (i % 3) * 7 + Math.sin(t * 0.4 + i) * 2.5, cz + Math.cos(ang) * rad);
+          birdDummy.rotation.set(Math.sin(t * 6 + i * 2) * 0.12, ang + Math.PI / 2, Math.sin(ang * 2) * 0.2);
+          const flap = 0.7 + 0.3 * Math.sin(t * 8 + i * 1.7);
+          birdDummy.scale.set(2.4 * flap, 2.4, 2.4);
+          birdDummy.updateMatrix();
+          birdFlock.setMatrixAt(i, birdDummy.matrix);
+        }
+        birdFlock.instanceMatrix.needsUpdate = true;
+      }
+    }
     sky.position.copy(camera.position);
     stars.position.copy(camera.position);
     starMat.opacity = Math.max(0, day.night - 0.2) * 1.2;
@@ -1171,5 +1449,5 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     return false;
   }
 
-  return { build, update, collide, platformAt, blocked, day, firePos, loons, sunDir };
+  return { build, update, collide, platformAt, blocked, day, firePos, loons, sunDir, roads, plaza: PLAZA };
 }

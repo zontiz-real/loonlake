@@ -131,9 +131,9 @@ const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
 const vignette = new ShaderPass({
-  uniforms: { tDiffuse: { value: null }, uStrength: { value: 0.32 } },
+  uniforms: { tDiffuse: { value: null }, uStrength: { value: 0.32 }, uTint: { value: new THREE.Color(1, 1, 1) } },
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-  fragmentShader: `uniform sampler2D tDiffuse; uniform float uStrength; varying vec2 vUv;
+  fragmentShader: `uniform sampler2D tDiffuse; uniform float uStrength; uniform vec3 uTint; varying vec2 vUv;
     void main(){
       vec4 c = texture2D(tDiffuse, vUv);
       vec2 d = vUv - 0.5;
@@ -143,6 +143,7 @@ const vignette = new ShaderPass({
       float l = dot(c.rgb, vec3(0.299, 0.587, 0.114));
       c.rgb = mix(vec3(l), c.rgb, 1.2);
       c.rgb = (c.rgb - 0.5) * 1.1 + 0.5;
+      c.rgb *= uTint;
       gl_FragColor = c;
     }`,
 });
@@ -1934,6 +1935,14 @@ function drawBigMap() {
   const [lx, lz] = map(0, 0);
   g.fillStyle = '#C9B98E'; g.beginPath(); g.arc(lx, lz, (W.shoreRadius + 2) * S, 0, Math.PI * 2); g.fill();
   g.fillStyle = '#2E7F86'; g.beginPath(); g.arc(lx, lz, W.lakeRadius * S, 0, Math.PI * 2); g.fill();
+  g.lineCap = 'round'; g.lineJoin = 'round'; g.strokeStyle = '#A88F66';
+  for (const rd of world.roads) {
+    g.lineWidth = Math.max(3, rd.width * S);
+    g.beginPath();
+    rd.pts.forEach(([x, z], i) => { const [px, pz] = map(x, z); if (i) g.lineTo(px, pz); else g.moveTo(px, pz); });
+    g.stroke();
+  }
+  { const [px, pz] = map(world.plaza.x, world.plaza.z); g.fillStyle = '#A88F66'; g.beginPath(); g.arc(px, pz, world.plaza.r * S, 0, Math.PI * 2); g.fill(); }
   rect(W.dock.minX, W.dock.maxZ, W.dock.maxX, W.dock.minZ, '#9A7650');
   for (const h of hotspots) { const [x, z] = map(h.x, h.z); g.strokeStyle = '#F2B134'; g.lineWidth = 3; g.beginPath(); g.arc(x, z, h.r * S, 0, Math.PI * 2); g.stroke(); }
   const label = (x, z, t, bg) => { const [px, pz] = map(x, z); g.fillStyle = bg; g.beginPath(); g.arc(px, pz, 13, 0, Math.PI * 2); g.fill(); g.fillStyle = '#fff'; g.font = '600 15px Fredoka, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(t, px, pz + 1); };
@@ -3218,8 +3227,11 @@ function fpArmTargets(v, pose, t) {
   if (dbg.kick != null) fpKick = dbg.kick;
   if (pose === 'rifle') {
     const aim = dbg.aim != null ? dbg.aim : cam.aim;
-    R = lerp3([-0.2, -0.33, 0.5], [0, -0.145, 0.4], aim);
-    L = lerp3([0.12, -0.3, 0.78], [0.02, -0.2, 0.64], aim);
+    // aiming brings the gun up so its top sits just under the eye line and its rear end clears the camera
+    const gb = v.gunMesh && v.gunMesh.userData.bounds;
+    const ads = gb ? [0, -(gb.maxY + 0.03), 0.3 - gb.minZ] : [0, -0.145, 0.45];
+    R = lerp3([-0.2, -0.33, 0.5], ads, aim);
+    L = lerp3([0.12, -0.3, 0.78], [0.02, ads[1] - 0.03, ads[2] + 0.28], aim);
     if (stepSprint && aim < 0.2) { R[1] -= 0.09; L[1] -= 0.09; R[2] -= 0.06; }
     R[2] -= 0.07 * fpKick; R[1] += 0.02 * fpKick; L[2] -= 0.05 * fpKick;
     v.fpGun = -0.08 * fpKick;
@@ -3444,6 +3456,7 @@ function updateView(v, dt, t) {
     v.beam.position.copy(tmpA);
     tmpB.set(tmpA.x + fwdX * len, endY, tmpA.z + fwdZ * len);
     v.beam.lookAt(tmpB);
+    v.beam.children[0].visible = !fpNow;
     v.beam.children[0].scale.z = len;
     v.beam.children[0].position.z = len / 2;
     v.beam.children[1].position.z = len;
@@ -3456,6 +3469,7 @@ function updateView(v, dt, t) {
   if (state === 'reeling') tilt = isMe && reel ? 0.75 - reel.tension * 0.45 + Math.sin(t * 22) * 0.04 * reel.tension : 0.7 + Math.sin(t * 14) * 0.08;
   if (state === 'charging') tilt = -0.4 - power * 0.5;
   if (isMe && castSwing > 0) { castSwing = Math.max(0, castSwing - dt * 3); tilt = lerp(1.25, -0.8, castSwing); }
+  if (fpNow) tilt += 0.4; // the rod points out over the water, not up at the sky
   v.pivot.rotation.x += (tilt - v.pivot.rotation.x) * Math.min(1, dt * (isMe ? 18 : 12));
   v.pivot.rotation.z = isMe && reel ? -reel.side * 0.3 : 0;
   paintHigh(v, v.data.high);
@@ -3679,6 +3693,7 @@ function updateAmbientFx(dt, t) {
 }
 
 function updateCamera(m, dt, t) {
+  if (window.__camOverride) { const o = window.__camOverride; camera.position.set(...o.pos); camera.lookAt(...o.look); return; } // test hook
   if (!m) {
     const a = t * 0.04;
     camera.position.set(Math.sin(a) * 46, 15, Math.cos(a) * 46);
@@ -3996,6 +4011,19 @@ function drawMinimap(t) {
   poly([[ch.minX, ch.maxZ], [ch.maxX, ch.maxZ], [ch.maxX, ch.minZ], [ch.minX, ch.minZ]], '#2E7F86');
   poly([[-400, W.ocean.maxZ + 12], [400, W.ocean.maxZ + 12], [400, -600], [-400, -600]], '#C9B98E');
   poly([[-400, W.ocean.maxZ], [400, W.ocean.maxZ], [400, -600], [-400, -600]], '#1E5E7A');
+  // roads and the clearing round the fire
+  g.lineCap = 'round';
+  g.lineJoin = 'round';
+  g.strokeStyle = '#A88F66';
+  for (const rd of world.roads) {
+    g.lineWidth = Math.max(2, rd.width * k);
+    g.beginPath();
+    rd.pts.forEach(([x, z], i) => { const [px, pz] = map(x, z); if (i) g.lineTo(px, pz); else g.moveTo(px, pz); });
+    g.stroke();
+  }
+  const [plx, plz] = map(world.plaza.x, world.plaza.z);
+  g.fillStyle = '#A88F66';
+  g.beginPath(); g.arc(plx, plz, world.plaza.r * k, 0, Math.PI * 2); g.fill();
   g.fillStyle = 'rgba(12, 60, 70, .45)';
   g.beginPath(); g.arc(lx, lz, 12 * k, 0, Math.PI * 2); g.fill();
   for (const h of hotspots) {
@@ -4299,6 +4327,8 @@ renderer.setAnimationLoop(() => {
     // a racing heartbeat on crank, and a slow one in the crash after it
     sfx.pulse(t, dr && dr.stack.crank ? 105 + 14 * dr.stack.crank : dr && dr.crash && dr.crash.kind === 'crank' ? 95 : 0);
   }
+  // grade the picture with the light of the hour: warm at dawn and dusk, cool at night
+  vignette.uniforms.uTint.value.setRGB(1, 1, 1).lerp(world.day.light, 0.38).multiplyScalar(1 + 0.12 * world.day.night);
   updateHud(dt, t);
   if (quality() === 'high') composer.render(dt);
   else renderer.render(scene, camera);
