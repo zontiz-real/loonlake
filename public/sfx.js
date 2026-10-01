@@ -133,6 +133,20 @@ const FANFARE = {
   legendary: [[392, 0], [523, 0.1], [659, 0.2], [784, 0.3], [1047, 0.42], [1319, 0.56], [1568, 0.7]],
 };
 
+// [duration, peak, filter freq, q, delay] noise bursts and [freq, duration, wave, peak, slide, delay] tones
+const SHOTS = {
+  revolver: { noise: [[0.05, 0.5, 2600, 0.8], [0.22, 0.5, 260, 0.5], [0.5, 0.1, 500, 0.5, 0.03]], tone: [[130, 0.22, 'sawtooth', 0.2, 45], [70, 0.3, 'sine', 0.2, 35]] },
+  pistol: { noise: [[0.04, 0.4, 2800, 0.8], [0.13, 0.4, 320, 0.55], [0.3, 0.06, 600, 0.5, 0.03]], tone: [[200, 0.08, 'sawtooth', 0.1, 80]] },
+  smg: { noise: [[0.03, 0.3, 3200, 0.8], [0.09, 0.35, 420, 0.6]], tone: [[180, 0.06, 'square', 0.07, 90]] },
+  carbine: { noise: [[0.04, 0.4, 3000, 0.8], [0.14, 0.45, 300, 0.55], [0.35, 0.07, 700, 0.5, 0.04]], tone: [[150, 0.1, 'sawtooth', 0.12, 60], [90, 0.14, 'sine', 0.12, 45]] },
+  rifle: { noise: [[0.04, 0.45, 2800, 0.8], [0.2, 0.5, 220, 0.5], [0.45, 0.09, 500, 0.5, 0.05]], tone: [[140, 0.12, 'sawtooth', 0.12, 60], [80, 0.2, 'sine', 0.16, 40]] },
+  draco: { noise: [[0.05, 0.5, 2400, 0.8], [0.18, 0.55, 240, 0.5], [0.4, 0.08, 520, 0.5, 0.04]], tone: [[120, 0.12, 'sawtooth', 0.15, 50], [75, 0.2, 'sine', 0.18, 38]] },
+  lmg: { noise: [[0.04, 0.45, 2200, 0.8], [0.15, 0.55, 200, 0.5], [0.3, 0.07, 450, 0.5, 0.04]], tone: [[105, 0.14, 'sawtooth', 0.16, 48], [65, 0.2, 'sine', 0.2, 34]] },
+  minigun: { noise: [[0.025, 0.3, 2600, 0.8], [0.06, 0.3, 380, 0.6]], tone: [[150, 0.045, 'square', 0.07, 80]] },
+  shotgun: { noise: [[0.05, 0.55, 2000, 0.7], [0.34, 0.65, 160, 0.5], [0.6, 0.12, 400, 0.5, 0.05]], tone: [[90, 0.22, 'sawtooth', 0.16, 40], [55, 0.3, 'sine', 0.24, 30]] },
+  sniper: { noise: [[0.04, 0.6, 3400, 0.8], [0.45, 0.6, 140, 0.4], [0.9, 0.12, 350, 0.5, 0.08]], tone: [[110, 0.3, 'sawtooth', 0.16, 35], [60, 0.45, 'sine', 0.24, 28]] },
+};
+
 export const sfx = {
   unlock() { if (ac()) ambience(); },
   setVolume(v) {
@@ -193,15 +207,43 @@ export const sfx = {
     tone(52, 2.6, 'sawtooth', 0.12, 30, delay);
     noise(1.4, 0.3, 90, 0.5, delay + 0.7);
   },
-  shot(kind) {
-    if (kind === 'shotgun') { noise(0.34, 0.65, 160, 0.5); tone(90, 0.22, 'sawtooth', 0.16, 40); }
-    else if (kind === 'smg') { noise(0.09, 0.35, 420, 0.6); tone(180, 0.06, 'square', 0.07, 90); }
-    else if (kind === 'pistol') { noise(0.13, 0.4, 320, 0.55); tone(200, 0.08, 'sawtooth', 0.1, 80); }
-    else if (kind === 'sniper') { noise(0.45, 0.6, 140, 0.4); tone(110, 0.3, 'sawtooth', 0.16, 35); }
-    else { noise(0.2, 0.5, 220, 0.5); tone(140, 0.12, 'sawtooth', 0.12, 60); }
+  // gun reports: each kind layers a sharp crack, a body, a low thump and a tail.
+  // vol scales everything; far (0 to 1) rolls off the highs so distant shots sound muffled
+  shot(kind, vol = 1, far = 0) {
+    const P = SHOTS[kind] || SHOTS.rifle;
+    const hi = 1 - far * 0.75;
+    for (const [dur, peak, freq, q, delay = 0] of P.noise) noise(dur, peak * vol, Math.max(90, freq * hi), q, delay);
+    for (const [freq, dur, type, peak, slide, delay = 0] of P.tone) tone(freq, dur, type, peak * vol, slide, delay);
   },
-  reload() { tone(300, 0.05, 'square', 0.06, 200); tone(420, 0.05, 'square', 0.06, 320, 0.32); tone(240, 0.08, 'square', 0.07, 200, 0.7); },
+  // a click for an empty magazine
+  dry() { tone(1200, 0.02, 'square', 0.05, 700); noise(0.03, 0.08, 2400, 1.2, 0.01); },
+  reload(kind) {
+    if (kind === 'shotgun') {
+      for (let i = 0; i < 3; i++) { tone(520, 0.04, 'square', 0.05, 330, 0.25 + i * 0.32); noise(0.05, 0.1, 1800, 1, 0.25 + i * 0.32); }
+      tone(200, 0.1, 'square', 0.08, 120, 1.25); noise(0.08, 0.14, 700, 1, 1.25);
+    } else if (kind === 'lmg' || kind === 'minigun') {
+      noise(0.1, 0.16, 500, 1, 0); tone(110, 0.14, 'square', 0.09, 70, 0);
+      noise(0.5, 0.07, 1400, 1.4, 0.5);
+      tone(90, 0.16, 'square', 0.12, 55, 1.4); noise(0.1, 0.2, 400, 1, 1.4);
+      tone(260, 0.05, 'square', 0.07, 180, 1.9);
+    } else if (kind === 'sniper' || kind === 'rifle') {
+      tone(300, 0.05, 'square', 0.06, 200); noise(0.04, 0.1, 1500, 1);
+      tone(380, 0.04, 'square', 0.06, 300, 0.5); noise(0.05, 0.12, 2200, 1.2, 0.5);
+      tone(220, 0.07, 'square', 0.08, 160, 0.95);
+    } else {
+      tone(300, 0.05, 'square', 0.06, 200); noise(0.03, 0.08, 1800, 1);
+      tone(420, 0.05, 'square', 0.06, 320, 0.32);
+      tone(240, 0.08, 'square', 0.07, 200, 0.7); noise(0.05, 0.1, 1200, 1, 0.7);
+    }
+  },
   distantShot(vol) { noise(0.25, 0.25 * vol, 160, 0.5); },
+  // a bullet cracking past your head
+  whiz(vol = 1) { noise(0.14, 0.2 * vol, 3400, 2.2); tone(2600, 0.1, 'sine', 0.03 * vol, 900); },
+  // where a bullet lands
+  impact(surface, vol = 1) {
+    if (surface === 'water') { noise(0.16, 0.1 * vol, 900, 0.7); tone(320, 0.07, 'sine', 0.05 * vol, 110); }
+    else { noise(0.08, 0.16 * vol, 1500, 1.1); tone(150, 0.07, 'sine', 0.08 * vol, 70); }
+  },
   whoosh(heavy, vol = 1) { noise(heavy ? 0.22 : 0.13, (heavy ? 0.16 : 0.1) * vol, heavy ? 700 : 1100, 0.7); },
   thud(heavy, vol = 1) {
     tone(heavy ? 90 : 130, heavy ? 0.2 : 0.12, 'sine', (heavy ? 0.26 : 0.18) * vol, 50);
@@ -214,8 +256,13 @@ export const sfx = {
     noise(0.06, 0.05 + speed * 0.004, 140 + speed * 12, 1.4);
   },
   shutter() { noise(0.05, 0.25, 3000, 0.8); noise(0.08, 0.18, 1200, 0.8, 0.07); },
-  hitmark() { tone(1900, 0.04, 'square', 0.05); },
-  kill() { tone(1400, 0.05, 'square', 0.05); tone(1900, 0.08, 'square', 0.05, null, 0.06); },
+  // a tick for every hit, higher with more damage; a crit adds a second bright ping
+  hitmark(crit, dmg = 20) {
+    const f = 1500 + Math.min(dmg, 60) * 12;
+    tone(f, 0.04, 'square', 0.05);
+    if (crit) { tone(f * 1.5, 0.07, 'square', 0.045, null, 0.045); noise(0.05, 0.08, 4200, 1.5, 0.045); }
+  },
+  kill() { tone(1400, 0.05, 'square', 0.05); tone(1900, 0.08, 'square', 0.05, null, 0.06); tone(95, 0.2, 'sine', 0.12, 45, 0.04); },
   hurt() { tone(180, 0.16, 'sawtooth', 0.14, 70); },
   down() { tone(90, 0.5, 'triangle', 0.16, 40); },
   pickup() { tone(660, 0.08, 'sine', 0.08, 990); },

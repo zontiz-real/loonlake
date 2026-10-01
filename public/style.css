@@ -272,6 +272,11 @@ select option { color: #1D2A25; }
     linear-gradient(var(--paper), var(--paper)) center / 100% 2px no-repeat;
   -webkit-mask: radial-gradient(circle, #0000 5px, #000 6px); mask: radial-gradient(circle, #0000 5px, #000 6px);
 }
+@keyframes hmpop { from { transform: translate(-50%, -50%) rotate(45deg) scale(1.6); opacity: 1; } to { transform: translate(-50%, -50%) rotate(45deg) scale(1); opacity: .95; } }
+#hitmark { animation: hmpop .12s ease-out; }
+#hitmark.crit { background:
+    linear-gradient(var(--brass), var(--brass)) center / 3px 100% no-repeat,
+    linear-gradient(var(--brass), var(--brass)) center / 100% 3px no-repeat; width: 32px; height: 32px; }
 #hitmark.kill { background:
     linear-gradient(var(--bobber), var(--bobber)) center / 3px 100% no-repeat,
     linear-gradient(var(--bobber), var(--bobber)) center / 100% 3px no-repeat; width: 34px; height: 34px; }

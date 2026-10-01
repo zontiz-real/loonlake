@@ -1259,9 +1259,19 @@ socket.on('shot', (shot) => {
       if (near < 25) sfx.splat(Math.max(0.2, 1 - near / 25));
     }
   }
+  const near = camera.position.distanceTo(new THREE.Vector3(shot.to.x, 1, shot.to.z));
+  if (shot.surface && near < 40) sfx.impact(shot.surface, clamp(1 - near / 40, 0.15, 1));
   if (shot.by !== myId) {
     const d = camera.position.distanceTo(new THREE.Vector3(shot.from.x, 1, shot.from.z));
-    sfx.distantShot(clamp(1.2 - d / 70, 0.15, 1));
+    const kind = shot.gun && W && W.guns[shot.gun] && W.guns[shot.gun].sound;
+    if (kind) sfx.shot(kind, clamp(1.2 - d / 90, 0.12, 1) * 0.8, clamp(d / 80, 0, 1)); else sfx.distantShot(clamp(1.2 - d / 70, 0.15, 1));
+    // a bullet passing within a few metres of the camera cracks by
+    const sx = shot.to.x - shot.from.x;
+    const sz = shot.to.z - shot.from.z;
+    const sl = sx * sx + sz * sz || 1;
+    const k = clamp(((camera.position.x - shot.from.x) * sx + (camera.position.z - shot.from.z) * sz) / sl, 0, 1);
+    const miss = Math.hypot(shot.from.x + sx * k - camera.position.x, shot.from.z + sz * k - camera.position.z);
+    if (miss < 4 && d > 6) sfx.whiz(1 - miss / 4);
   }
 });
 
@@ -2725,7 +2735,7 @@ function tryPunch() {
     if (res.hit === 'player' || res.hit === 'npc') {
       sfx.thud(res.heavy);
       if (res.killed) sfx.kill();
-      showHitmark(res.killed);
+      showHitmark(res.killed, res.crit);
       cam.shake += res.heavy ? 0.3 : 0.12;
       buzz(res.heavy ? 45 : 20);
       if (res.x != null) {
@@ -2746,7 +2756,7 @@ function reload() {
     if (res && res.ok) {
       myData.reloadGun = held;
       myData.reloadLeft = res.ms;
-      sfx.reload();
+      sfx.reload(g.sound);
       hotbarSig = '';
     } else if (res && res.msg) flashPrompt(res.msg, '', 1500);
   });
@@ -2760,8 +2770,8 @@ function tryShoot() {
   if (myData.reloadGun) return;
   const mag = myData.mag[held] || 0;
   if (mag <= 0) {
-    if (myData.ammo <= 0) { flashPrompt('Out of ammo. Moss sells more.', '', 1500); sfx.ui(); }
-    else reload();
+    if (myData.ammo <= 0) { flashPrompt('Out of ammo. Moss sells more.', '', 1500); sfx.dry(); }
+    else { sfx.dry(); reload(); }
     return;
   }
   const now = performance.now();
@@ -2779,14 +2789,14 @@ function tryShoot() {
   socket.emit('shoot', { rot: shotRot, aiming: cam.aim > 0.5, gun, dist: isTouch ? 0 : aimDist }, (res) => {
     if (!res) return;
     if (res.mag != null && myData) myData.mag[gun] = res.mag;
-    if (res.reloading && myData && !myData.reloadGun) { myData.reloadGun = gun; myData.reloadLeft = g.reload; sfx.reload(); }
+    if (res.reloading && myData && !myData.reloadGun) { myData.reloadGun = gun; myData.reloadLeft = g.reload; sfx.reload(g.sound); }
     if (res.hit === 'safe') { flashPrompt('Camp is a no-shooting zone.', '', 1500); return; }
     if (res.msg) flashPrompt(res.msg, '', 1500);
     if (res.hit === 'player' || res.hit === 'npc' || res.hit === 'fish') {
       showHitmark(res.killed);
       if (res.dmg > 0 && res.x != null && res.hit !== 'fish') fx.floater(res.x, 2.1, res.z, res.crit ? `${res.dmg}!` : String(res.dmg), 'dmg', res.crit ? 1.15 : res.killed ? 1 : 0.8);
       buzz(20);
-      if (res.killed) sfx.kill(); else sfx.hitmark();
+      if (res.killed) sfx.kill(); else sfx.hitmark(res.crit, res.dmg);
       if (res.hit === 'fish') fx.splash(res.x, res.z, 10, 0.7);
       else if (res.x != null) fx.puff(res.x, 1.1, res.z);
     }
@@ -2794,12 +2804,16 @@ function tryShoot() {
 }
 
 let hitmarkTimer = null;
-function showHitmark(kill) {
+function showHitmark(kill, crit) {
   const el = $('hitmark');
   el.hidden = false;
   el.classList.toggle('kill', !!kill);
+  el.classList.toggle('crit', !!crit && !kill);
+  el.style.animation = 'none';
+  void el.offsetWidth; // restart the pop for rapid fire
+  el.style.animation = '';
   clearTimeout(hitmarkTimer);
-  hitmarkTimer = setTimeout(() => { el.hidden = true; }, kill ? 380 : 180);
+  hitmarkTimer = setTimeout(() => { el.hidden = true; }, kill ? 380 : crit ? 260 : 180);
 }
 
 function useDrug(name) {
