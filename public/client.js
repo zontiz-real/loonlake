@@ -7,6 +7,7 @@ import { createWorld, makeLabel, wave, WATER_Y, DOCK_Y, isNightHour, isGoldenHou
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { createFx } from './fx.js';
 import { createWeather } from './weather.js';
+import { evalAnim, kick as kickAnim, zero as animZero, CUES, DUR, RELOAD_STYLE, swimArm, rowArm, useArm, catchArm } from './anim.js';
 import { groundMove, airMove, nextHopBoost, FEEL } from './movement.js';
 import { loadModels, LOOKS, SKINS, aimBone } from './models.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -673,8 +674,8 @@ function makeBlockAvatar(color, name, skin = 0) {
   armR.add(hand);
   group.add(body, belt, legL, legR, armL, armR, head, eyeL, eyeR, nose, brim, crown, pivot, rifle, highMark, label, hp.sprite);
   return {
-    group, body, pivot, tip, rifle, hand, highMark, label, hp, cloth, rodMat, limbs: { legL, legR, armL, armR },
-    bubble: null, bubbleUntil: 0, flash: 0, punchT: 1, punchSide: 'r', punchHeavy: false,
+    group, body, pivot, tip, rifle, rifleBase: rifle.position.clone(), hand, highMark, label, hp, cloth, rodMat, limbs: { legL, legR, armL, armR },
+    bubble: null, bubbleUntil: 0, flash: 0, punchT: 1, punchSide: 'r', punchHeavy: false, catchT: 1,
   };
 }
 
@@ -762,7 +763,8 @@ function buildGunModel(id, a = {}) {
   };
   const box = (w, h, d, mat, x, y, z, rx = 0, rz = 0) => part(new THREE.BoxGeometry(w, h, d), mat, x, y, z, rx, rz);
   const tube = (r, len, mat, x, y, z) => part(new THREE.CylinderGeometry(r, r, len, 10), mat, x, y, z, Math.PI / 2);
-  const drum = (r, y, z) => part(new THREE.CylinderGeometry(r, r, 0.07, 16), GM.poly, 0, y, z, 0, Math.PI / 2);
+  const magParts = [];
+  const drum = (r, y, z) => { const d = part(new THREE.CylinderGeometry(r, r, 0.07, 16), GM.poly, 0, y, z, 0, Math.PI / 2); magParts.push(d); return d; };
   const grip = (h = 0.11, z = -0.01) => box(0.032, h, 0.05, GM.poly, 0, -h / 2 - 0.01, z, -0.2);
   const guard = (z = 0.045) => box(0.02, 0.008, 0.06, GM.steel, 0, -0.03, z);
   if (id === 'pistol') {
@@ -777,7 +779,7 @@ function buildGunModel(id, a = {}) {
     grip(0.115, -0.02);
     guard(0.05);
     if (a.drum) drum(0.055, -0.15, -0.035);
-    else box(0.024, 0.11, 0.036, GM.steel, 0, -0.14, -0.035, -0.2);
+    else magParts.push(box(0.024, 0.11, 0.036, GM.steel, 0, -0.14, -0.035, -0.2));
     if (a.switch) box(0.022, 0.018, 0.03, GM.switchPlate, 0, 0.078, -0.03);
     if (a.laser) { box(0.022, 0.02, 0.05, GM.poly, 0, 0.0, 0.14); box(0.012, 0.012, 0.012, GM.laser, 0, 0.0, 0.17); }
   } else if (id === 'arp') {
@@ -789,7 +791,7 @@ function buildGunModel(id, a = {}) {
     grip(0.11, -0.03);
     guard(0.03);
     if (a.drum) drum(0.07, -0.13, 0.05);
-    else box(0.03, 0.13, 0.045, GM.steel, 0, -0.1, 0.06, 0.15);
+    else magParts.push(box(0.03, 0.13, 0.045, GM.steel, 0, -0.1, 0.06, 0.15));
     if (a.laser) { box(0.02, 0.02, 0.05, GM.poly, 0.03, 0.03, 0.28); box(0.012, 0.012, 0.012, GM.laser, 0.03, 0.03, 0.31); }
   } else if (id === 'draco') {
     box(0.04, 0.07, 0.22, GM.steel, 0, 0.035, 0.0);
@@ -800,7 +802,7 @@ function buildGunModel(id, a = {}) {
     grip(0.1, -0.06);
     guard(0.0);
     if (a.drum) drum(0.09, -0.16, 0.06);
-    else box(0.034, 0.16, 0.05, GM.steel, 0, -0.11, 0.07, 0.35);
+    else magParts.push(box(0.034, 0.16, 0.05, GM.steel, 0, -0.11, 0.07, 0.35));
     if (a.laser) { box(0.02, 0.02, 0.05, GM.poly, 0.032, 0.04, 0.3); box(0.012, 0.012, 0.012, GM.laser, 0.032, 0.04, 0.33); }
   } else if (id === 'smg') {
     box(0.045, 0.07, 0.26, GM.poly, 0, 0.04, 0.0);
@@ -809,7 +811,7 @@ function buildGunModel(id, a = {}) {
     grip(0.11, -0.05);
     guard(0.0);
     if (a.drum) drum(0.075, -0.15, 0.02);
-    else box(0.03, 0.15, 0.035, GM.steel, 0, -0.11, 0.06);
+    else magParts.push(box(0.03, 0.15, 0.035, GM.steel, 0, -0.11, 0.06));
     box(0.02, 0.03, 0.14, GM.steel, 0, 0.03, -0.2);
     if (a.laser) { box(0.02, 0.02, 0.05, GM.poly, 0, 0.0, 0.2); box(0.012, 0.012, 0.012, GM.laser, 0, 0.0, 0.23); }
   } else if (id === 'shotgun') {
@@ -844,6 +846,41 @@ function buildGunModel(id, a = {}) {
     box(0.045, 0.07, 0.3, GM.poly, 0, 0.03, 0.0);
     grip(0.1, -0.05);
   }
+  g.userData.mag = magParts;
+  return g;
+}
+
+// a combat knife: a pointed blade, a guard and a wrapped handle. Held blade-forward like in CS:GO.
+function buildKnifeModel() {
+  const g = new THREE.Group();
+  const bladeMat = new THREE.MeshStandardMaterial({ color: 0xD3DBE0, roughness: 0.3, metalness: 0.3, emissive: 0x20262A });
+  const edgeMat = new THREE.MeshStandardMaterial({ color: 0xF3F7FA, roughness: 0.25, metalness: 0.3, emissive: 0x30363A });
+  const gripMat = new THREE.MeshStandardMaterial({ color: 0x232629, roughness: 0.75 });
+  const shape = new THREE.Shape();
+  shape.moveTo(0, 0);
+  shape.lineTo(0.026, 0.02);
+  shape.lineTo(0.03, 0.2);
+  shape.quadraticCurveTo(0.028, 0.29, 0.0, 0.34);
+  shape.lineTo(-0.02, 0.2);
+  shape.lineTo(-0.02, 0.02);
+  shape.closePath();
+  const blade = new THREE.Mesh(new THREE.ExtrudeGeometry(shape, { depth: 0.008, bevelEnabled: true, bevelThickness: 0.004, bevelSize: 0.004, bevelSegments: 1 }), bladeMat);
+  blade.rotation.x = Math.PI / 2; // lay it along +z
+  blade.rotation.z = 0;
+  blade.position.set(-0.004, 0, 0.09);
+  blade.scale.set(1, 1, 1);
+  blade.rotation.y = Math.PI / 2;
+  const edge = new THREE.Mesh(new THREE.BoxGeometry(0.003, 0.028, 0.24), edgeMat);
+  edge.position.set(0, -0.012, 0.22);
+  const guard = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.05, 0.02), gripMat);
+  guard.position.set(0, 0, 0.085);
+  const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.02, 0.13, 8), gripMat);
+  grip.rotation.x = Math.PI / 2;
+  grip.position.set(0, 0, 0.015);
+  const pommel = new THREE.Mesh(new THREE.SphereGeometry(0.022, 8, 6), bladeMat);
+  pommel.position.set(0, 0, -0.055);
+  g.add(blade, edge, guard, grip, pommel);
+  g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
   return g;
 }
 
@@ -1239,6 +1276,9 @@ socket.on('shot', (shot) => {
     }
   }
   if (shot.by !== myId) {
+    const sv = views.get(shot.by);
+    const sg = shot.gun ? gunOf(shot.gun) : null;
+    if (sv) { sv.kick = 1; sv.kickScale = clamp(((sg && sg.recoil) || 0.015) / 0.02, 0.4, 2.4); }
     const d = camera.position.distanceTo(new THREE.Vector3(shot.from.x, 1, shot.from.z));
     sfx.distantShot(clamp(1.2 - d / 70, 0.15, 1));
   }
@@ -1247,11 +1287,15 @@ socket.on('shot', (shot) => {
 socket.on('punch', (p) => {
   if (!p || p.id === myId) return;
   const v = views.get(p.id);
-  if (v) { v.trot = p.rot; startPunch(v, p.side, p.heavy); }
+  const knife = p.weapon === 'knife';
+  if (v) {
+    v.trot = p.rot;
+    if (knife) playItemAnim(v, p.kind === 'stab' ? 'stab' : p.side === 'r' ? 'slash1' : 'slash2'); else startPunch(v, p.side, p.heavy);
+  }
   const d = v ? camera.position.distanceTo(v.group.position) : 99;
-  if (d < 30) sfx.whoosh(p.heavy, 0.5);
+  if (d < 30 && !knife) sfx.whoosh(p.heavy, 0.5);
   if (p.hit) {
-    if (d < 30) sfx.thud(p.heavy, 0.6);
+    if (d < 30) sfx.thud(p.heavy || p.kind === 'stab', 0.6);
     if (p.x != null) {
       if (settings.blood) fx.blood(p.x, 1.4, p.z, Math.sin(p.rot), Math.cos(p.rot), p.heavy ? 10 : 4, 0.6);
       else fx.puff(p.x, 1.25, p.z, 0xF2EEE4, p.heavy ? 12 : 6);
@@ -1298,7 +1342,7 @@ socket.on('hurt', (h) => {
     vel.z += (kz / kd) * kick;
   }
   buzz(h && h.how === 'punch' ? 40 : 70);
-  if (h && h.by) flashPrompt(h.how === 'punch' ? `${h.by} is swinging at you.` : `${h.by} is shooting at you.`, 'alert', 1200);
+  if (h && h.by) flashPrompt(h.how === 'punch' ? `${h.by} is swinging at you.` : h.how === 'stab' ? `${h.by} is stabbing you.` : `${h.by} is shooting at you.`, 'alert', 1200);
 });
 
 socket.on('lineCut', () => {
@@ -1513,7 +1557,8 @@ canvas.addEventListener('mousedown', (e) => {
     lmbHeld = true;
     usePrimary();
   } else if (e.button === 2 && pointerLocked) {
-    aimHeld = true;
+    if (held === 'knife' && phase === 'idle') tryKnife('stab');
+    else aimHeld = true;
   }
 });
 canvas.addEventListener('pointermove', (e) => {
@@ -1564,6 +1609,7 @@ addEventListener('keydown', (e) => {
       break;
     case 'KeyQ': if (!e.repeat) reelIn(); break;
     case 'KeyR': if (!e.repeat) reload(); break;
+    case 'KeyY': if (!e.repeat) inspectItem(); break;
     case 'KeyZ': case 'KeyX': case 'KeyC': case 'KeyV': case 'KeyB': case 'KeyN': if (!e.repeat) doEmote(EMOTE_KEYS[e.code]); break;
     case 'KeyE': if (!e.repeat) interact(); break;
     case 'KeyF': quickPunch(); break;
@@ -2749,14 +2795,16 @@ function assistRot(rot, range, cone) {
 }
 
 function attack() {
-  if (held === 'fists') tryPunch();
+  if (held === 'knife') tryKnife('slash');
+  else if (held === 'fists') tryPunch();
   else if (isGun(held)) tryShoot();
 }
 
 // left mouse always uses whatever is in your hands
 function usePrimary() {
   if (phase !== 'idle' || held === 'rod') { lmbFish = true; fishDown(); return; }
-  if (held === 'fists') tryPunch();
+  if (held === 'knife') tryKnife('slash');
+  else if (held === 'fists') tryPunch();
   else if (isGun(held)) tryShoot();
   else if (DRUGS.includes(held)) { lmbHeld = false; useDrug(held); }
   else if (held === 'bait') flashPrompt('Your bait goes on the hook when you cast.', '', 1500);
@@ -2770,6 +2818,56 @@ function quickPunch() {
   if (!myId || !alive() || phase !== 'idle') return;
   if (held !== 'fists') selectHold('fists', false);
   tryPunch();
+}
+
+function inspectItem() {
+  const m = me();
+  if (!m || !alive() || phase !== 'idle' || openPanel || chatOpen || !myData) return;
+  const knife = held === 'knife';
+  if (!knife && !(isGun(held) && ownsGun(held))) return;
+  if (m.ia && m.ia.name !== 'inspect' && m.ia.name !== 'knifeInspect' && m.ia.t < 1) return;
+  if (myData.reloadGun) return;
+  const name = knife ? 'knifeInspect' : 'inspect';
+  playItemAnim(m, name);
+  socket.emit('anim', name);
+}
+
+socket.on('anim', (a) => {
+  if (!a || typeof a.name !== 'string') return;
+  const v = views.get(a.id);
+  if (!v) return;
+  if (a.name === 'use') { v.use = { kind: a.item, t: 0 }; return; }
+  if (a.id !== myId && (a.name === 'inspect' || a.name === 'knifeInspect')) playItemAnim(v, a.name);
+});
+
+let nextKnifeAt = 0;
+let knifeSide = 0;
+function tryKnife(kind) {
+  if (!myId || !alive() || openPanel || chatOpen || phase !== 'idle' || held !== 'knife') return;
+  const now = performance.now();
+  if (now < nextKnifeAt) return;
+  const stab = kind === 'stab';
+  nextKnifeAt = now + (stab ? 1050 : 400);
+  knifeSide = 1 - knifeSide;
+  const m = me();
+  const rot = assistRot(aimRot, 3, 1.1);
+  if (m) { m.trot = m.rot = rot; playItemAnim(m, stab ? 'stab' : knifeSide ? 'slash1' : 'slash2'); }
+  socket.emit('punch', { rot, weapon: 'knife', kind }, (res) => {
+    if (!res || !res.ok) { if (res && res.msg) flashPrompt(res.msg, '', 1300); return; }
+    if (res.hit === 'safe') { flashPrompt('Camp is a no-fighting zone.', '', 1500); return; }
+    if (res.hit === 'player' || res.hit === 'npc') {
+      sfx.thud(stab, 0.8);
+      if (res.killed) sfx.kill();
+      showHitmark(res.killed);
+      cam.shake += stab ? 0.3 : 0.14;
+      buzz(stab ? 45 : 22);
+      if (res.x != null) {
+        if (settings.blood) fx.blood(res.x, 1.4, res.z, Math.sin(rot), Math.cos(rot), res.back ? 16 : stab ? 12 : 6, 0.7);
+        else fx.puff(res.x, 1.25, res.z, 0xF2EEE4, stab ? 12 : 6);
+        if (res.back) fx.floater(res.x, 2.2, res.z, 'Backstab!', 'dmg', 1.1);
+      }
+    }
+  });
 }
 
 let nextPunchAt = 0;
@@ -2841,6 +2939,7 @@ function tryShoot() {
   const shotRot = isTouch ? assistRot(aimRot, 60, 0.1) : aimRot;
   if (m) { m.trot = m.rot = shotRot; }
   sfx.shot(g.sound);
+  if (m) { m.kick = 1; m.kickScale = clamp((g.recoil || 0.015) / 0.02, 0.4, 2.4); if (m.ia && m.ia.name === 'inspect') m.ia = null; }
   cam.shake += 0.08 + g.pellets * 0.015;
   cam.pitch -= g.recoil || 0.015;
   const gun = held;
@@ -2886,13 +2985,13 @@ const GUN_ORDER = ['pistol', 'glock', 'arp', 'smg', 'draco', 'shotgun', 'rifle',
 const SLOT_KEYS_LABEL = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '='];
 function hotbarList() {
   const owned = myData && myData.guns ? GUN_ORDER.filter((g) => myData.guns[g]) : [];
-  return ['fists', 'rod', 'bait', ...owned, ...DRUGS, 'bag'];
+  return ['fists', 'knife', 'rod', 'bait', ...owned, ...DRUGS, 'bag'];
 }
 let held = 'rod';
 
 function canHold(act) {
   if (!myData) return act === 'rod' || act === 'fists';
-  if (act === 'fists' || act === 'rod' || act === 'bait' || act === 'bag') return true;
+  if (act === 'fists' || act === 'knife' || act === 'rod' || act === 'bait' || act === 'bag') return true;
   if (isGun(act)) return ownsGun(act);
   if (DRUGS.includes(act)) return (myData.pocket[act] || 0) > 0;
   return false;
@@ -3081,6 +3180,7 @@ function updateLocal(m, dt) {
   if (lmbHeld && !openPanel && !chatOpen) {
     if (isGun(held) && effGun(held).auto) tryShoot();
     else if (held === 'fists') tryPunch();
+    else if (held === 'knife') tryKnife('slash');
   }
   if (phase === 'charging') {
     power += powerDir * TUNING.castCharge * dt;
@@ -3131,6 +3231,59 @@ function updateCastMarker(m, t) {
   castMarker.userData.mat.color.set(!valid ? 0xE0452B : hot ? 0xF2B134 : 0xFFFFFF);
 }
 
+
+// ================================================================ item animations
+
+const KNIFE_BASE = new THREE.Vector3(0.52, 1.22, 0.62);
+const ANIM_KEYS = ['px', 'py', 'pz', 'rx', 'ry', 'rz', 'lx', 'lz', 'rrx', 'rrz', 'yaw'];
+
+function playItemAnim(v, name, dur, style) {
+  if (!v) return;
+  v.ia = { name, t: 0, dur: dur || DUR[name] || 1, style, fired: new Set() };
+}
+
+// advances a view's item animation and recoil, and returns the combined offsets (or null when idle)
+function tickItemAnim(v, dt, near) {
+  let A = null;
+  if (v.ia) {
+    const ia = v.ia;
+    ia.t += dt / ia.dur;
+    A = evalAnim(ia.name, Math.min(1, ia.t), ia.style);
+    const cues = CUES[ia.name === 'reload' ? `reload:${ia.style}` : ia.name];
+    if (cues) {
+      for (let i = 0; i < cues.length; i++) {
+        if (ia.t >= cues[i][0] && !ia.fired.has(i)) { ia.fired.add(i); if (near > 0) sfx.cue(cues[i][1], near); }
+      }
+    }
+    if (ia.t >= 1) v.ia = null;
+  }
+  if (v.kick > 0.002) {
+    const K = kickAnim(v.kick, v.kickScale || 1);
+    A = A || animZero();
+    for (const key of ANIM_KEYS) A[key] += K[key];
+    v.kick *= Math.exp(-dt * 13);
+  }
+  return A;
+}
+
+// the gun or knife group: base position plus animation offsets, and the magazine parts sliding out and back
+function applyItemAnim(v, A, knife) {
+  const r = v.rifle;
+  if (!v.model) r.position.copy(knife ? KNIFE_BASE : v.rifleBase);
+  if (A) {
+    r.position.x += A.px; r.position.y += A.py; r.position.z += A.pz;
+    r.rotation.set(A.rx, A.ry, A.rz);
+  } else r.rotation.set(0, 0, 0);
+  const mags = v.gunMesh && v.gunMesh.userData.mag;
+  if (mags && !knife) {
+    for (const m of mags) {
+      if (m.userData.by === undefined) m.userData.by = m.position.y;
+      m.position.y = m.userData.by + (A ? A.mag : 0);
+      m.visible = !A || A.magOn > 0.5 || A.mag < -0.01;
+    }
+  }
+}
+
 // negative x on a shoulder raises the arm forward; +z on the left arm swings the hand toward the middle
 const POSES = {
   idle: { lx: 0, lz: -0.08, rx: 0, rz: 0.08 },
@@ -3138,6 +3291,7 @@ const POSES = {
   rifle: { lx: -1.35, lz: 0.5, rx: -1.25, rz: 0.12 },
   drug: { lx: 0, lz: -0.08, rx: -0.85, rz: 0.1 },
   fists: { lx: -1.2, lz: 0.42, rx: -1.1, rz: -0.42 },
+  knife: { lx: -0.55, lz: 0.32, rx: -1.15, rz: -0.06 },
 };
 function poseLimbs(v, t, moving, fast, pose = 'idle', dt = 0.016) {
   const L = v.limbs;
@@ -3154,6 +3308,7 @@ function poseLimbs(v, t, moving, fast, pose = 'idle', dt = 0.016) {
   L.legR.rotation.x += (rTarget - L.legR.rotation.x) * legKick;
   const P = POSES[pose] || POSES.idle;
   const free = pose === 'idle' || pose === 'drug' || pose === 'rod';
+  const A = v.ao;
   let lx = P.lx - (free ? swing * 0.6 : 0);
   let rx = P.rx + (pose === 'idle' ? swing * 0.6 : 0);
   let lz = P.lz;
@@ -3168,7 +3323,37 @@ function poseLimbs(v, t, moving, fast, pose = 'idle', dt = 0.016) {
     else if (em === 'sit') { lx = -0.6; rx = -0.6; }
     else if (em === 'laugh') { lx = -0.9; rx = -0.9; lz = 0.2; rz = -0.2; }
   }
-  v.body.rotation.x = em === 'laugh' ? Math.sin(t * 15) * 0.1 : 0;
+  // the body animations that are not about the held item
+  const swimNow = !!v.swimNow;
+  const rowing = !!v.rowing;
+  if (swimNow && pose === 'idle') {
+    const ph = t * (moving ? 6 : 2.4);
+    const a = swimArm(ph);
+    const b = swimArm(ph + Math.PI);
+    lx = a.x; lz = -0.1 + a.z; rx = b.x; rz = 0.1 - b.z;
+  } else if (rowing && pose === 'idle') {
+    const ph = t * (moving ? 4.2 : 1.2);
+    const a = rowArm(ph);
+    const b = rowArm(ph);
+    lx = a.x; lz = -a.z; rx = b.x; rz = b.z;
+  }
+  if (pose === 'rod' && v.reelNow) lx = -0.95 + Math.sin(t * 11) * 0.55; // the off hand cranks the reel
+  if (v.catchT < 1 && !swimNow) {
+    v.catchT = Math.min(1, v.catchT + dt / 1.8);
+    const c = catchArm(v.catchT);
+    rx = lerp(rx, c.x, Math.min(1, Math.abs(c.x) / 2.4)); rz += c.z; lx = lerp(lx, c.x * 0.8, Math.min(1, Math.abs(c.x) / 2.4)); lz -= c.z;
+  }
+  let handTilt = 0;
+  if (v.use) {
+    v.use.t += dt / 1.5;
+    const u = useArm(v.use.kind, v.use.t);
+    rx = u.x; handTilt = u.tilt;
+    if (v.use.t >= 1) v.use = null;
+  }
+  v.hand.rotation.x = handTilt;
+  if (pose === 'idle' && !moving && !air && !em && !swimNow && !rowing) { lz += Math.sin(t * 1.7) * 0.025; rz -= Math.sin(t * 1.7 + 0.6) * 0.025; }
+  if (A) { lx += A.lx; lz += A.lz; rx += A.rrx; rz += A.rrz; }
+  v.body.rotation.x = (em === 'laugh' ? Math.sin(t * 15) * 0.1 : 0) - (v.flinch || 0) * 0.35;
   if (pose === 'fists') {
     const bounce = Math.sin(t * (moving ? 10 : 4)) * 0.06;
     lx += bounce; rx -= bounce;
@@ -3189,9 +3374,11 @@ function poseLimbs(v, t, moving, fast, pose = 'idle', dt = 0.016) {
     lunge = Math.max(0, ext) * (v.punchHeavy ? 0.28 : 0.14);
     v.body.rotation.y = (v.punchSide === 'r' ? 0.35 : -0.35) * Math.max(0, ext) * (v.punchHeavy ? 1.4 : 1);
   } else v.body.rotation.y = 0;
+  if (A) { v.body.rotation.y += A.yaw; lunge += A.lunge; }
   const k = Math.min(1, dt * 16);
-  L.armL.rotation.x += (lx - L.armL.rotation.x) * (v.punchT < 1 ? 1 : k);
-  L.armR.rotation.x += (rx - L.armR.rotation.x) * (v.punchT < 1 ? 1 : k);
+  const kk = v.punchT < 1 || A ? 1 : k;
+  L.armL.rotation.x += (lx - L.armL.rotation.x) * kk;
+  L.armR.rotation.x += (rx - L.armR.rotation.x) * kk;
   L.armL.rotation.z += (lz - L.armL.rotation.z) * k;
   L.armR.rotation.z += (rz - L.armR.rotation.z) * k;
   return lunge;
@@ -3244,8 +3431,17 @@ function updateView(v, dt, t) {
     v.y += (restY - v.y) * k;
     v.swimLean = (v.swimLean || 0) + ((swimNow && aliveNow ? 1.1 : 0) - (v.swimLean || 0)) * k;
   }
+  v.swimNow = !inBoat && aliveNow && (isMe ? !!v.swimming : !!v.data.swim);
+  v.rowing = inBoat && aliveNow;
   v.group.rotation.order = 'YXZ';
-  v.group.rotation.x = inBoat ? 0 : v.swimLean || 0;
+  v.fall = (v.fall || 0) + ((aliveNow ? 0 : 1) - (v.fall || 0)) * Math.min(1, dt * (aliveNow ? 6 : 5));
+  const hpNow = isMe && myData ? myData.hp : v.data.hp;
+  if (v.lastHp !== undefined && hpNow < v.lastHp && aliveNow) v.flinch = 1;
+  v.lastHp = hpNow;
+  v.flinch = Math.max(0, (v.flinch || 0) - dt * 5);
+  const sprintNow = isMe ? stepSprint : v.speed > 4;
+  v.lean = (v.lean || 0) + (((v.walking && sprintNow && aliveNow && !inBoat) ? 0.17 : 0) - (v.lean || 0)) * k;
+  v.group.rotation.x = inBoat ? 0 : (v.swimLean || 0) + v.lean - v.flinch * 0.16;
   if (!isMe) v.jyS = (v.jyS || 0) + ((v.jy || 0) - (v.jyS || 0)) * k;
   const jOff = isMe ? jumpY : v.jyS || 0;
   const emNow = isMe ? myEmote : v.data.em || null;
@@ -3256,30 +3452,50 @@ function updateView(v, dt, t) {
   v.squash = Math.max(0, (v.squash || 0) - dt * 7);
   const bob = aliveNow && v.walking && !v.airborne ? Math.abs(Math.sin(t * 10)) * 0.06 : 0;
   v.group.rotation.y = v.rot;
-  v.group.rotation.z = aliveNow ? 0 : Math.PI / 2;
+  v.group.rotation.z = v.fall * (Math.PI / 2);
   const state = isMe ? { charging: 'charging', casting: 'waiting', out: 'waiting', bite: 'bite', reeling: 'reeling' }[phase] || 'idle' : v.state;
   const inHand = isMe ? held : (v.data.held || 'rod');
   const fishing = state !== 'idle';
+  v.reelNow = state === 'reeling';
   v.pivot.visible = aliveNow && (fishing || inHand === 'rod') && !(emNow && !fishing);
   const gunHeld = isGun(inHand) && !!(v.data.guns && v.data.guns[inHand]);
-  v.rifle.visible = aliveNow && !fishing && gunHeld;
-  if (gunHeld) {
+  const knifeHeld = inHand === 'knife';
+  v.rifle.visible = aliveNow && !fishing && (gunHeld || knifeHeld);
+  if (gunHeld || knifeHeld) {
     const ga = (isMe ? myData && myData.att && myData.att[inHand] : v.data.ga) || {};
-    const key = `${inHand}|${ga.drum ? 'd' : ''}${ga.laser ? 'l' : ''}${ga.switch ? 's' : ''}`;
+    const key = knifeHeld ? 'knife' : `${inHand}|${ga.drum ? 'd' : ''}${ga.laser ? 'l' : ''}${ga.switch ? 's' : ''}`;
     if (v.gunKey !== key) {
       if (v.gunMesh) v.rifle.remove(v.gunMesh);
-      v.gunMesh = buildGunModel(inHand, ga);
+      v.gunMesh = knifeHeld ? buildKnifeModel() : buildGunModel(inHand, ga);
+      if (knifeHeld) { v.gunMesh.scale.setScalar(1.7); v.gunMesh.position.set(0, 0, v.model ? 0.06 : 0); }
       v.rifle.add(v.gunMesh);
       v.gunKey = key;
       v.rifle.children.forEach((c) => { c.visible = c === v.gunMesh; });
     }
     v.rifle.scale.setScalar(1);
   }
+  const itemKey = aliveNow && !fishing && (knifeHeld ? 'knife' : gunHeld ? inHand : null);
+  if (v.itemPrev !== itemKey) {
+    if (v.itemPrev !== undefined && itemKey) playItemAnim(v, knifeHeld ? 'knifeDraw' : 'draw');
+    if (!itemKey) { v.ia = null; v.kick = 0; }
+    v.itemPrev = itemKey;
+  }
+  const rlGun = isMe ? myData && myData.reloadGun : v.data.rl;
+  if ((rlGun || null) !== (v.rlPrev || null)) {
+    if (rlGun && rlGun === inHand && gunHeld) {
+      const gd = effGun(rlGun);
+      const ms = isMe && myData.reloadLeft ? myData.reloadLeft : gd ? gd.reload : 1800;
+      playItemAnim(v, 'reload', ms / 1000, RELOAD_STYLE[rlGun] || 'mag');
+    } else if (!rlGun && v.ia && v.ia.name === 'reload' && v.ia.t < 0.9) v.ia = null;
+    v.rlPrev = rlGun || null;
+  }
+  const near = isMe ? 1 : clamp(1.1 - camera.position.distanceTo(v.group.position) / 30, 0, 1);
+  v.ao = itemKey ? tickItemAnim(v, dt, near) : null;
   const drug = !fishing && aliveNow && (inHand === 'weed' || inHand === 'whiskey' || inHand === 'crank');
   v.hand.visible = drug;
   for (const child of v.hand.children) child.visible = drug && child.name === inHand;
   v.label.visible = !isMe && aliveNow;
-  const pose = !aliveNow || (emNow && !fishing) ? 'idle' : fishing || inHand === 'rod' ? 'rod' : gunHeld ? 'rifle' : inHand === 'fists' ? 'fists' : drug ? 'drug' : 'idle';
+  const pose = !aliveNow || (emNow && !fishing) || ((v.swimNow || v.rowing) && !fishing) ? 'idle' : fishing || inHand === 'rod' ? 'rod' : gunHeld ? 'rifle' : knifeHeld ? 'knife' : inHand === 'fists' ? 'fists' : drug ? 'drug' : 'idle';
   if (v.model) {
     const px = v.px ?? v.x;
     const pz = v.pz ?? v.z;
@@ -3292,10 +3508,11 @@ function updateView(v, dt, t) {
     v.emoteNow = aliveNow && !inBoat ? emNow : null;
     const lunge = poseLimbs(v, t, aliveNow && v.walking, isMe && stepSprint, pose, dt);
     const emLift = emNow === 'sit' ? -0.5 : emNow === 'dance' ? Math.abs(Math.sin(t * 8)) * 0.12 : emNow === 'cheer' ? Math.abs(Math.sin(t * 6)) * 0.3 : 0;
-    v.group.position.set(v.x + Math.sin(v.rot) * lunge, v.y + bob + jOff + emLift + (aliveNow ? 0 : 0.35), v.z + Math.cos(v.rot) * lunge);
+    v.group.position.set(v.x + Math.sin(v.rot) * lunge, v.y + bob + jOff + emLift + v.fall * 0.35, v.z + Math.cos(v.rot) * lunge);
     const sq = v.squash || 0;
     v.group.scale.set(1 + 0.09 * sq, 1 - 0.15 * sq, 1 + 0.09 * sq);
   }
+  if (itemKey) applyItemAnim(v, v.ao, knifeHeld);
   const beamOn = aliveNow && gunHeld && !fishing && !!(isMe ? myData && myData.att && myData.att[inHand] && myData.att[inHand].laser : v.data.lz);
   if (beamOn) {
     if (!v.beam) { v.beam = makeBeam(); scene.add(v.beam); }
@@ -3474,6 +3691,7 @@ function updateLeaps(dt) {
     l.mesh.rotation.set(Math.sin(f * 20) * 0.5, Math.atan2(target.x - l.from.x, target.z - l.from.z), f * Math.PI * 2);
     if (f >= 1) {
       const rank = RARITY_RANK[l.rarity] || 0;
+      if (l.view) l.view.catchT = 0;
       if (rank >= 3) fx.sparkle(target.x, target.y, target.z, rank >= 5 ? 0xF2B134 : rank >= 4 ? 0xC79BFF : 0x9FD0FF, rank >= 5 ? 70 : 30, rank >= 5 ? 3.2 : 2);
       scene.remove(l.mesh);
       disposeGroup(l.mesh);
@@ -3601,6 +3819,7 @@ function updateCamera(m, dt, t) {
 
 // two-tone: currentColor for the main shape, lower opacity for secondary parts, #163438 for cut-outs (matches the panel)
 const SLOT_ART = {
+  knife: '<path fill="currentColor" d="M4 20 16.5 3.5c1.6-.2 3.2.5 4 2-1 3.6-5.2 8.7-9.7 12.3z"/><path d="M13.5 6.2 7 15" stroke="#163438" stroke-width=".9" stroke-linecap="round" opacity=".45"/><path d="M4.5 19.5 8 16l1.6 1.6-3.5 3.5z" fill="currentColor" opacity=".6"/>',
   fists: '<g fill="currentColor"><rect x="5" y="9.5" width="14" height="10" rx="3.4"/><circle cx="7.9" cy="9.6" r="2.2"/><circle cx="10.9" cy="8.6" r="2.3"/><circle cx="14" cy="8.6" r="2.3"/><circle cx="16.9" cy="9.6" r="2.2"/><rect x="3" y="12.6" width="8.4" height="3.8" rx="1.9" opacity=".6"/></g><path d="M9.4 9v3M12.4 8.4v3.4M15.4 9v3" stroke="#163438" stroke-width="1" stroke-linecap="round"/><path d="M4.6 14.4h5.6" stroke="#163438" stroke-width="1" stroke-linecap="round"/>',
   rod: '<path d="M3 21.5 20.5 3" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><path d="M20.5 3c1 4 1 8 .2 11.6" fill="none" stroke="currentColor" stroke-width=".9" opacity=".7"/><circle cx="8.2" cy="16.4" r="3" fill="currentColor" opacity=".35"/><circle cx="8.2" cy="16.4" r="3" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="8.2" cy="16.4" r="1" fill="currentColor"/><path d="M8.2 19.4v2.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="20.6" cy="16.4" r="1.9" fill="currentColor"/>',
   bait: '<path d="M3 16c2.6-5.4 5.4 1.8 8-2.6s4.8 1.6 7-2.4l2.4-2.4" fill="none" stroke="currentColor" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M6.6 11.4l1.6 3.2M10.8 12.8l.6 3.4M15 11.4l1.6 2.8" stroke="#163438" stroke-width="1" stroke-linecap="round" opacity=".7"/><circle cx="20.2" cy="8.2" r=".9" fill="#163438"/>',
@@ -3628,6 +3847,7 @@ function renderHotbar() {
   hotbarSig = sig;
   const slots = [
     { act: 'fists', art: 'fists', label: 'Fists', key: '1' },
+    { act: 'knife', art: 'knife', label: 'Combat knife: click to slash, right click to stab', key: '2' },
     { act: 'rod', art: 'rod', label: W.rods[d.rod].name, tier: [d.rod, W.rods.length], key: '2' },
     { act: 'bait', art: 'bait', label: W.baits[d.bait].name, tier: [d.bait, W.baits.length], key: '3' },
     ...GUN_ORDER.filter((g) => d.guns[g]).map((g) => ({
@@ -3959,7 +4179,7 @@ function updateHud(dt, t) {
   ch.hidden = !showCross;
   if (showCross) {
     const rifle = isGun(held) && ownsGun(held) && phase === 'idle';
-    ch.classList.toggle('fists', held === 'fists' && phase === 'idle');
+    ch.classList.toggle('fists', (held === 'fists' || held === 'knife') && phase === 'idle');
     ch.classList.toggle('rifle', rifle);
     if (rifle) {
       const h = d.high || {};
@@ -4034,7 +4254,7 @@ function updateHud(dt, t) {
       else if (!d.boat && onMainDock(m.x, m.z) && m.z < W.dock.minZ + 5) useLabel = 'Rent boat';
     }
     const fishLabel = { idle: 'Cast', charging: 'Let go', casting: 'Cast', out: 'Hook', bite: 'Hook', reeling: 'Reel' }[phase] || 'Cast';
-    const attackLabel = phase !== 'idle' ? null : held === 'fists' ? 'Punch' : isGun(held) && ownsGun(held) ? 'Shoot' : null;
+    const attackLabel = phase !== 'idle' ? null : held === 'fists' ? 'Punch' : held === 'knife' ? 'Slash' : isGun(held) && ownsGun(held) ? 'Shoot' : null;
     touch.sync({ fishLabel, fishAlert: phase === 'bite', attackLabel, useLabel, canReelIn: phase === 'out' || phase === 'bite' });
   }
 }

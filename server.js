@@ -146,6 +146,8 @@ const COMBAT = {
 };
 
 // fists: every third punch inside the combo window is a haymaker
+// the knife, after CS:GO: quick alternating slashes, a slow heavy stab, and a huge bonus for hitting someone in the back
+const KNIFE = { range: 2.7, cone: 0.9, slash: 34, stab: 82, slashCd: 400, stabCd: 1050, backSlash: 68, backStab: 160, backCone: 1.05 };
 const PUNCH = { range: 2.3, cone: 0.8, damage: 14, heavy: 28, cooldown: 360, comboWindow: 1100, knock: 0.3, heavyKnock: 2.6 };
 
 const DERBY = { firstIn: 75 * 1000, every: 6 * 60 * 1000, length: 150 * 1000, basePot: 100, perEntry: 40 };
@@ -370,9 +372,9 @@ function freshPocket() { return { weed: 0, whiskey: 0, crank: 0 }; }
 
 const GUN_IDS = Object.keys(WORLD.guns);
 const EMOTES = ['wave', 'dance', 'cheer', 'sit', 'point', 'laugh'];
-const HOLDABLE = new Set(['fists', 'rod', 'bait', ...GUN_IDS, 'weed', 'whiskey', 'crank', 'bag']);
+const HOLDABLE = new Set(['fists', 'knife', 'rod', 'bait', ...GUN_IDS, 'weed', 'whiskey', 'crank', 'bag']);
 function ownsHold(p, held) {
-  if (held === 'fists' || held === 'rod' || held === 'bait' || held === 'bag') return true;
+  if (held === 'fists' || held === 'knife' || held === 'rod' || held === 'bait' || held === 'bag') return true;
   if (GUN_IDS.includes(held)) return !!p.guns[held];
   return DRUGS.includes(held) && p.pocket[held] > 0;
 }
@@ -865,7 +867,7 @@ function hurtPlayer(target, dmg, shooter, verb) {
     killPlayer(target, shooter.name, verb, shooter);
     return 'kill';
   }
-  if (sock) sock.emit('hurt', { hp: target.hp, dmg, by: shooter.name, how: verb === 'knocked out' ? 'punch' : verb === 'ran over' ? 'car' : 'shot', from: { x: shooter.x, z: shooter.z } });
+  if (sock) sock.emit('hurt', { hp: target.hp, dmg, by: shooter.name, how: verb === 'knocked out' ? 'punch' : verb === 'stabbed' ? 'stab' : verb === 'ran over' ? 'car' : 'shot', from: { x: shooter.x, z: shooter.z } });
   return 'hit';
 }
 
@@ -1272,7 +1274,7 @@ function snapshot() {
   const list = [];
   for (const p of players.values()) {
     list.push({
-      id: p.id, name: p.name, color: p.color, look: p.look, skin: p.skin, x: r2(p.x), z: r2(p.z), rot: r2(p.rot), jy: r2(p.jy || 0), jg: p.jg === 0 ? 0 : 1, em: p.emote || null, level: levelOf(p.xp),
+      id: p.id, name: p.name, color: p.color, look: p.look, skin: p.skin, x: r2(p.x), z: r2(p.z), rot: r2(p.rot), jy: r2(p.jy || 0), jg: p.jg === 0 ? 0 : 1, em: p.emote || null, rl: p.reloadGun || null, level: levelOf(p.xp),
       state: p.state, bobber: p.bobber, cash: p.cash, hp: Math.max(0, p.hp), alive: p.alive,
       guns: p.guns, ga: GUN_IDS.includes(p.held) ? p.att[p.held] : null, lz: !!(GUN_IDS.includes(p.held) && p.att[p.held] && p.att[p.held].laser), rod: p.rod, held: p.held || 'rod', boat: !!p.boat, bt: Math.max(0, p.boatTier), swim: !!p.swim, high: highFlags(p), caught: p.caught, best: p.best,
     });
@@ -1872,6 +1874,16 @@ io.on('connection', (socket) => {
     reply({ ok: false });
   });
 
+  // cosmetic animations other players should see: inspecting a weapon
+  socket.on('anim', (name) => {
+    if (!p || !p.alive || p.state !== 'idle') return;
+    if (!['inspect', 'knifeInspect'].includes(name)) return;
+    const now = nowMs();
+    if (now - (p.lastAnim || 0) < 600) return;
+    p.lastAnim = now;
+    io.emit('anim', { id: p.id, name });
+  });
+
   socket.on('useDrug', (name, ack) => {
     const reply = replyFn(ack);
     if (!p || !p.alive) return reply({ ok: false, msg: 'Not now.' });
@@ -1880,6 +1892,7 @@ io.on('connection', (socket) => {
     p.pocket[name] -= 1;
     p.high[name] = nowMs() + DRUG_MS;
     feed(`${p.name} ${DRUG_USE[name]}`, 'info');
+    io.emit('anim', { id: p.id, name: 'use', item: name });
     reply({ ok: true });
   });
 
@@ -1890,10 +1903,19 @@ io.on('connection', (socket) => {
     if (p.state !== 'idle') return reply({ ok: false, msg: 'Reel in first.' });
     const t = nowMs();
     if (t < (p.nextPunch || 0)) return reply({ ok: false });
-    p.combo = t - (p.lastPunch || 0) < PUNCH.comboWindow ? ((p.combo || 0) % 3) + 1 : 1;
-    p.lastPunch = t;
-    const heavy = p.combo === 3;
-    p.nextPunch = t + (heavy ? PUNCH.cooldown * 1.7 : PUNCH.cooldown);
+    const knife = !!(body && body.weapon === 'knife' && p.held === 'knife');
+    const stabKind = knife && body.kind === 'stab';
+    if (knife) {
+      p.combo = 1;
+      p.lastPunch = t;
+      p.nextPunch = t + (stabKind ? KNIFE.stabCd : KNIFE.slashCd);
+      p.knifeSide = p.knifeSide === 'l' ? 'r' : 'l';
+    } else {
+      p.combo = t - (p.lastPunch || 0) < PUNCH.comboWindow ? ((p.combo || 0) % 3) + 1 : 1;
+      p.lastPunch = t;
+      p.nextPunch = t + (p.combo === 3 ? PUNCH.cooldown * 1.7 : PUNCH.cooldown);
+    }
+    const heavy = knife ? stabKind : p.combo === 3;
     let rot = Number(body && body.rot);
     if (!Number.isFinite(rot)) rot = p.rot;
     p.rot = rot;
@@ -1901,8 +1923,8 @@ io.on('connection', (socket) => {
     const consider = (kind, o) => {
       if (!o.alive || o === p) return;
       const d = Math.hypot(o.x - p.x, o.z - p.z);
-      if (d > PUNCH.range) return;
-      if (d > 0.4 && Math.abs(angleDiff(Math.atan2(o.x - p.x, o.z - p.z), rot)) > PUNCH.cone) return;
+      if (d > (knife ? KNIFE.range : PUNCH.range)) return;
+      if (d > 0.4 && Math.abs(angleDiff(Math.atan2(o.x - p.x, o.z - p.z), rot)) > (knife ? KNIFE.cone : PUNCH.cone)) return;
       if (!best || d < best.d) best = { kind, o, d };
     };
     players.forEach((o) => consider('player', o));
@@ -1910,12 +1932,14 @@ io.on('connection', (socket) => {
     const out = { ok: true, hit: null, heavy, combo: p.combo };
     if (best) {
       const o = best.o;
-      const dmg = heavy ? PUNCH.heavy : PUNCH.damage;
-      const knock = heavy ? PUNCH.heavyKnock : PUNCH.knock;
+      // hitting someone who is facing away is a backstab
+      out.back = knife && Math.abs(angleDiff(o.rot || 0, rot)) < KNIFE.backCone;
+      const dmg = knife ? (out.back ? (stabKind ? KNIFE.backStab : KNIFE.backSlash) : (stabKind ? KNIFE.stab : KNIFE.slash)) : heavy ? PUNCH.heavy : PUNCH.damage;
+      const knock = knife ? (stabKind ? 1.4 : 0.5) : heavy ? PUNCH.heavyKnock : PUNCH.knock;
       const kx = Math.sin(rot) * knock;
       const kz = Math.cos(rot) * knock;
       if (best.kind === 'player') {
-        const res = hurtPlayer(o, dmg, p, 'knocked out');
+        const res = hurtPlayer(o, dmg, p, knife ? 'stabbed' : 'knocked out');
         if (res === 'safe') out.hit = 'safe';
         else {
           out.hit = 'player';
@@ -1935,12 +1959,12 @@ io.on('connection', (socket) => {
         if (onLand(o.x + kx, o.z + kz)) { o.x += kx; o.z += kz; }
         out.hit = 'npc';
         out.killed = o.hp <= 0;
-        if (out.killed) killNpc(o, p.name, 'knocked out', p);
+        if (out.killed) killNpc(o, p.name, knife ? 'stabbed' : 'knocked out', p);
       }
       out.x = o.x;
       out.z = o.z;
     }
-    io.emit('punch', { id: p.id, rot, heavy, side: heavy || p.combo === 1 ? 'r' : 'l', hit: out.hit === 'player' || out.hit === 'npc', x: out.x, z: out.z });
+    io.emit('punch', { id: p.id, rot, heavy, weapon: knife ? 'knife' : null, kind: knife ? (stabKind ? 'stab' : 'slash') : null, back: !!out.back, side: knife ? p.knifeSide : heavy || p.combo === 1 ? 'r' : 'l', hit: out.hit === 'player' || out.hit === 'npc', x: out.x, z: out.z });
     reply(out);
   });
 

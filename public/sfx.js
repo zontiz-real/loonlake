@@ -200,6 +200,28 @@ export const sfx = {
     else if (kind === 'sniper') { noise(0.45, 0.6, 140, 0.4); tone(110, 0.3, 'sawtooth', 0.16, 35); }
     else { noise(0.2, 0.5, 220, 0.5); tone(140, 0.12, 'sawtooth', 0.12, 60); }
   },
+  // one-shot cues for the item animations (magazine clunks, knife flicks, shell loads)
+  cue(name, vol = 1) {
+    const v = Math.max(0.05, Math.min(1, vol));
+    switch (name) {
+      case 'magout': noise(0.09, 0.09 * v, 900, 1.2); tone(180, 0.06, 'square', 0.05 * v, 90); break;
+      case 'magin': tone(240, 0.05, 'square', 0.08 * v, 160); noise(0.06, 0.1 * v, 1400, 1); break;
+      case 'rack': noise(0.05, 0.1 * v, 2400, 1.5); tone(1200, 0.03, 'square', 0.05 * v, 700, 0.09); noise(0.05, 0.09 * v, 1800, 1.5, 0.1); break;
+      case 'open': tone(700, 0.04, 'square', 0.06 * v, 500); break;
+      case 'load': tone(520, 0.03, 'square', 0.06 * v, 400); tone(560, 0.03, 'square', 0.05 * v, 420, 0.07); break;
+      case 'close': tone(300, 0.06, 'square', 0.08 * v, 180); break;
+      case 'shell': tone(200, 0.05, 'triangle', 0.08 * v, 120); noise(0.05, 0.06 * v, 1200, 1); break;
+      case 'pump': noise(0.07, 0.11 * v, 1000, 1); tone(150, 0.08, 'square', 0.07 * v, 90, 0.1); noise(0.06, 0.1 * v, 1500, 1, 0.16); break;
+      case 'boltup': tone(900, 0.04, 'square', 0.06 * v, 600); break;
+      case 'boltdown': tone(500, 0.05, 'square', 0.08 * v, 240); noise(0.05, 0.08 * v, 1200, 1); break;
+      case 'draw': noise(0.12, 0.07 * v, 1800, 0.8); tone(360, 0.05, 'triangle', 0.04 * v, 260); break;
+      case 'handle': noise(0.08, 0.05 * v, 1500, 1); break;
+      case 'flick': noise(0.06, 0.09 * v, 3800, 2); tone(1900, 0.03, 'triangle', 0.04 * v, 1300); break;
+      case 'slash': noise(0.16, 0.13 * v, 3000, 1.6); tone(1500, 0.1, 'sawtooth', 0.02 * v, 700); break;
+      case 'stab': noise(0.12, 0.12 * v, 1200, 1); tone(240, 0.12, 'triangle', 0.08 * v, 110, 0.05); break;
+      default: break;
+    }
+  },
   reload() { tone(300, 0.05, 'square', 0.06, 200); tone(420, 0.05, 'square', 0.06, 320, 0.32); tone(240, 0.08, 'square', 0.07, 200, 0.7); },
   distantShot(vol) { noise(0.25, 0.25 * vol, 160, 0.5); },
   whoosh(heavy, vol = 1) { noise(heavy ? 0.22 : 0.13, (heavy ? 0.16 : 0.1) * vol, heavy ? 700 : 1100, 0.7); },
