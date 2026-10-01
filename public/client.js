@@ -1270,6 +1270,10 @@ socket.on('shot', (shot) => {
   }
   const near = camera.position.distanceTo(new THREE.Vector3(shot.to.x, 1, shot.to.z));
   if (shot.surface && near < 40) sfx.impact(shot.surface, clamp(1 - near / 40, 0.15, 1));
+  if (shot.head && shot.by !== myId) {
+    const hd = camera.position.distanceTo(new THREE.Vector3(shot.to.x, 1, shot.to.z));
+    if (hd < 60) sfx.headshot(clamp(1 - hd / 60, 0.1, 0.7));
+  }
   if (shot.by !== myId) {
     const d = camera.position.distanceTo(new THREE.Vector3(shot.from.x, 1, shot.from.z));
     const kind = shot.gun && W && W.guns[shot.gun] && W.guns[shot.gun].sound;
@@ -2811,10 +2815,11 @@ function tryShoot() {
     if (res.hit === 'safe') { flashPrompt('Camp is a no-shooting zone.', '', 1500); return; }
     if (res.msg) flashPrompt(res.msg, '', 1500);
     if (res.hit === 'player' || res.hit === 'npc' || res.hit === 'fish') {
-      showHitmark(res.killed);
+      showHitmark(res.killed, res.crit, res.head);
+      if (res.head && res.hit === 'fish') fx.floater(res.x, 1.4, res.z, 'HEADSHOT', 'head', 1.4);
       if (res.dmg > 0 && res.x != null && res.hit !== 'fish') fx.floater(res.x, 2.1, res.z, res.crit ? `${res.dmg}!` : String(res.dmg), 'dmg', res.crit ? 1.15 : res.killed ? 1 : 0.8);
       buzz(20);
-      if (res.killed) sfx.kill(); else sfx.hitmark(res.crit, res.dmg);
+      if (res.head) { sfx.headshot(); if (res.killed) sfx.kill(); } else if (res.killed) sfx.kill(); else sfx.hitmark(res.crit, res.dmg);
       if (res.hit === 'fish') fx.splash(res.x, res.z, 10, 0.7);
       else if (res.x != null) fx.puff(res.x, 1.1, res.z);
     }
@@ -2822,16 +2827,17 @@ function tryShoot() {
 }
 
 let hitmarkTimer = null;
-function showHitmark(kill, crit) {
+function showHitmark(kill, crit, head) {
   const el = $('hitmark');
   el.hidden = false;
   el.classList.toggle('kill', !!kill);
-  el.classList.toggle('crit', !!crit && !kill);
+  el.classList.toggle('crit', !!crit && !kill && !head);
+  el.classList.toggle('head', !!head);
   el.style.animation = 'none';
   void el.offsetWidth; // restart the pop for rapid fire
   el.style.animation = '';
   clearTimeout(hitmarkTimer);
-  hitmarkTimer = setTimeout(() => { el.hidden = true; }, kill ? 380 : crit ? 260 : 180);
+  hitmarkTimer = setTimeout(() => { el.hidden = true; }, head ? 420 : kill ? 380 : crit ? 260 : 180);
 }
 
 function useDrug(name) {

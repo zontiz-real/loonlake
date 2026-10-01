@@ -292,6 +292,9 @@ select option { color: #1D2A25; }
 #hitmark.crit { background:
     linear-gradient(var(--brass), var(--brass)) center / 3px 100% no-repeat,
     linear-gradient(var(--brass), var(--brass)) center / 100% 3px no-repeat; width: 32px; height: 32px; }
+#hitmark.head { background:
+    linear-gradient(#9FE3FF, #9FE3FF) center / 3px 100% no-repeat,
+    linear-gradient(#9FE3FF, #9FE3FF) center / 100% 3px no-repeat; width: 40px; height: 40px; filter: drop-shadow(0 0 6px rgba(120, 210, 255, .8)); }
 #hitmark.kill { background:
     linear-gradient(var(--bobber), var(--bobber)) center / 3px 100% no-repeat,
     linear-gradient(var(--bobber), var(--bobber)) center / 100% 3px no-repeat; width: 34px; height: 34px; }
@@ -316,6 +319,7 @@ body.crashed #game canvas { filter: saturate(.55) brightness(.92); }
 }
 .floater.cash { color: var(--brass); font-size: 1.35rem; }
 .floater.dmg { color: #FF6A4D; }
+.floater.head { color: #9FE3FF; font-size: 1.5rem; font-weight: 700; letter-spacing: 1px; }
 .floater.info { color: var(--paper); font-size: 1rem; }
 #death {
   position: fixed; inset: 0; display: grid; place-content: center; text-align: center; gap: 10px; z-index: 9;

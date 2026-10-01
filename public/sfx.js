@@ -263,6 +263,12 @@ export const sfx = {
     tone(f, 0.04, 'square', 0.05);
     if (crit) { tone(f * 1.5, 0.07, 'square', 0.045, null, 0.045); noise(0.05, 0.08, 4200, 1.5, 0.045); }
   },
+  // a bell for a headshot: inharmonic partials with a long ring, and a tiny strike click
+  headshot(vol = 1) {
+    const f = 940 * (1 + (Math.random() - 0.5) * 0.04);
+    for (const [ratio, pk, dur] of [[1, 0.1, 1.6], [2.76, 0.06, 1.1], [5.4, 0.035, 0.7], [8.93, 0.018, 0.4]]) tone(f * ratio, dur, 'sine', pk * vol, f * ratio * 0.995);
+    noise(0.03, 0.12 * vol, 4200, 1.5);
+  },
   kill() { tone(1400, 0.05, 'square', 0.05); tone(1900, 0.08, 'square', 0.05, null, 0.06); tone(95, 0.2, 'sine', 0.12, 45, 0.04); },
   hurt() { tone(180, 0.16, 'sawtooth', 0.14, 70); },
   down() { tone(90, 0.5, 'triangle', 0.16, 40); },

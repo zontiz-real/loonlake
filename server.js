@@ -939,6 +939,47 @@ function pointAlong(x, z, rot, dist) {
   return { x: x + Math.sin(rot) * dist, y: 1, z: z + Math.cos(rot) * dist };
 }
 
+// how long a school fish looks on screen; mirrors the client's sizing in models.js (family length x size by weight)
+const LONG_BODIED = new Set(['walleye', 'pike', 'muskie', 'eelpout', 'sturgeon', 'golden', 'catfish', 'bass', 'perch', 'cisco', 'whitefish', 'salmon', 'laketrout', 'pressie']);
+function fishLen(sp) {
+  const avg = sp.lbs ? (sp.lbs[0] + sp.lbs[1]) / 2 : 3;
+  const sizeMul = Math.max(0.65, Math.min(10, Math.pow(avg / 4, 0.3)));
+  const fam = sp.model === 'fish_ray' ? 0.95 : sp.long || LONG_BODIED.has(sp.id) ? 0.72 : 0.46;
+  return fam * sizeMul * (Array.isArray(sp.prop) ? sp.prop[2] : 1);
+}
+
+// A shot against a fish is a ray against its body line (tail to head), a little fatter than the fish, with a bit of
+// aim help that grows with distance. The front 30% of the body is the head. Returns null on a miss.
+const HEAD_FROM = 0.7;
+function fishHit(f, ox, oz, rot, range) {
+  const len = f.len || 0.6;
+  const hx = Math.sin(f.rot) * len / 2;
+  const hz = Math.cos(f.rot) * len / 2;
+  const tx = f.x - hx;
+  const tz = f.z - hz;
+  const hdx = f.x + hx;
+  const hdz = f.z + hz;
+  const dx = Math.sin(rot);
+  const dz = Math.cos(rot);
+  const reach = 0.12 * len + 0.15;
+  // walk along the body from tail to head and take the first point the shot touches, so a shot from the front
+  // lands on the head and one from behind on the tail
+  let best = null;
+  for (let i = 0; i <= 20; i++) {
+    const s = i / 20;
+    const px = tx + (hdx - tx) * s;
+    const pz = tz + (hdz - tz) * s;
+    const along = dx * (px - ox) + dz * (pz - oz);
+    if (along < 0.35 || along > range) continue;
+    const lateral = Math.abs(dx * (pz - oz) - dz * (px - ox));
+    if (lateral > reach + along * 0.015) continue;
+    // the point the shot passes closest to; points equally close (a shot along the body) go to the nearer one
+    const key = Math.round(lateral / 0.05) * 1000 + along;
+    if (!best || key < best.key) best = { key, dist: along, head: s >= HEAD_FROM, x: px, z: pz };
+  }
+  return best;
+}
+
 function firstHit(ox, oz, rot, cone, range, skipId) {
   let best = null;
   const consider = (kind, id, x, z, alive) => {
@@ -951,7 +992,11 @@ function firstHit(ox, oz, rot, cone, range, skipId) {
     if (Math.abs(angleDiff(ang, rot)) > tol) return;
     if (!best || dist < best.dist) best = { kind, id, dist, x, z };
   };
-  school.forEach((f) => consider('fish', f.id, f.x, f.z, f.alive));
+  school.forEach((f) => {
+    if (!f.alive) return;
+    const h = fishHit(f, ox, oz, rot, range);
+    if (h && (!best || h.dist < best.dist)) best = { kind: 'fish', id: f.id, dist: h.dist, x: h.x, z: h.z, head: h.head };
+  });
   players.forEach((o) => consider('player', o.id, o.x, o.z, o.alive));
   npcs.forEach((n) => consider('npc', n.id, n.x, n.z, n.alive));
   return best;
@@ -962,21 +1007,22 @@ function applyHit(hit, shooter, dmg = COMBAT.damage) {
   if (hit.kind === 'fish') {
     const f = school.find((x) => x.id === hit.id);
     if (!f || !f.alive) return { hit: null };
-    f.hp -= 1;
+    const head = !!hit.head;
+    f.hp = head ? 0 : f.hp - 1; // a headshot kills outright
     if (f.hp > 0) {
       // wounded: it bolts and bleeds, one more round finishes it
       f.hurtUntil = nowMs() + 5000;
       f.rot += Math.PI * (0.6 + Math.random() * 0.8);
-      return { hit: 'fish', killed: false, x: f.x, z: f.z };
+      return { hit: 'fish', killed: false, head: false, x: f.x, z: f.z };
     }
     f.alive = false;
     f.floatUntil = nowMs() + 7000;
-    const pay = Math.max(1, Math.round(f.base * 0.45));
+    const pay = Math.max(1, Math.round(f.base * 0.45 * (head ? 1.5 : 1)));
     if (shooter.bag) {
       const stored = giveFish(shooter, f.name, null, pay);
-      feed(stored ? `${shooter.name} bagged a shot ${f.name.toLowerCase()}` : `${shooter.name} shot a ${f.name.toLowerCase()} for $${pay}`, 'combat');
+      feed(stored ? `${shooter.name} bagged a ${head ? 'headshot ' : 'shot '}${f.name.toLowerCase()}` : `${shooter.name} ${head ? 'headshot' : 'shot'} a ${f.name.toLowerCase()} for $${pay}`, 'combat');
     }
-    return { hit: 'fish', killed: true, x: f.x, z: f.z };
+    return { hit: 'fish', killed: true, head, x: f.x, z: f.z };
   }
   if (hit.kind === 'player') {
     const t = players.get(hit.id);
@@ -1003,7 +1049,7 @@ function emitShot(from, rot, hit, by, result, missDist, gunId) {
   to.y = hit ? 0.9 : aimed ? 0.05 : 1.1;
   const surface = aimed ? (inWater(to.x, to.z) ? 'water' : 'ground') : null;
   const kind = result && result.hit;
-  io.emit('shot', { from: { x: from.x, y: 1.35, z: from.z }, to, by, rot, surface, gun: gunId || null, hit: kind === 'safe' ? null : kind || null, killed: !!(result && result.killed) });
+  io.emit('shot', { from: { x: from.x, y: 1.35, z: from.z }, to, by, rot, surface, gun: gunId || null, hit: kind === 'safe' ? null : kind || null, killed: !!(result && result.killed), head: !!(result && result.head) });
 }
 
 function alertAnglers(p, rot) {
@@ -1186,6 +1232,7 @@ function spawnSchoolFish(slot, area) {
   fish.x = spot.x;
   fish.z = spot.z;
   fish.rot = Math.random() * Math.PI * 2;
+  fish.len = fishLen(species);
   fish.alive = true;
   fish.floatUntil = 0;
   fish.maxHp = FISH_HP[species.rarity] || 2;
@@ -1201,9 +1248,10 @@ function tickFish(dt) {
   const now = nowMs();
   for (const f of school) {
     if (!f.alive) {
-      if (now >= f.floatUntil) spawnSchoolFish(f);
+      if (now >= f.floatUntil) { if (f.frozen) school.splice(school.indexOf(f), 1); else spawnSchoolFish(f); }
       continue;
     }
+    if (f.frozen) continue; // a /fish test fish stays put
     const fleeing = now < f.hurtUntil;
     const speed = FISH_AREAS[f.area].speed;
     f.rot += rand(-1.2, 1.2) * dt * (fleeing ? 2.5 : 1);
@@ -1410,6 +1458,15 @@ function debugCommand(p, socket, text) {
   if (cmd === 'tmode') { derby.modeIdx = (Number(args[0]) || 1) - 2; return say(`Next tournament: ${T_MODES[(derby.modeIdx + 1) % T_MODES.length].name}.`); }
   if (cmd === 'gear') { p.rod = WORLD.rods.length - 1; p.bait = WORLD.baits.length - 1; GUN_IDS.forEach((g) => { p.guns[g] = true; Object.keys(WORLD.attachments).forEach((k) => { p.att[g][k] = !WORLD.attachments[k].only || WORLD.attachments[k].only.includes(g); }); p.mag[g] = effGun(p, g).mag; }); GUN_IDS.forEach((g) => { p.glvl[g] = WORLD.gunLevels.names.length - 1; }); p.ammo += 200; p.boatTier = WORLD.boats.length - 1; p.ownsBoat = true; return say('Maxed out.'); }
   if (cmd === 'drugs') { DRUGS.forEach((d) => { p.pocket[d] += 5; }); return say('Five of each drug added.'); }
+  if (cmd === 'fish') {
+    // /fish x z heading [speciesId]: a motionless test fish, to try the head and body hit zones
+    const sp = SPECIES.find((x) => x.id === args[3]) || SPECIES.find((x) => x.id === 'bass');
+    for (let i = school.length - 1; i >= 0; i--) if (school[i].frozen) school.splice(i, 1); // only one test fish at a time
+    const f = spawnSchoolFish(null, 'lake');
+    Object.assign(f, { x: Number(args[0]) || 0, z: Number(args[1]) || 0, rot: Number(args[2]) || 0, name: sp.name, sid: sp.id, base: sp.base, len: fishLen(sp), frozen: true, hp: 99, maxHp: 99 });
+    school.push(f);
+    return say(`Test fish ${f.id} (${sp.name}, ${f.len.toFixed(2)} m).`);
+  }
   if (cmd === 'bag') {
     const n = Math.min(60, Number(args[0]) || 8);
     for (let i = 0; i < n; i++) {
