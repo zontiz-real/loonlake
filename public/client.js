@@ -228,7 +228,7 @@ let deathUntil = 0;
 let aimRot = 0;
 let castInfo = { valid: false, hot: false };
 const cam = { yaw: 0, pitch: 0.34, dist: TUNING.camDist, aim: 0, shake: 0 };
-if (window.__loon) Object.assign(window.__loon, { cam, vel, fishViews: () => fishViews, makeFish, makeBoatMesh, makeAvatar, socket, fx, screenBlood, inv: () => inv, openInventory: () => openInventory(), panel: () => openPanel, makeMutant: (d) => makeMutant(d), species: () => speciesById, hold: (h) => { held = h; hotbarSig = ''; }, data: () => myData, me: () => views.get(myId), npcViews: () => npcViews, ragStep: (id, n) => { const v = npcViews.get(id) || views.get(id); for (let i = 0; v && v.rag && i < n; i++) stepRagdoll(v, 1 / 60, audioT); } });
+if (window.__loon) Object.assign(window.__loon, { cam, vel, fishViews: () => fishViews, makeFish, makeBoatMesh, makeAvatar, socket, fx, screenBlood, inv: () => inv, openInventory: () => openInventory(), panel: () => openPanel, makeMutant: (d) => makeMutant(d), makeBossView: (p, k) => makeBossView(p, k), bossViews: () => bossViews, updateBosses: (dt, t) => updateBosses(dt, t), species: () => speciesById, hold: (h) => { held = h; hotbarSig = ''; }, data: () => myData, me: () => views.get(myId), npcViews: () => npcViews, ragStep: (id, n) => { const v = npcViews.get(id) || views.get(id); for (let i = 0; v && v.rag && i < n; i++) stepRagdoll(v, 1 / 60, audioT); } });
 let pointerLocked = false;
 // automated browsers can't hold pointer lock (it also blocks screenshots), so they use drag-to-look
 let noLock = isTouch || !!navigator.webdriver;
@@ -1108,7 +1108,7 @@ const VM_HIP = { gun: [0.16, -0.15, -0.34], long: [0.15, -0.17, -0.44], knife: [
 function updateViewmodel(dt, t, show) {
   vm.group.visible = show;
   if (!show) return;
-  const item = phase !== 'idle' ? 'rod' : held;
+  const item = phase !== 'idle' && !bossFight() ? 'rod' : held;
   const att = isGun(item) && myData && myData.att ? JSON.stringify(myData.att[item] || {}) : '';
   const key = item + att + (isGun(item) && !ownsGun(item) ? 'x' : '');
   if (key !== vm.key) buildViewmodel(key, isGun(item) && !ownsGun(item) ? 'none' : item);
@@ -1414,6 +1414,7 @@ socket.on('state', (s) => {
   syncNpcs(s.npcs || []);
   syncFish(s.fish || []);
   syncMutants(s.mutants || []);
+  syncBosses(s.players || []);
   frenzyState = s.frenzy;
   syncPickups(s.pickups || []);
   if (myId) {
@@ -1546,6 +1547,331 @@ function syncPickups(list) {
   }
   for (const [id, v] of pickupViews) if (!seen.has(id)) { scene.remove(v.mesh); disposeGroup(v.mesh); pickupViews.delete(id); }
 }
+
+
+// ================================================================ hooked bosses: the fight, and the monsters themselves
+
+const bossFight = () => !!(reel && reel.boss);
+const bossViews = new Map(); // one per player who has a boss on the line
+let bossSt = { hp: 1, stagger: false, weak: false };
+const bmat = (color, rough = 0.7, metal = 0.05, em = 0) => new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: metal, flatShading: true, emissive: em, emissiveIntensity: em ? 0.6 : 0 });
+const bpart = (geo, mat, x = 0, y = 0, z = 0, sx = 1, sy = 1, sz = 1) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.scale.set(sx, sy, sz); m.castShadow = true; return m; };
+const SPH = new THREE.SphereGeometry(1, 12, 9);
+const BOX = new THREE.BoxGeometry(1, 1, 1);
+const CONE = new THREE.ConeGeometry(1, 1, 7);
+const EYE = new THREE.MeshBasicMaterial({ color: 0xFFD23A });
+
+// each builder returns { group, tick(t, v), depth, size }. Models face +z.
+const BOSS_BUILD = {
+  snapjaw() {
+    const g = new THREE.Group();
+    const shell = bmat(0x4E6B33), skin = bmat(0x7C8A4A), bone = bmat(0xE8DDB8);
+    g.add(bpart(SPH, shell, 0, 0.55, 0, 1.25, 0.6, 1.6));
+    for (let i = 0; i < 7; i++) { const a = (i / 7) * Math.PI * 2; g.add(bpart(CONE, bone, Math.sin(a) * 0.75, 1.0, Math.cos(a) * 0.95, 0.16, 0.42, 0.16)); }
+    g.add(bpart(CONE, bone, 0, 1.25, -0.2, 0.22, 0.6, 0.22));
+    const head = new THREE.Group();
+    head.position.set(0, 0.5, 1.6);
+    head.add(bpart(BOX, skin, 0, 0.1, 0.35, 0.7, 0.45, 1.0));
+    const jaw = bpart(BOX, skin, 0, -0.18, 0.4, 0.66, 0.2, 0.95);
+    head.add(jaw);
+    for (let i = -2; i <= 2; i++) { head.add(bpart(CONE, bone, i * 0.13, -0.02, 0.85, 0.05, 0.16, 0.05)); }
+    head.add(bpart(SPH, EYE, 0.3, 0.32, 0.5, 0.08, 0.08, 0.08), bpart(SPH, EYE, -0.3, 0.32, 0.5, 0.08, 0.08, 0.08));
+    g.add(head);
+    for (const [x, z] of [[-1.1, 0.7], [1.1, 0.7], [-1.0, -0.8], [1.0, -0.8]]) g.add(bpart(SPH, skin, x, 0.15, z, 0.5, 0.18, 0.28));
+    g.add(bpart(CONE, skin, 0, 0.3, -1.9, 0.3, 1.3, 0.3));
+    g.children[g.children.length - 1].rotation.x = -Math.PI / 2;
+    return { group: g, depth: 0.35, size: 3.2, tick(t, v) { jaw.rotation.x = v.hitting ? 0.7 : Math.max(0, Math.sin(t * 3) * 0.12); head.rotation.y = Math.sin(t * 1.2) * 0.25; } };
+  },
+  piranha() {
+    const g = new THREE.Group();
+    const red = bmat(0xA82424, 0.4, 0.1), belly = bmat(0xE8A24A, 0.4);
+    const king = new THREE.Group();
+    king.add(bpart(SPH, red, 0, 0, 0, 0.5, 0.55, 1.0), bpart(CONE, red, 0, 0, -1.1, 0.4, 0.7, 0.1), bpart(SPH, belly, 0, -0.3, 0.1, 0.35, 0.2, 0.7), bpart(BOX, bmat(0xF4F1E6), 0, -0.1, 0.9, 0.5, 0.12, 0.12), bpart(SPH, EYE, 0.25, 0.2, 0.55, 0.08, 0.08, 0.08), bpart(SPH, EYE, -0.25, 0.2, 0.55, 0.08, 0.08, 0.08));
+    king.children[1].rotation.x = -Math.PI / 2;
+    king.scale.setScalar(1.6);
+    g.add(king);
+    // the swarm: instanced little fish orbiting the king
+    const fishGeo = new THREE.SphereGeometry(0.16, 8, 6);
+    fishGeo.scale(0.6, 0.7, 1.6);
+    const N = 26;
+    const swarm = new THREE.InstancedMesh(fishGeo, bmat(0xC03030, 0.4), N);
+    g.add(swarm);
+    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), p = new THREE.Vector3(), sc = new THREE.Vector3(1, 1, 1);
+    return {
+      group: g, depth: 0.25, size: 3, tick(t, v) {
+        const spread = v.hitting ? 2.8 : 1.5 + (v.hpFrac || 1) * 0.6;
+        for (let i = 0; i < N; i++) {
+          const a = t * (0.9 + (i % 5) * 0.12) + i * 2.4, r = spread * (0.55 + ((i * 37) % 10) / 14);
+          p.set(Math.sin(a) * r, 0.05 + Math.sin(t * 5 + i) * 0.12, Math.cos(a) * r);
+          e.set(0, a + Math.PI / 2, 0);
+          q.setFromEuler(e);
+          const alive = i < N * Math.max(0.25, (v.hpFrac || 1)) ? 1 : 0.0001; // the swarm thins as it takes damage
+          sc.setScalar(alive);
+          m4.compose(p, q, sc);
+          swarm.setMatrixAt(i, m4);
+        }
+        swarm.instanceMatrix.needsUpdate = true;
+      },
+    };
+  },
+  gator() {
+    const g = new THREE.Group();
+    const skin = bmat(0x4A5A2E), dark = bmat(0x2C3820), belly = bmat(0xA8A56A), bone = bmat(0xEEE6C8);
+    const segs = 6;
+    const body = [];
+    for (let i = 0; i < segs; i++) {
+      const z = 1.4 - i * 1.15, w = 0.85 - i * 0.07;
+      const s = bpart(SPH, skin, 0, 0.1, z, w, 0.55, 0.85);
+      g.add(s);
+      body.push(s);
+      g.add(bpart(CONE, dark, 0, 0.62, z, 0.14, 0.32, 0.14));
+    }
+    const head = new THREE.Group();
+    head.position.set(0, 0.2, 2.5);
+    head.add(bpart(BOX, skin, 0, 0.15, 0.7, 0.75, 0.42, 1.7));
+    const jaw = bpart(BOX, belly, 0, -0.17, 0.75, 0.68, 0.18, 1.6);
+    head.add(jaw);
+    for (let i = 0; i < 6; i++) { head.add(bpart(CONE, bone, 0.3, -0.02, 0.2 + i * 0.26, 0.05, 0.16, 0.05), bpart(CONE, bone, -0.3, -0.02, 0.2 + i * 0.26, 0.05, 0.16, 0.05)); }
+    head.add(bpart(SPH, EYE, 0.36, 0.42, 0.0, 0.1, 0.1, 0.1), bpart(SPH, EYE, -0.36, 0.42, 0.0, 0.1, 0.1, 0.1));
+    g.add(head);
+    const tail = bpart(CONE, skin, 0, 0.05, -6.2, 0.4, 3.0, 0.32);
+    tail.rotation.x = -Math.PI / 2;
+    g.add(tail);
+    for (const [x, z] of [[-0.95, 1.3], [0.95, 1.3], [-0.9, -1.4], [0.9, -1.4]]) g.add(bpart(SPH, dark, x, -0.1, z, 0.4, 0.15, 0.3));
+    g.add(bpart(BOX, bone, 0.4, 0.62, 2.7, 0.03, 0.05, 0.9)); // an old scar
+    return { group: g, depth: 0.15, size: 7, tick(t, v) { jaw.rotation.x = v.hitting ? 0.8 : 0.05 + Math.max(0, Math.sin(t * 2)) * 0.15; body.forEach((s, i) => { s.position.x = Math.sin(t * 2.2 - i * 0.7) * (0.12 + i * 0.07); }); tail.position.x = Math.sin(t * 2.2 - 6) * 0.6; if (v.hitting) g.rotation.z = Math.sin(t * 25) * 0.5; else g.rotation.z *= 0.9; } };
+  },
+  eel() {
+    const g = new THREE.Group();
+    const glow = bmat(0x1A3A48, 0.3, 0.1, 0x22CCFF), belly = bmat(0x8EEFFF, 0.3, 0, 0x33DDFF);
+    const N = 16, segs = [];
+    for (let i = 0; i < N; i++) { const s = bpart(SPH, i % 3 ? glow : belly, 0, 0, 0, 0.5 - i * 0.022, 0.45 - i * 0.02, 0.5); g.add(s); segs.push(s); }
+    const head = bpart(SPH, glow, 0, 0, 0, 0.55, 0.45, 0.8);
+    g.add(head, bpart(SPH, EYE, 0.28, 0.2, 0.5, 0.07, 0.07, 0.07), bpart(SPH, EYE, -0.28, 0.2, 0.5, 0.07, 0.07, 0.07));
+    g.children.slice(-2).forEach((e) => { e.material = new THREE.MeshBasicMaterial({ color: 0xFFFFFF }); });
+    const light = new THREE.PointLight(0x33DDFF, 2, 14, 1.6);
+    light.position.y = 0.6;
+    g.add(light);
+    // lightning: a jagged ring of lines that flashes when it discharges
+    const arcs = [];
+    for (let i = 0; i < 6; i++) {
+      const geo = new THREE.BufferGeometry().setFromPoints(Array.from({ length: 8 }, () => new THREE.Vector3()));
+      const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0xBDF6FF, transparent: true, opacity: 0.9 }));
+      line.visible = false;
+      g.add(line);
+      arcs.push(line);
+    }
+    return {
+      group: g, depth: 0.2, size: 6, tick(t, v) {
+        segs.forEach((s, i) => { s.position.set(Math.sin(t * 3 - i * 0.55) * (0.5 + i * 0.05), Math.sin(t * 2 + i) * 0.08, -i * 0.62); });
+        head.position.set(0, 0, 0.45);
+        light.intensity = v.hitting ? 9 : 1.5 + Math.sin(t * 9) * 0.5;
+        arcs.forEach((a, k) => {
+          a.visible = !!v.hitting;
+          if (!v.hitting) return;
+          const pos = a.geometry.attributes.position;
+          const ang = (k / arcs.length) * Math.PI * 2 + t * 4;
+          for (let j = 0; j < 8; j++) pos.setXYZ(j, Math.sin(ang) * j * 1.3 + (Math.random() - 0.5) * 0.7, 0.3 + (Math.random() - 0.5) * 0.7, Math.cos(ang) * j * 1.3 + (Math.random() - 0.5) * 0.7);
+          pos.needsUpdate = true;
+        });
+      },
+    };
+  },
+  leviathan() {
+    const g = new THREE.Group();
+    const skin = bmat(0x55606C, 0.5, 0.2), plate = bmat(0x9AA6B4, 0.3, 0.8), bone = bmat(0xD8D0B8);
+    g.add(bpart(SPH, skin, 0, 0, 0, 1.4, 1.1, 4.2));
+    g.add(bpart(CONE, skin, 0, 0.1, 4.9, 0.5, 2.2, 0.5));
+    g.children[g.children.length - 1].rotation.x = Math.PI / 2;
+    g.add(bpart(CONE, skin, 0, 0.3, -4.6, 0.9, 2.6, 0.4));
+    g.children[g.children.length - 1].rotation.x = -Math.PI / 2;
+    g.add(bpart(SPH, EYE, 0.85, 0.35, 3.3, 0.14, 0.14, 0.14), bpart(SPH, EYE, -0.85, 0.35, 3.3, 0.14, 0.14, 0.14));
+    for (const s of [-1, 1]) g.add(bpart(CONE, bone, s * 0.45, -0.7, 4.4, 0.06, 0.9, 0.06));
+    // three rows of armor plates you shoot off, one row per stage
+    const rows = [[], [], []];
+    for (let r = 0; r < 3; r++) for (let i = 0; i < 5; i++) {
+      const z = -2.4 + (r * 5 + i) * 0.36;
+      const a = bpart(BOX, plate, 0, 1.05 - Math.abs(z) * 0.05, z, 0.9, 0.16, 0.34);
+      a.rotation.z = 0;
+      g.add(a);
+      rows[r].push(a);
+    }
+    return {
+      group: g, depth: 0.7, size: 10, rows, tick(t, v) {
+        g.rotation.z = Math.sin(t * 1.4) * 0.05;
+        rows.forEach((row, r) => row.forEach((a) => { const gone = (v.stage || 0) > r; a.visible = !gone; }));
+        if (v.hitting) g.position.y += 0;
+      },
+    };
+  },
+  kraken() {
+    const g = new THREE.Group();
+    const skin = bmat(0x6E2A56, 0.5, 0.1, 0x220818), belly = bmat(0xC77AA8, 0.5);
+    g.add(bpart(SPH, skin, 0, 1.6, 0, 2.2, 2.6, 2.2));
+    g.add(bpart(SPH, EYE, 1.1, 1.9, 1.9, 0.32, 0.32, 0.32), bpart(SPH, EYE, -1.1, 1.9, 1.9, 0.32, 0.32, 0.32));
+    const tents = [];
+    for (let k = 0; k < 8; k++) {
+      const chain = [];
+      const a = (k / 8) * Math.PI * 2;
+      for (let i = 0; i < 9; i++) { const s = bpart(SPH, i % 2 ? skin : belly, 0, 0, 0, 0.5 - i * 0.04, 0.5 - i * 0.04, 0.5 - i * 0.04); g.add(s); chain.push(s); }
+      tents.push({ chain, a });
+    }
+    return {
+      group: g, depth: 1.6, size: 12, tick(t, v) {
+        tents.forEach(({ chain, a }, k) => {
+          const slam = v.hitting && k % 2 === 0 ? 1 : 0;
+          chain.forEach((s, i) => {
+            const r = 1.7 + i * 0.75;
+            const lift = slam ? Math.max(0, 5.5 - i * 0.7) * (Math.sin(Math.min(1, (v.hitAge || 0) * 4) * Math.PI)) : Math.sin(t * 1.6 + k + i * 0.6) * 0.5 + 1.2 + i * 0.1;
+            s.position.set(Math.sin(a + Math.sin(t * 0.7 + k) * 0.25) * r, 0.4 + lift * (i > 1 ? 1 : 0.3), Math.cos(a + Math.sin(t * 0.7 + k) * 0.25) * r);
+          });
+        });
+      },
+    };
+  },
+};
+
+function makeBossView(pid, kind) {
+  const b = (BOSS_BUILD[kind] || BOSS_BUILD.snapjaw)();
+  b.group.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  const wrap = new THREE.Group();
+  wrap.add(b.group);
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.92, 1, 48), new THREE.MeshBasicMaterial({ color: 0xFF2A1A, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide }));
+  ring.rotation.x = -Math.PI / 2;
+  ring.renderOrder = 3;
+  scene.add(ring);
+  scene.add(wrap);
+  return { pid, kind, wrap, model: b, ring, x: 0, z: 0, rise: 0, warnUntil: 0, hitUntil: 0, hitting: false, hpFrac: 1, stage: 0, st: 0, flash: 0, ringR: 6 };
+}
+function syncBosses(players) {
+  const seen = new Set();
+  for (const d of players) {
+    if (!d.boss || !d.bobber) continue;
+    seen.add(d.id);
+    let v = bossViews.get(d.id);
+    if (!v || v.kind !== d.boss.k) { if (v) removeBoss(d.id); v = makeBossView(d.id, d.boss.k); bossViews.set(d.id, v); }
+    if (d.boss.hp < v.hpFrac - 0.001) v.flash = 0.14;
+    v.hpFrac = d.boss.hp;
+    v.st = d.boss.st;
+    v.stage = d.boss.stage;
+    v.tx = d.bobber.x; v.tz = d.bobber.z;
+    v.owner = d;
+    if (!v.x) { v.x = v.tx; v.z = v.tz; }
+  }
+  for (const [id, v] of [...bossViews]) if (!seen.has(id) && !v.fake) removeBoss(id);
+}
+function removeBoss(id) {
+  const v = bossViews.get(id);
+  if (!v) return;
+  scene.remove(v.wrap);
+  scene.remove(v.ring);
+  disposeGroup(v.wrap);
+  v.ring.geometry.dispose();
+  v.ring.material.dispose();
+  bossViews.delete(id);
+}
+function updateBosses(dt, t) {
+  let mine = null;
+  for (const v of bossViews.values()) {
+    v.x += (v.tx - v.x) * Math.min(1, dt * 4);
+    v.z += (v.tz - v.z) * Math.min(1, dt * 4);
+    v.rise = Math.min(1, v.rise + dt * 0.9);
+    const surf = WATER_Y + wave(v.x, v.z, t);
+    const own = v.owner;
+    const face = own ? Math.atan2(own.x - v.x, own.z - v.z) : 0;
+    v.hitting = t < v.hitUntil;
+    v.hitAge = 1 - Math.max(0, v.hitUntil - t) / 0.7;
+    const warn = t < v.warnUntil;
+    const stag = v.st === 1;
+    let y = surf - v.model.depth - (1 - v.rise) * v.model.size * 0.5 + (v.hitting ? Math.sin(Math.min(1, v.hitAge) * Math.PI) * v.model.size * 0.22 : 0);
+    let jx = warn ? Math.sin(t * 60) * 0.12 : 0;
+    v.wrap.position.set(v.x + jx, y, v.z);
+    v.wrap.rotation.set(stag ? 0.5 : 0, lerpAngle(v.wrap.rotation.y, face, 0.08), stag ? Math.sin(t * 16) * 0.12 : 0);
+    v.model.tick(t, v);
+    // glow: red while it winds up an attack, orange while it's staggered, white on a hit
+    const col = v.flash > 0 ? 0xFFFFFF : stag ? 0xFF7A1A : warn ? 0xFF2A1A : 0x000000;
+    const inten = v.flash > 0 ? 0.6 : stag ? 0.5 + Math.sin(t * 16) * 0.25 : warn ? 0.6 + Math.sin(t * 30) * 0.2 : 0;
+    v.flash = Math.max(0, v.flash - dt);
+    v.model.group.traverse((o) => { if (o.isMesh && o.material.emissive && !(o.material.emissiveIntensity > 0 && o.material.color.getHex() === 0x1A3A48)) { o.material.emissive.setHex(col); o.material.emissiveIntensity = inten; } });
+    // the danger ring on the water
+    v.ring.position.set(v.x, surf + 0.06, v.z);
+    v.ring.scale.setScalar(v.ringR);
+    v.ring.material.opacity = warn ? 0.35 + Math.sin(t * 24) * 0.25 : 0;
+    if (v.pid === myId) mine = v;
+    if (Math.random() < dt * 5) fx.ripple(v.x + (Math.random() - 0.5) * v.model.size * 0.5, v.z + (Math.random() - 0.5) * v.model.size * 0.5, v.model.size * 0.2, 1.2, 0.35);
+  }
+  $('ink').classList.toggle('on', performance.now() < inkUntil);
+  // your own boss's bar
+  const bb = $('bossBar');
+  if (mine) {
+    bb.hidden = false;
+    bb.querySelector('b').textContent = `${BOSS_NAMES[mine.kind] || 'Boss'}${bossSt.weak ? ' (weak: reel it in!)' : ''}`;
+    bb.querySelector('i').style.width = `${Math.round(bossSt.hp * 100)}%`;
+  } else if (bb.querySelector('b').textContent !== 'The Old One') bb.hidden = true;
+}
+const BOSS_NAMES = { snapjaw: 'Snapjaw', piranha: 'Piranha Storm', gator: 'Gator King', eel: 'Voltaic Eel', leviathan: 'Leviathan Sturgeon', kraken: 'The Kraken' };
+function lerpAngle(a, b, k) { return a + angleDiff(b, a) * k; }
+
+let inkUntil = 0;
+socket.on('bossHooked', (e) => {
+  fx.splash(e.x, e.z, 40, 2);
+  if (e.pid === myId) { bigText(e.name.toUpperCase(), 'frenzy', 2200); sfx.horn(); cam.shake += 0.4; bossSt = { hp: 1, stagger: false, weak: false }; }
+  else if (camera.position.distanceTo(tmpA.set(e.x, 0, e.z)) < 60) flashPrompt(`${e.name} is on someone's line!`, '', 2000);
+});
+socket.on('bossState', (s) => {
+  bossSt = s;
+  if (reel && reel.boss) { reel.boss.landAt = s.landAt; reel.boss.wearCap = s.wearCap; }
+});
+socket.on('bossMove', (e) => {
+  const v = bossViews.get(e.pid);
+  const now = audioT;
+  if (v) {
+    if (e.phase === 'warn') { v.warnUntil = now + 0.9; v.ringR = Math.max(3, e.r || 6); }
+    else { v.hitUntil = now + 0.7; }
+  }
+  const dist = camera.position.distanceTo(tmpA.set(e.x, 0, e.z));
+  if (e.phase === 'warn') {
+    if (e.pid === myId || dist < 25) { flashPrompt(e.name.toUpperCase() + '!', 'alert', 900); if (dist < 30) sfx.horn(); cam.shake += 0.15; }
+    return;
+  }
+  fx.splash(e.x, e.z, 26, 1.8);
+  if (dist < 30) cam.shake += e.pid === myId ? 0.5 : 0.3;
+  if (e.pid === myId && reel && reel.boss) {
+    // the hit lands on the line: a spike of tension, or slack and lost ground, or a screen full of ink
+    if (e.kind === 'spike') reel.tension = Math.min(0.98, reel.tension + (reel.countered ? 0.16 : 0.32));
+    else if (e.kind === 'slack') { reel.tension = 0.05; reel.progress = Math.max(0.05, reel.progress - 0.2); }
+    else if (e.kind === 'ink') inkUntil = performance.now() + 3200;
+  }
+});
+socket.on('bossHit', (e) => {
+  const v = bossViews.get(e.pid);
+  if (v) v.flash = 0.14;
+  fx.floater(e.x + (Math.random() - 0.5) * 2, 1.6 + Math.random(), e.z + (Math.random() - 0.5) * 2, String(e.dmg), 'dmg', 0.9);
+  if (settings.blood) fx.blood(e.x, 0.8, e.z, 0, 0, 6, 0.7);
+  if (e.armor) {
+    bigText('ARMOR BROKEN', 'glory', 1200);
+    fx.gibs(e.x, 1.2, e.z, 18, 1.6);
+    fx.sparkle(e.x, 1.5, e.z, 0xC9D4E0, 40, 2.4);
+    sfx.kill();
+    cam.shake += 0.3;
+  }
+});
+socket.on('bossDown', (e) => {
+  const v = bossViews.get(e.pid);
+  const size = v ? v.model.size : 4;
+  fx.gibs(e.x, 0.8, e.z, Math.round(18 + size * 3), 2 + size * 0.15);
+  fx.blood(e.x, 0.6, e.z, 0, 0, 60, 1.6);
+  fx.splash(e.x, e.z, 40 + size * 4, 2.4);
+  if (e.pid === myId) cam.shake += 0.5;
+});
+socket.on('bossEnd', (e) => {
+  removeBoss(e.pid);
+  if (e.pid === myId) bossSt = { hp: 1, stagger: false, weak: false };
+});
+setInterval(() => {
+  // holding the line steady wears a boss down a little; only while you're actually reeling and not about to snap
+  if (reel && reel.boss && holdFish && reel.tension < TUNING.redline) socket.emit('bossWear');
+}, 1000);
 
 
 // ================================================================ the frenzy: mutants, the boss, and the payoff
@@ -1770,10 +2096,11 @@ socket.on('mutantDie', (p) => {
 
 socket.on('correct', ({ x, z }) => { const m = me(); if (m) { m.x = m.tx = x; m.z = m.tz = z; } });
 
-socket.on('bite', () => {
+socket.on('bite', (b) => {
   if (phase !== 'out') return;
   phase = 'bite';
   sfx.bite();
+  if (b && b.boss) { flashPrompt('Something huge took the bait! Click!', 'alert', 1200); cam.shake += 0.25; }
   const m = me();
   if (m && m.bobberPos) {
     fx.splash(m.bobberPos.x, m.bobberPos.z, 9, 0.6);
@@ -2180,7 +2507,7 @@ canvas.addEventListener('wheel', (e) => {
   // Ctrl + wheel moves the camera; plain wheel flips through your hotbar like most games
   if (e.ctrlKey) { cam.dist = clamp(cam.dist + e.deltaY * 0.01, TUNING.camMin, TUNING.camMax); return; }
   const now = performance.now();
-  if (now - wheelAt < 110 || !myId || !alive() || openPanel || phase !== 'idle') return;
+  if (now - wheelAt < 110 || !myId || !alive() || openPanel || (phase !== 'idle' && !bossFight())) return;
   wheelAt = now;
   const list = hotbarList().filter((a) => a !== 'bag' && canHold(a));
   if (!list.length) return;
@@ -3110,8 +3437,9 @@ function hook() {
       if (m && m.bobberPos) fx.splash(m.bobberPos.x, m.bobberPos.z, 12, 0.9);
       reel = {
         diff: res.difficulty, tol: res.tol || 1, speed: res.speed || 1, flags: res.reel || {}, heavy: res.heavy,
-        tension: 0.15, progress: 0.2, surge: 0, surgeT: 1.4, dir: 0, dirT: 1.1, countered: false, strainAt: 0, side: 0,
+        tension: 0.15, progress: 0.2, surge: 0, surgeT: 1.4, dir: 0, dirT: 1.1, countered: false, strainAt: 0, side: 0, boss: res.boss || null,
       };
+      if (res.boss) { reel.heavy = true; bossSt = { hp: 1, stagger: false, weak: false, landAt: res.boss.landAt, wearCap: res.boss.wearCap }; flashPrompt(`${res.boss.name}! Reel to wear it down. Swap to a gun to break its armor.`, 'good', 3800); }
       cam.shake += 0.15;
       if (res.heavy) flashPrompt("It's a heavy one.", 'good', 1400);
     } else if (res.result === 'spooked') {
@@ -3165,16 +3493,21 @@ function updateReel(dt) {
   const sgn = Math.abs(steer) > 0.3 ? Math.sign(steer) : 0;
   r.countered = r.dir !== 0 && sgn === -r.dir;
   const wrong = r.dir !== 0 && sgn === r.dir;
+  const boss = r.boss;
+  const stag = !!(boss && bossSt.stagger);
   if (holdFish) {
     let gain = up + r.diff * 0.5 + r.surge * r.diff * 0.9 * surgeMul;
+    if (boss) gain *= stag ? 0.35 : 1 + boss.tier * 0.1;
     if (r.dir !== 0) gain *= r.countered ? 0.55 : wrong ? 1.45 : 1.12;
     r.tension += (gain * dt) / r.tol;
-    r.progress += TUNING.reelRate * r.speed * (1 - r.diff * 0.55) * (r.countered ? 1.25 : 1) * (f.calm ? 1.15 : 1) * dt;
+    r.progress += TUNING.reelRate * r.speed * (1 - r.diff * 0.55) * (r.countered ? 1.25 : 1) * (f.calm ? 1.15 : 1) * (stag ? 3 : boss ? 0.7 : 1) * dt;
     sfx.reel(audioT, r.tension);
   } else {
     r.tension = Math.max(0, r.tension - down * dt * (r.countered ? 1.2 : 1));
     r.progress -= (TUNING.reelDecay + r.surge * 0.05 + (r.dir && !r.countered ? 0.02 : 0)) * dt;
   }
+  // a boss can't be landed until it's weak: the reel stalls partway and the line strains until you wear it down
+  if (boss && !bossSt.weak && r.progress > 0.55) { r.progress = 0.55; if (audioT > (r.nagAt || 0)) { r.nagAt = audioT + 4; flashPrompt('Too strong to land. Keep the line steady, and shoot it (swap to a gun).', '', 2600); } }
   if (r.tension > TUNING.redline && audioT > r.strainAt) { r.strainAt = audioT + 0.22; sfx.strain(); cam.shake += 0.02; }
   if (r.tension >= 1) return finishReel(false, 'The line snapped.', true);
   if (r.progress <= 0) return finishReel(false, 'It got away.');
@@ -3234,7 +3567,7 @@ function attack() {
 
 // left mouse always uses whatever is in your hands
 function usePrimary() {
-  if (phase !== 'idle' || held === 'rod') { lmbFish = true; fishDown(); return; }
+  if ((phase !== 'idle' && !(bossFight() && isGun(held))) || held === 'rod') { lmbFish = true; fishDown(); return; }
   if (held === 'fists' || held === 'knife') tryPunch();
   else if (isGun(held)) tryShoot();
   else if (DRUGS.includes(held)) { lmbHeld = false; useDrug(held); }
@@ -3308,7 +3641,7 @@ function reload() {
 }
 
 function tryShoot() {
-  if (!myId || !alive() || openPanel || chatOpen || phase !== 'idle') return;
+  if (!myId || !alive() || openPanel || chatOpen || (phase !== 'idle' && !bossFight())) return;
   const g = effGun(held);
   if (!g) return;
   if (!ownsGun(held)) { flashPrompt(`You need the ${g.name.toLowerCase()}. Moss sells them.`, '', 1500); return; }
@@ -3346,9 +3679,10 @@ function tryShoot() {
       if (c.mult > 1) fx.floater(res.x, 1.6, res.z, `streak x${c.mult.toFixed(1)}`, 'info', 1.2);
       if (openPanel === 'journal') { journal[c.sid] = journal[c.sid] || { n: 0, best: 0 }; journal[c.sid].n++; journal[c.sid].best = Math.max(journal[c.sid].best, c.lbs); renderJournal(); }
     }
+    if (res.hit === 'boss' && res.stagger && res.armor) flashPrompt('Armor broken! It\'s staggered. Swap to the rod and reel!', 'good', 1800);
     if (res.hit === 'mutant' && res.stagger && !res.killed) flashPrompt('It\'s staggered! Knife it to gut it for health and double loot.', 'good', 1800);
     if (res.hit === 'mutant' && res.killed && res.bounty) fx.floater(res.x, 2.4, res.z, `+$${res.bounty}`, 'cash', 1.3);
-    if (res.hit === 'player' || res.hit === 'npc' || res.hit === 'fish' || res.hit === 'mutant') {
+    if (res.hit === 'player' || res.hit === 'npc' || res.hit === 'fish' || res.hit === 'mutant' || res.hit === 'boss') {
       showHitmark(res.killed);
       if (res.hit === 'mutant') cam.shake += res.killed ? 0.18 : 0.04;
       if (res.dmg > 0 && res.x != null) fx.floater(res.x, res.hit === 'fish' ? 0.9 : 2.1, res.z, res.crit ? `${res.dmg}!` : String(res.dmg), res.hit === 'fish' ? 'info' : 'dmg', res.crit ? 1.15 : res.killed ? 1 : 0.8);
@@ -3400,7 +3734,7 @@ function canHold(act) {
 
 function selectHold(act, useIfHeld) {
   if (!myId || !alive()) return;
-  if (phase !== 'idle') { flashPrompt('Reel in before you switch hands.', '', 1200); return; }
+  if (phase !== 'idle' && !bossFight()) { flashPrompt('Reel in before you switch hands.', '', 1200); return; }
   if (!canHold(act)) {
     flashPrompt(isGun(act) ? `You need the ${gunOf(act).name.toLowerCase()}. Moss sells them.` : `You are out of ${act}.`, '', 1400);
     return;
@@ -4461,6 +4795,7 @@ function promptFor() {
   if (phase === 'bite') return [isTouch ? 'Bite! Tap Hook' : 'Bite! Click', 'alert'];
   if (phase === 'reeling' && reel) {
     if (reel.tension > TUNING.redline) return ['Ease off!', 'alert'];
+    if (reel.boss) return [bossSt.stagger ? 'STAGGERED! Reel it in!' : bossSt.weak ? 'It\'s weak. Reel it in!' : isGun(held) ? 'Shoot it. Swap to the rod (2-3) to reel.' : 'Hold to reel and wear it down. Swap to a gun (5+) to hurt it.', bossSt.stagger || bossSt.weak ? 'good' : ''];
     return [reel.surge ? "It's running. Ease off." : isTouch ? 'Hold Reel' : 'Hold left click to reel', ''];
   }
   if (phase === 'idle' && m) {
@@ -4618,6 +4953,7 @@ renderer.setAnimationLoop(() => {
   for (const v of views.values()) updateView(v, dt, t);
   updateFish(dt, t);
   updateMutants(dt, t);
+  updateBosses(dt, t);
   updatePickups(dt, t);
   updateLeaps(dt);
   updateCamera(m, dt, t);

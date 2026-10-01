@@ -144,6 +144,30 @@ const SPECIES = [
 const LONG_IDS = new Set(['walleye', 'pike', 'muskie', 'eelpout', 'sturgeon', 'golden', 'catfish', 'bass', 'perch', 'cisco', 'whitefish', 'salmon', 'laketrout', 'pressie']);
 SPECIES.forEach((s) => { s.long = LONG_IDS.has(s.id); });
 SPECIES.push(...require('./species_extra'));
+// Boss catches are hooked, shot to pieces and landed: they get journal entries like any fish, but never roll as a normal bite
+const BOSSES = {
+  snapjaw: { id: 'snapjaw', name: 'Snapjaw', tier: 1, rodMin: 0, where: 'lake', hp: 420, wearCap: 0.3, landAt: 0.35, radius: 1.6, lbs: [180, 320], base: 220, color: '#5E7A3A',
+    hint: 'A snapping turtle the size of a table. Any rod can hook it.',
+    moves: [{ name: 'Lunge', kind: 'spike', r: 5, dmg: 12 }, { name: 'Thrash', kind: 'spike', r: 0, dmg: 0 }] },
+  piranha: { id: 'piranhastorm', name: 'Piranha Storm', tier: 1, rodMin: 0, where: 'lake', hp: 300, wearCap: 0.3, landAt: 0.35, radius: 2.2, lbs: [40, 70], base: 190, color: '#B02A2A',
+    hint: 'One hook, twenty piranhas. Thin the swarm, then reel in the king.',
+    moves: [{ name: 'Swarm', kind: 'spike', r: 6, dmg: 10 }, { name: 'Frenzy', kind: 'spike', r: 0, dmg: 0 }] },
+  gator: { id: 'gatorking', name: 'Gator King', tier: 2, rodMin: 1, where: 'lake', hp: 1400, wearCap: 0.55, landAt: 0.35, radius: 3, lbs: [400, 700], base: 700, color: '#4A5A2E',
+    hint: 'A scarred old alligator. Death rolls drag you off your feet.',
+    moves: [{ name: 'Death roll', kind: 'spike', r: 7, dmg: 18 }, { name: 'Tail whip', kind: 'spike', r: 8, dmg: 16 }, { name: 'Submerge', kind: 'slack', r: 0, dmg: 0 }] },
+  eel: { id: 'voltaiceel', name: 'Voltaic Eel', tier: 2, rodMin: 2, where: 'lake', hp: 1200, wearCap: 0.55, landAt: 0.35, radius: 2.4, lbs: [90, 160], base: 650, color: '#3AC8E8',
+    hint: 'Glows blue. Every few seconds it discharges into the water and everyone near it.',
+    moves: [{ name: 'Discharge', kind: 'spike', r: 10, dmg: 14 }, { name: 'Thrash', kind: 'spike', r: 0, dmg: 0 }] },
+  leviathan: { id: 'leviathan', name: 'Leviathan Sturgeon', tier: 3, rodMin: 3, where: 'lake', hp: 4200, wearCap: 0.7, landAt: 0.35, radius: 4, lbs: [900, 1600], base: 1500, color: '#6E7A88',
+    hint: 'Armored plates you have to shoot off. It dives, goes slack, and breaches.',
+    moves: [{ name: 'Dive', kind: 'slack', r: 0, dmg: 0 }, { name: 'Breach', kind: 'spike', r: 9, dmg: 20 }, { name: 'Ram', kind: 'spike', r: 6, dmg: 16 }] },
+  kraken: { id: 'kraken', name: 'The Kraken', tier: 3, rodMin: 4, where: 'ocean', hp: 7000, wearCap: 0.75, landAt: 0.35, radius: 5, lbs: [2000, 3200], base: 4000, color: '#7A2A5A',
+    hint: 'Only in the big water. Tentacles slam the deck and it blots the screen with ink.',
+    moves: [{ name: 'Tentacle slam', kind: 'spike', r: 9, dmg: 22 }, { name: 'Ink', kind: 'ink', r: 0, dmg: 0 }, { name: 'Grab', kind: 'spike', r: 7, dmg: 18 }] },
+};
+for (const b of Object.values(BOSSES)) {
+  SPECIES.push({ id: b.id, name: b.name, where: b.where, rarity: 'legendary', w: 0, lbs: b.lbs, diff: 0.7 + b.tier * 0.08, base: b.base, color: b.color, hint: b.hint, boss: true, long: false });
+}
 // which 3D model each species uses (anything not listed uses the plain long or round fish)
 const MODEL_OF = {};
 const assignModel = (model, ids) => ids.forEach((id) => { MODEL_OF[id] = model; });
@@ -608,6 +632,88 @@ function rollShotFish(s) {
   return { lbs, value: Math.round(s.base * (0.6 + 0.9 * frac)) };
 }
 
+// ---------------------------------------------------------------- boss hooks
+//
+// Now and then a bite is not a fish. A boss takes the hook, and the fight is two people's job (or one person's, doing both):
+// the rod keeps the line alive, the gun breaks the boss's armor and health. Even the starter rod can hook a Tier 1 boss.
+
+function bossChance(p) {
+  const hot = p.bobber && hotspotAt(p.bobber.x, p.bobber.z);
+  return 0.06 + p.bait * 0.025 + (hot ? 0.05 : 0) + (isNight(hourNow()) ? 0.02 : 0) + (frenzy.active ? 0.08 : 0);
+}
+
+function rollBoss(p, forceId) {
+  const region = p.bobber ? waterRegion(p.bobber.x, p.bobber.z) : 'lake';
+  let pool = Object.values(BOSSES).filter((b) => b.where === region && p.rod >= b.rodMin);
+  if (forceId && BOSSES[forceId]) pool = [BOSSES[forceId]];
+  if (!pool.length) return null;
+  const weights = pool.map((b) => (b.tier === 1 ? 6 : b.tier === 2 ? 3 : 1) * (b.tier > 1 ? 1 + p.bait * 0.3 : 1));
+  let r = Math.random() * weights.reduce((a, b) => a + b, 0);
+  let def = pool[0];
+  for (let i = 0; i < pool.length; i++) if ((r -= weights[i]) <= 0) { def = pool[i]; break; }
+  const species = SPECIES.find((s) => s.id === def.id);
+  const [lo, hi] = def.lbs;
+  const frac = Math.pow(Math.random(), 1.2);
+  return {
+    species, lbs: Math.round(lo + (hi - lo) * frac), value: Math.round(def.base * (0.8 + 0.5 * frac)), frac, difficulty: 0.55 + def.tier * 0.09, hot: false,
+    bossDef: def,
+  };
+}
+
+function startBossFight(p, def) {
+  p.boss = { def, kind: def.id, hp: def.hp, maxHp: def.hp, hitBy: new Map(), staggerUntil: 0, nextMove: nowMs() + 3500, pending: 0, stage: 0, lastWear: 0 };
+  io.emit('bossHooked', { pid: p.id, kind: def.id, name: def.name, tier: def.tier, x: p.bobber.x, z: p.bobber.z });
+  feed(`${p.name} hooked ${def.name}!`, 'legendary');
+}
+
+function bossState(p) {
+  const b = p.boss;
+  const sock = sockOf(p.id);
+  if (!b || !sock) return;
+  sock.emit('bossState', { hp: b.hp / b.maxHp, stagger: nowMs() < b.staggerUntil, weak: b.hp <= b.maxHp * b.def.landAt, wearCap: b.def.wearCap, landAt: b.def.landAt });
+}
+
+// a hit on a hooked boss, from anyone with a gun; returns what the shooter sees
+function hitBoss(owner, dmg, shooter) {
+  const b = owner && owner.boss;
+  if (!b) return { hit: null };
+  const now = nowMs();
+  const before = b.hp / b.maxHp;
+  b.hp = Math.max(0, b.hp - dmg);
+  if (shooter && shooter.id) b.hitBy.set(shooter.id, (b.hitBy.get(shooter.id) || 0) + dmg);
+  const after = b.hp / b.maxHp;
+  // armor plates come off at 66% and 33%: a stagger, wide open, and the boss's pull drops
+  let armor = false;
+  for (const mark of [0.66, 0.33]) if (before > mark && after <= mark) { armor = true; b.staggerUntil = now + 4200; b.stage += 1; }
+  const at = owner.bobber || { x: owner.x, z: owner.z };
+  io.emit('bossHit', { pid: owner.id, x: at.x, z: at.z, dmg: Math.round(dmg), armor, stage: b.stage });
+  bossState(owner);
+  return { hit: 'boss', killed: false, x: at.x, z: at.z, dmg: Math.round(dmg), stagger: now < b.staggerUntil, armor, bossHp: after };
+}
+
+function tickBosses() {
+  const now = nowMs();
+  for (const p of players.values()) {
+    const b = p.boss;
+    if (!b || p.state !== 'reeling' || !p.bobber) continue;
+    if (b.pending || now < b.nextMove || now < b.staggerUntil) continue;
+    const mv = b.def.moves[Math.floor(Math.random() * b.def.moves.length)];
+    b.pending = now + 900;
+    io.emit('bossMove', { pid: p.id, phase: 'warn', name: mv.name, kind: mv.kind, r: mv.r, x: p.bobber.x, z: p.bobber.z });
+    setTimeout(() => {
+      if (p.boss !== b || !p.bobber) return;
+      if (mv.dmg && mv.r) {
+        for (const q of players.values()) {
+          if (q.alive && Math.hypot(q.x - p.bobber.x, q.z - p.bobber.z) < mv.r) hurtPlayer(q, mv.dmg, { name: b.def.name, id: 'bs' + p.id, x: p.bobber.x, z: p.bobber.z }, 'thrashed');
+        }
+      }
+      io.emit('bossMove', { pid: p.id, phase: 'hit', name: mv.name, kind: mv.kind, r: mv.r, x: p.bobber.x, z: p.bobber.z });
+      b.pending = 0;
+      b.nextMove = nowMs() + rand(4200, 7000) * (b.hp / b.maxHp < 0.4 ? 0.75 : 1);
+    }, 900);
+  }
+}
+
 // ---------------------------------------------------------------- the frenzy
 //
 // The game's spine: the rod makes you money, the gun keeps you alive. Every few minutes the lake boils. Mutant fish
@@ -904,6 +1010,7 @@ function reelPayload(p) {
     tol: rod.tol,
     speed: rod.speed,
     heavy: p.fish.frac > 0.7 || rank >= 4,
+    boss: p.boss ? { name: p.boss.def.name, tier: p.boss.def.tier, hp: 1, landAt: p.boss.def.landAt, wearCap: p.boss.def.wearCap } : null,
     reel: { calm: h.weed, hard: h.whiskey, spike: h.crank },
   };
 }
@@ -916,6 +1023,7 @@ function clearTimers(p) {
 
 function resetLine(p) {
   clearTimers(p);
+  if (p.boss) { io.emit('bossEnd', { pid: p.id }); p.boss = null; }
   p.state = 'idle';
   p.bobber = null;
   p.fish = null;
@@ -930,14 +1038,16 @@ function scheduleBite(p, socket) {
   if (isGolden()) scale *= 0.75;
   if (frenzy.active) scale *= FRENZY.biteScale;
   else if (p.bobber && spooks.some((sp) => Math.hypot(sp.x - p.bobber.x, sp.z - p.bobber.z) < 24)) scale *= 2.2; // gunfire nearby
-  p.biteWindow = TIMING.biteWindow * (h.whiskey ? 0.7 : 1);
+  p.biteWindow = TIMING.biteWindow * (h.whiskey ? 0.7 : 1) * 1.15;
   const wait = Math.max(1200, rand(TIMING.biteMin, TIMING.biteMax) * scale * (p.fastBite ? 0.15 : 1));
   p.biteTimer = setTimeout(() => {
     if (p.state !== 'waiting') return;
     p.state = 'bite';
-    p.fish = rollCatch(p);
+    const boss = p.forceBoss ? rollBoss(p, p.forceBoss) : Math.random() < bossChance(p) ? rollBoss(p) : null;
+    p.forceBoss = null;
+    p.fish = boss || rollCatch(p);
     p.biteAt = nowMs();
-    socket.emit('bite');
+    socket.emit('bite', boss ? { boss: true } : undefined);
     p.windowTimer = setTimeout(() => {
       if (p.state !== 'bite') return;
       socket.emit('missed');
@@ -1106,6 +1216,7 @@ function firstHit(ox, oz, rot, cone, range, skipId) {
   players.forEach((o) => consider('player', o.id, o.x, o.z, o.alive));
   npcs.forEach((n) => consider('npc', n.id, n.x, n.z, n.alive));
   mutants.forEach((m) => consider('mutant', m.id, m.x, m.z, true, MUTANT[m.kind].radius));
+  players.forEach((o) => { if (o.boss && o.bobber && o.state === 'reeling') consider('boss', 'bs-' + o.id, o.bobber.x, o.bobber.z, true, o.boss.def.radius); });
   return best;
 }
 
@@ -1143,6 +1254,7 @@ function applyHit(hit, shooter, dmg = COMBAT.damage) {
     if (res === 'hit' && players.has(shooter.id)) feed(`${shooter.name} hit ${t.name}`, 'combat');
     return { hit: res === 'safe' ? 'safe' : 'player', killed: res === 'kill', x: hit.x, z: hit.z, dmg: res === 'safe' ? 0 : dmg };
   }
+  if (hit.kind === 'boss') return hitBoss(players.get(String(hit.id).slice(3)), dmg, shooter);
   if (hit.kind === 'mutant') {
     const m = mutants.find((x) => x.id === hit.id);
     if (!m) return { hit: null };
@@ -1587,6 +1699,7 @@ function snapshot() {
       id: p.id, name: p.name, color: p.color, look: p.look, skin: p.skin, x: r2(p.x), z: r2(p.z), rot: r2(p.rot), jy: r2(p.jy || 0), level: levelOf(p.xp),
       state: p.state, bobber: p.bobber, cash: p.cash, hp: Math.max(0, p.hp), alive: p.alive,
       guns: p.guns, ga: GUN_IDS.includes(p.held) ? p.att[p.held] : null, lz: !!(GUN_IDS.includes(p.held) && p.att[p.held] && p.att[p.held].laser), rod: p.rod, held: p.held || 'rod', boat: !!p.boat, bt: Math.max(0, p.boatTier), swim: !!p.swim, high: highFlags(p), caught: p.caught, best: p.best,
+      boss: p.boss ? { k: p.boss.kind, hp: Math.round((p.boss.hp / p.boss.maxHp) * 1000) / 1000, st: nowMs() < p.boss.staggerUntil ? 1 : 0, stage: p.boss.stage } : null,
     });
   }
   const standings = derby.active ? derbyStandings() : [];
@@ -1752,8 +1865,9 @@ function debugCommand(p, socket, text) {
     }
     return say(`${n} fish in the bag.`);
   }
+  if (cmd === 'boss') { p.forceBoss = BOSSES[args[0]] ? args[0] : 'snapjaw'; p.fastBite = true; return say(`Your next bite is ${BOSSES[p.forceBoss].name}.`); }
   if (cmd === 'fast') { p.fastBite = !p.fastBite; return say(p.fastBite ? 'Fast bites on.' : 'Fast bites off.'); }
-  return say('Commands: /cash N, /tp moss|shack|camp|dock, /hour H, /derby, /gear, /fast, /fish N, /frenzy, /boat, /sea, /channel');
+  return say('Commands: /cash N, /tp moss|shack|camp|dock, /hour H, /derby, /gear, /fast, /fish N, /boss ID, /frenzy, /boat, /sea, /channel');
 }
 
 // ---------------------------------------------------------------- sockets
@@ -1877,6 +1991,7 @@ io.on('connection', (socket) => {
       clearTimers(p);
       p.state = 'reeling';
       p.reelStart = nowMs();
+      if (p.fish && p.fish.bossDef) startBossFight(p, p.fish.bossDef);
       return reply({ result: 'hooked', ...reelPayload(p) });
     }
     if (p.state === 'waiting') {
@@ -1897,11 +2012,43 @@ io.on('connection', (socket) => {
     }
     const s = f.species;
     const where = p.bobber ? { ...p.bobber } : { x: p.x, z: p.z };
-    const rec = recordCatch(p, s, f.lbs, f.value, { hot: f.hot, rod: true });
+    let bossInfo = null;
+    if (p.boss) {
+      const b = p.boss;
+      if (b.hp > b.maxHp * b.def.landAt) { resetLine(p); return reply({ ok: false, msg: 'It was still too strong and shook the hook.' }); }
+      bossInfo = { def: b.def, hitBy: b.hitBy };
+    }
+    const rec = recordCatch(p, s, f.lbs, f.value, { hot: f.hot, rod: true, xpBonus: bossInfo ? 80 * bossInfo.def.tier : 0 });
+    if (bossInfo) {
+      // everyone who shot it shares in the take, by damage done
+      const total = [...bossInfo.hitBy.values()].reduce((x, y) => x + y, 0) || 1;
+      for (const [id, d] of bossInfo.hitBy) {
+        const q = players.get(id);
+        if (!q || q === p) continue;
+        const share = Math.round(f.value * 0.5 * (d / total));
+        q.cash += share;
+        q.earned += share;
+        q.xp += 30 * bossInfo.def.tier;
+        const sock = sockOf(id);
+        if (sock) sock.emit('bossShare', { share, pct: Math.round((d / total) * 100) });
+      }
+      io.emit('bossDown', { pid: p.id, kind: bossInfo.def.id, x: where.x, z: where.z });
+      for (let i = 0; i < 2 + bossInfo.def.tier; i++) spawnPickup(i % 2 ? 'heal' : 'ammo', i % 2 ? 30 : 24 + bossInfo.def.tier * 6, where.x + rand(-2, 2), where.z + rand(-2, 2));
+    }
     io.emit('caught', { id: p.id, sid: s.id, name: s.name, lbs: f.lbs, rarity: s.rarity, x: where.x, z: where.z });
     resetLine(p);
     storeProfile(p);
-    reply({ ok: true, id: s.id, name: s.name, rarity: s.rarity, lbs: f.lbs, journal: p.journal, ...rec });
+    reply({ ok: true, id: s.id, name: s.name, rarity: s.rarity, lbs: f.lbs, journal: p.journal, boss: !!bossInfo, ...rec });
+  });
+
+  // holding the line steady wears a boss down a little, but only so far: past its wear cap it takes real firepower
+  socket.on('bossWear', () => {
+    const b = p && p.boss;
+    if (!b || p.state !== 'reeling') return;
+    const now = nowMs();
+    if (now - b.lastWear < 800) return;
+    b.lastWear = now;
+    if (b.hp > b.maxHp * b.def.wearCap) { b.hp -= b.maxHp * 0.014; bossState(p); }
   });
 
   socket.on('lost', () => { if (p && p.state === 'reeling') resetLine(p); });
@@ -2172,7 +2319,7 @@ io.on('connection', (socket) => {
   socket.on('shoot', (body, ack) => {
     const reply = replyFn(ack);
     if (!p || !p.alive) return reply({ ok: false, msg: 'You cannot shoot right now.' });
-    if (p.state !== 'idle') return reply({ ok: false, msg: 'Reel in before you shoot.' });
+    if (p.state !== 'idle' && !p.boss) return reply({ ok: false, msg: 'Reel in before you shoot.' });
     const gunId = body && WORLD.guns[body.gun] ? body.gun : GUN_IDS.includes(p.held) ? p.held : null;
     if (!gunId || !p.guns[gunId]) return reply({ ok: false, msg: 'Buy a gun from Moss.' });
     const g = effGun(p, gunId);
@@ -2301,6 +2448,7 @@ setInterval(() => {
   tickHotspots();
   tickDerby();
   tickFrenzy(dt);
+  tickBosses();
   npcs.forEach((n) => tickNpc(n, dt));
   tickRespawns();
   collectPickups();

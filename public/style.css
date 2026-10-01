@@ -648,3 +648,8 @@ body.frenzyOn #haze { box-shadow: inset 0 0 180px rgba(160, 0, 20, .55); animati
   padding: 7px 16px; border-radius: 999px; background: rgba(90, 20, 0, .85); color: #FFE3C4; border: 2px solid #FF8A2A;
   font-weight: 600; animation: pulse .5s ease-in-out infinite alternate;
 }
+
+/* the kraken's ink */
+#ink { position: fixed; inset: 0; z-index: 3; pointer-events: none; opacity: 0; transition: opacity .3s;
+  background: radial-gradient(ellipse at 50% 60%, rgba(6, 0, 14, .96) 10%, rgba(20, 0, 30, .85) 45%, rgba(20, 0, 30, .3) 90%); }
+#ink.on { opacity: 1; }
