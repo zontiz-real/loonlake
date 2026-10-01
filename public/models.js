@@ -368,6 +368,8 @@ export async function loadModels(onProgress) {
       if (paint[mat.name]) mat.color.set(paint[mat.name]);
       if ('metalness' in mat) { mat.metalness = Math.min(mat.metalness, 0.2); mat.roughness = Math.max(mat.roughness, 0.6); }
       if (name.startsWith('boat')) { mat.roughness = 0.42; mat.metalness = 0.08; } // painted hulls have a lacquer shine
+      // the boat models are painted pure white, which blooms like a lamp; knock it back to a soft off-white
+      if (name.startsWith('boat_') && mat.map) mat.color.multiplyScalar(0.72);
       if (mat.name === 'Leaves' || mat.name === 'Rock') mat.flatShading = true;
       if (mat.name === 'Leaves') {
         // darker toward the bottom of the canopy, as if light struggles to get in there
@@ -445,5 +447,6 @@ const ARM_POSES = {
   rod: { R: [[-0.1, -0.85, 0.5], [0.05, -0.05, 1]] },
   drug: { R: [[-0.2, -0.85, 0.45], [0.15, 0.75, 0.65]] },
   rifle: { R: [[-0.3, -0.6, 0.72], [0.35, 0.05, 0.94]], L: [[0.3, -0.45, 0.84], [-0.5, 0.1, 0.86]] },
+  knife: { R: [[-0.3, -0.7, 0.65], [0.3, 0.1, 0.9]], L: [[0.3, -0.6, 0.7], [-0.4, 0.4, 0.75]] },
   fists: { R: [[-0.3, -0.72, 0.6], [0.3, 0.82, 0.48]], L: [[0.3, -0.72, 0.6], [-0.3, 0.82, 0.48]] },
 };

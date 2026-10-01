@@ -3,6 +3,7 @@ let ctx = null;
 let master = null;
 let ambienceGain = null;
 let water = null;
+let rainGain = null;
 let volume = 0.8;
 let stepAt = 0;
 let reelAt = 0;
@@ -161,6 +162,37 @@ export const sfx = {
     if (rarity === 'legendary' || rarity === 'epic') noise(0.6, 0.05, 6000, 0.6, 0.4, 'highpass');
   },
   coin() { tone(988, 0.07, 'square', 0.04); tone(1319, 0.2, 'square', 0.04, null, 0.07); },
+  // steady rain hiss that follows how hard it is raining (0 to 1)
+  rain(level) {
+    const audio = ac();
+    if (!audio) return;
+    if (!rainGain) {
+      if (level < 0.03) return;
+      const frames = audio.sampleRate * 2;
+      const buffer = audio.createBuffer(1, frames, audio.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < frames; i++) data[i] = Math.random() * 2 - 1;
+      const src = audio.createBufferSource();
+      src.buffer = buffer;
+      src.loop = true;
+      const band = audio.createBiquadFilter();
+      band.type = 'bandpass';
+      band.frequency.value = 3200;
+      band.Q.value = 0.35;
+      rainGain = audio.createGain();
+      rainGain.gain.value = 0;
+      src.connect(band);
+      band.connect(rainGain);
+      rainGain.connect(master);
+      src.start();
+    }
+    rainGain.gain.setTargetAtTime(level * 0.2, audio.currentTime, 0.7);
+  },
+  thunder(delay = 0) {
+    noise(3.2, 0.55, 150, 0.4, delay);
+    tone(52, 2.6, 'sawtooth', 0.12, 30, delay);
+    noise(1.4, 0.3, 90, 0.5, delay + 0.7);
+  },
   shot(kind) {
     if (kind === 'shotgun') { noise(0.34, 0.65, 160, 0.5); tone(90, 0.22, 'sawtooth', 0.16, 40); }
     else if (kind === 'smg') { noise(0.09, 0.35, 420, 0.6); tone(180, 0.06, 'square', 0.07, 90); }
@@ -170,6 +202,28 @@ export const sfx = {
     else if (kind === 'lmg') { noise(0.11, 0.42, 300, 0.55); tone(120, 0.07, 'square', 0.09, 60); }
     else if (kind === 'bow') { tone(520, 0.06, 'triangle', 0.08, 180); noise(0.05, 0.12, 900, 0.4); }
     else { noise(0.2, 0.5, 220, 0.5); tone(140, 0.12, 'sawtooth', 0.12, 60); }
+  },
+  // one-shot cues for the item animations (magazine clunks, knife flicks, shell loads)
+  cue(name, vol = 1) {
+    const v = Math.max(0.05, Math.min(1, vol));
+    switch (name) {
+      case 'magout': noise(0.09, 0.09 * v, 900, 1.2); tone(180, 0.06, 'square', 0.05 * v, 90); break;
+      case 'magin': tone(240, 0.05, 'square', 0.08 * v, 160); noise(0.06, 0.1 * v, 1400, 1); break;
+      case 'rack': noise(0.05, 0.1 * v, 2400, 1.5); tone(1200, 0.03, 'square', 0.05 * v, 700, 0.09); noise(0.05, 0.09 * v, 1800, 1.5, 0.1); break;
+      case 'open': tone(700, 0.04, 'square', 0.06 * v, 500); break;
+      case 'load': tone(520, 0.03, 'square', 0.06 * v, 400); tone(560, 0.03, 'square', 0.05 * v, 420, 0.07); break;
+      case 'close': tone(300, 0.06, 'square', 0.08 * v, 180); break;
+      case 'shell': tone(200, 0.05, 'triangle', 0.08 * v, 120); noise(0.05, 0.06 * v, 1200, 1); break;
+      case 'pump': noise(0.07, 0.11 * v, 1000, 1); tone(150, 0.08, 'square', 0.07 * v, 90, 0.1); noise(0.06, 0.1 * v, 1500, 1, 0.16); break;
+      case 'boltup': tone(900, 0.04, 'square', 0.06 * v, 600); break;
+      case 'boltdown': tone(500, 0.05, 'square', 0.08 * v, 240); noise(0.05, 0.08 * v, 1200, 1); break;
+      case 'draw': noise(0.12, 0.07 * v, 1800, 0.8); tone(360, 0.05, 'triangle', 0.04 * v, 260); break;
+      case 'handle': noise(0.08, 0.05 * v, 1500, 1); break;
+      case 'flick': noise(0.06, 0.09 * v, 3800, 2); tone(1900, 0.03, 'triangle', 0.04 * v, 1300); break;
+      case 'slash': noise(0.16, 0.13 * v, 3000, 1.6); tone(1500, 0.1, 'sawtooth', 0.02 * v, 700); break;
+      case 'stab': noise(0.12, 0.12 * v, 1200, 1); tone(240, 0.12, 'triangle', 0.08 * v, 110, 0.05); break;
+      default: break;
+    }
   },
   reload() { tone(300, 0.05, 'square', 0.06, 200); tone(420, 0.05, 'square', 0.06, 320, 0.32); tone(240, 0.08, 'square', 0.07, 200, 0.7); },
   distantShot(vol) { noise(0.25, 0.25 * vol, 160, 0.5); },

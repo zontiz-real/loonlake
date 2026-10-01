@@ -18,6 +18,7 @@ export const wave = (x, z, t) => {
 // water outside the lake: the channel south and the big water past the beach
 export const CHANNEL = { minX: -4.5, maxX: 4.5, minZ: -124, maxZ: -26 };
 export const OCEAN_Z = -118;
+export const LAKE_DEPTH = 2.6;
 export const nearWaterArea = (x, z, pad = 0) =>
   z < OCEAN_Z + 16 + pad || (Math.abs(x) < CHANNEL.maxX + 3 + pad && z < CHANNEL.maxZ && z > CHANNEL.minZ - 6);
 
@@ -30,12 +31,15 @@ export function groundHeight(x, z) {
     const s = k * k * (3 - 2 * k);
     h = s * (10 + 5 * Math.sin(x * 0.045 + 1.3) + 4 * Math.cos(z * 0.052) + 3 * Math.sin((x - z) * 0.09));
   }
+  // the lake is a bowl: the bed slopes from the sand at the shore down to a flat floor in the middle
+  const lakeBed = -LAKE_DEPTH * sstep(31, 17, Math.hypot(x, z));
   const ax = Math.abs(x);
   if (z < -24) {
     // hills roll down into a valley around the channel, then the channel cuts through
     if (z > -130) h *= sstep(4.5, 18, ax);
     if (z > CHANNEL.minZ - 2) h = h * sstep(4.5, 5.3, ax) + -2.2 * (1 - sstep(4.5, 5.3, ax));
   }
+  h = Math.min(h, lakeBed);
   // hills flatten into a beach, and the beach drops under the big water
   h *= sstep(-106, -92, z);
   if (z < -106) h = Math.min(h, -3 * sstep(-106, OCEAN_Z, z));
@@ -53,8 +57,8 @@ function gridLines(lo, hi, zones, coarse) {
   for (const [a, b, step] of zones) for (let v = Math.ceil(a / step) * step; v <= b; v += step) add(v);
   return [...set].sort((p, q) => p - q);
 }
-const GRID_X = gridLines(GROUND.x0, GROUND.x1, [[-14, 14, 0.5], [-44, 44, 1.5]], 4);
-const GRID_Z = gridLines(GROUND.z0, GROUND.z1, [[-135, -18, 1]], 4);
+const GRID_X = gridLines(GROUND.x0, GROUND.x1, [[-8, 8, 0.5], [-36, 36, 1], [-44, 44, 2]], 5);
+const GRID_Z = gridLines(GROUND.z0, GROUND.z1, [[-135, -18, 1.5], [-36, 36, 1]], 5);
 // a slice of the shared grid, lifted by `lift`
 function gridGeometry(x0, x1, z0, z1, lift, withUv) {
   const xs = GRID_X.filter((v) => v >= x0 - 1e-6 && v <= x1 + 1e-6);
@@ -336,7 +340,7 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
         float cB = 1.0 - abs(vnoise(vWorld.xz * 1.6 - vec2(uTime * 0.1, -uTime * 0.13)) * 2.0 - 1.0);
         col += uSunColor * pow(cA * cB, 4.0) * uLake * smoothstep(0.62, 0.96, r) * (1.0 - fres) * (1.0 - uNight) * 0.45;
         float twinkle = smoothstep(0.82, 1.0, vnoise(vWorld.xz * 5.5 + vec2(uTime * 1.6, uTime * 1.2)));
-        col += uSunColor * twinkle * pow(nh, 14.0) * 0.55;
+        col += uSunColor * twinkle * pow(nh, 22.0) * 0.4;
         col += uShallow * 0.1 * (1.0 - fres) * (1.0 - uNight * 0.8);
         float foam = uLake * smoothstep(0.93, 0.997, r) * (0.35 + 0.65 * vnoise(vWorld.xz * 1.8 + vec2(uTime * 0.5, -uTime * 0.35))) * (0.6 + 0.4 * sin(uTime * 1.6 + vWorld.x * 0.7 + vWorld.z * 0.4));
         if (uLake < 0.5) foam = smoothstep(0.55, 0.95, sin(vWorld.z * 0.12 + uTime * 0.8) * 0.5 + 0.5) * smoothstep(-126.0, -118.0, vWorld.z) * 0.6;
@@ -486,29 +490,30 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     const ground = new THREE.Mesh(groundGeo, groundMat);
     ground.receiveShadow = true;
     scene.add(ground);
-    flat(new THREE.Mesh(new THREE.RingGeometry(w.lakeRadius - 1.2, w.shoreRadius + 2.4, 128), new THREE.MeshStandardMaterial({ map: sand, roughness: 1 })), 0.02);
-    flat(new THREE.Mesh(new THREE.CircleGeometry(w.lakeRadius, 96), new THREE.MeshStandardMaterial({ color: 0x1A3A3E, roughness: 1 })), 0.015);
-    // The lakebed fades up to sand instead of ending in a hard ring, and the beach is damp where the waves reach.
-    // RingGeometry UVs span its outer radius, so a radial gradient on a square canvas lines up with real meters.
-    const ringFade = (inner, outer, stops) => {
-      const tex = canvasTex(256, 256, (g, cw) => {
-        const grd = g.createRadialGradient(cw / 2, cw / 2, 0, cw / 2, cw / 2, cw / 2);
-        for (const [m, c] of stops) grd.addColorStop(Math.min(1, m / outer), c);
-        g.fillStyle = grd;
-        g.fillRect(0, 0, cw, cw);
-      });
-      tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
-      const ring = new THREE.Mesh(
-        new THREE.RingGeometry(inner, outer, 128),
-        new THREE.MeshLambertMaterial({ map: tex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
-      );
-      ring.rotation.x = -Math.PI / 2;
-      ring.position.y = 0.022;
-      scene.add(ring);
-    };
-    const lr = w.lakeRadius;
-    ringFade(lr - 7, lr + 0.4, [[0, 'rgba(176,170,128,0)'], [lr - 7, 'rgba(176,170,128,0)'], [lr - 0.5, 'rgba(176,170,128,.8)'], [lr + 0.4, 'rgba(176,170,128,.8)']]);
-    ringFade(lr, lr + 3.4, [[0, 'rgba(0,0,0,0)'], [lr, 'rgba(92,74,48,.38)'], [lr + 1.4, 'rgba(92,74,48,.2)'], [lr + 3.4, 'rgba(92,74,48,0)']]);
+    // the sand and the lake bed are one sheet that follows the ground (a hair above it), tinted from
+    // dark and silty in the deep middle to pale sand at the shore
+    const bedGeo = new THREE.RingGeometry(0.01, w.shoreRadius + 2.4, 160, 40);
+    bedGeo.rotateX(-Math.PI / 2);
+    const bp = bedGeo.attributes.position;
+    const bcol = new Float32Array(bp.count * 3);
+    const deepC = new THREE.Color(0x2C4A4C);
+    const shallowC = new THREE.Color(0xB9A98A);
+    const tmpC = new THREE.Color();
+    for (let i = 0; i < bp.count; i++) {
+      const bx = bp.getX(i);
+      const bz = bp.getZ(i);
+      const r = Math.hypot(bx, bz);
+      bp.setY(i, groundHeight(bx, bz) + 0.05);
+      // dark and silty in the middle, warming to plain sand by the waterline, with no seam
+      const t = sstep(13, 30.2, r);
+      tmpC.copy(deepC).lerp(shallowC, Math.min(1, t * 1.6)).lerp(WHITE, sstep(26, 30.4, r));
+      bcol[i * 3] = tmpC.r; bcol[i * 3 + 1] = tmpC.g; bcol[i * 3 + 2] = tmpC.b;
+    }
+    bedGeo.setAttribute('color', new THREE.BufferAttribute(bcol, 3));
+    bedGeo.computeVertexNormals();
+    const bedMesh = new THREE.Mesh(bedGeo, new THREE.MeshStandardMaterial({ map: sand, vertexColors: true, roughness: 1 }));
+    bedMesh.receiveShadow = true;
+    scene.add(bedMesh);
 
     const waterGeo = new THREE.RingGeometry(0.01, w.lakeRadius, 140, 34);
     waterGeo.rotateX(-Math.PI / 2);
@@ -525,11 +530,11 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     deck.position.set((d.minX + d.maxX) / 2, DOCK_Y - 0.1, (d.minZ + d.maxZ) / 2);
     deck.castShadow = deck.receiveShadow = true;
     scene.add(deck);
-    const postGeo = new THREE.CylinderGeometry(0.12, 0.12, 1.4, 8);
+    const postGeo = new THREE.CylinderGeometry(0.12, 0.12, 3.7, 8);
     for (let z = d.minZ + 0.3; z < d.maxZ; z += 3) {
       for (const x of [d.minX + 0.15, d.maxX - 0.15]) {
         const post = new THREE.Mesh(postGeo, wood);
-        post.position.set(x, DOCK_Y - 0.5, z);
+        post.position.set(x, DOCK_Y - 1.75, z);
         post.castShadow = true;
         scene.add(post);
       }
@@ -644,7 +649,26 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     // benches around the fire
     [[-2.6, 0.4, 0.2], [2.6, 0.2, -0.2], [0, 2.7, Math.PI / 2]].forEach(([ox, oz, ry]) => {
       box(0.35, 0.35, 1.8, 0x5A3E28, f.x + ox, 0.18, f.z + oz, { ry });
-      colliders.push({ x: f.x + ox, z: f.z + oz, r: 0.6 });
+      colliders.push({ x: f.x + ox, z: f.z + oz, r: 0.6, h: 0.36 });
+    });
+
+    // a staircase of crates and some barrels to hop up: 0.6 m, 1.1 m, then 1.6 m
+    const crate = (x, z, h) => {
+      box(1.3, h, 1.3, 0x9A6B3A, x, h / 2, z);
+      box(1.36, 0.08, 1.36, 0x6E4A26, x, h - 0.04, z);
+      colliders.push({ x, z, r: 0.75, h });
+    };
+    const cx0 = camp.dealer.x + 10;
+    const cz0 = camp.dealer.z + 6;
+    crate(cx0, cz0, 0.6);
+    crate(cx0 + 1.7, cz0, 1.1);
+    crate(cx0 + 3.4, cz0, 1.6);
+    crate(cx0 + 1.7, cz0 + 1.8, 0.6);
+    [[cx0 - 1.2, cz0 + 2.2], [cx0 - 2.2, cz0 + 1.2]].forEach(([bx2, bz2]) => {
+      const b = kit.prop('barrel', 1.0);
+      b.position.set(bx2, 0, bz2);
+      scene.add(b);
+      colliders.push({ x: bx2, z: bz2, r: 0.5, h: 1.0 });
     });
 
     // forest, instanced
@@ -1057,7 +1081,9 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
       const k = i % 3;
       if (rockCount[k] >= 16) continue;
       tint.setHSL(0.08, 0.05, 0.75 + rnd() * 0.35);
-      place(rockSets[k], rockCount[k]++, x, z, 0.5 + rnd() * 1.4, rnd() * 6.3, { Rock: tint });
+      const rs = 0.5 + rnd() * 1.4;
+      place(rockSets[k], rockCount[k]++, x, z, rs, rnd() * 6.3, { Rock: tint });
+      colliders.push({ x, z, r: 0.5 * rs + 0.1, h: 0.62 * rs });
     }
     rockSets.forEach((set, k) => { set.finish(rockCount[k]); scene.add(...set.meshes); });
 
@@ -1113,7 +1139,7 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     beached.position.set(Math.sin(ba) * (w.shoreRadius + 0.6), 0.05, Math.cos(ba) * (w.shoreRadius + 0.6));
     beached.rotation.set(0.05, ba + 0.4, 0.12);
     scene.add(beached);
-    colliders.push({ x: beached.position.x, z: beached.position.z, r: 1.2 });
+    colliders.push({ x: beached.position.x, z: beached.position.z, r: 1.2, h: 0.55 });
 
     // the old well and a split-rail fence behind camp
     const well = kit.prop('well', 2.3);
@@ -1178,7 +1204,10 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
   }
 
   // focus is where the player (or the camera) is, so shadows stay sharp there
-  function update(dt, t, hour, focus, events) {
+  const STORM = { top: new THREE.Color(0x5B6772), hor: new THREE.Color(0x8C979E), fog: new THREE.Color(0x7B878E) };
+  const tmpStorm = new THREE.Color();
+  // wet: 0 (clear) to 1 (storm) dims the sun, greys the sky, and pulls the fog in
+  function update(dt, t, hour, focus, events, wet = 0) {
     day.hour = hour;
     day.golden = isGoldenHour(hour);
     lerpKeys(hour);
@@ -1193,9 +1222,10 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     sun.position.copy(focus).addScaledVector(tmpV, 70);
     sun.target.position.copy(focus);
     sun.color.copy(day.light);
-    sun.intensity = day.sun;
-    hemi.intensity = day.hemi;
+    sun.intensity = day.sun * (1 - 0.72 * wet);
+    hemi.intensity = day.hemi * (1 - 0.34 * wet);
     hemi.color.copy(day.top).lerp(day.horizon, 0.5).lerp(WHITE, 0.35);
+    if (wet > 0.01) hemi.color.lerp(tmpStorm.copy(STORM.hor).multiplyScalar(1 - day.night * 0.85), wet * 0.7);
     fill.intensity = 0.4 * (1 - day.night * 0.6);
 
     skyU.uTop.value.copy(day.top);
@@ -1206,6 +1236,13 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     skyU.uSunColor.value.copy(day.light);
     skyU.uCover.value = 0.5 + 0.06 * Math.sin(t * 0.004); // the sky slowly clears and clouds over
     skyU.uCloud.value.copy(day.horizon).lerp(WHITE, 0.72 * (1 - day.night)).multiplyScalar(1 - day.night * 0.62);
+    const dark = 1 - day.night * 0.85;
+    if (wet > 0.01) {
+      skyU.uTop.value.lerp(tmpStorm.copy(STORM.top).multiplyScalar(dark), wet * 0.85);
+      skyU.uHorizon.value.lerp(tmpStorm.copy(STORM.hor).multiplyScalar(dark), wet * 0.85);
+      skyU.uCloud.value.lerp(tmpStorm.copy(STORM.fog).multiplyScalar(dark * 0.9), wet * 0.8);
+      skyU.uGlow.value *= 1 - wet * 0.95;
+    }
     grassTime.value = t;
     sky.position.copy(camera.position);
     stars.position.copy(camera.position);
@@ -1215,6 +1252,9 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     moon.visible = moonDir.y > -0.05;
     moon.material.opacity = 0.35 + day.night * 0.65;
     scene.fog.color.copy(day.fog);
+    if (wet > 0.01) scene.fog.color.lerp(tmpStorm.copy(STORM.fog).multiplyScalar(dark), wet * 0.85);
+    scene.fog.near = 75 * (1 - 0.55 * wet);
+    scene.fog.far = 210 * (1 - 0.5 * wet);
 
     waterU.uTime.value = t;
     waterU.uSky.value.copy(day.horizon).lerp(day.top, 0.35);
@@ -1223,8 +1263,10 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     waterU.uDeep.value.copy(WATER_DAY.deep).lerp(WATER_NIGHT.deep, day.night);
     waterU.uShallow.value.copy(WATER_DAY.shallow).lerp(WATER_NIGHT.shallow, day.night);
     waterU.uSunDir.value.copy(daytime ? sunDir : moonDir);
-    waterU.uSunColor.value.copy(day.light).multiplyScalar(daytime ? Math.min(1, day.sun / 2) : 0.35);
-    waterU.uFogColor.value.copy(day.fog);
+    waterU.uSunColor.value.copy(day.light).multiplyScalar((daytime ? Math.min(1, day.sun / 2) : 0.35) * (1 - 0.85 * wet));
+    waterU.uFogColor.value.copy(scene.fog.color);
+    waterU.uFogNear.value = scene.fog.near;
+    waterU.uFogFar.value = scene.fog.far;
     waterU.uNight.value = day.night;
 
     if (pineMat) { pineMat.emissiveIntensity = 0.6 * (1 - day.night * 0.9); pineMat.color.setScalar(1 - day.night * 0.6); }
@@ -1294,9 +1336,12 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     }
   }
 
-  // push a circle of radius pr out of any collider
-  function collide(pos, pr) {
+  // push a circle of radius pr out of any collider. Low ones (with a top height h) only block you if your
+  // feet are more than a step below their top, so you can hop up onto them.
+  const STEP = 0.3;
+  function collide(pos, pr, feet = 0) {
     for (const c of colliders) {
+      if (c.h !== undefined && feet >= c.h - STEP) continue;
       const dx = pos.x - c.x;
       const dz = pos.z - c.z;
       const min = c.r + pr;
@@ -1309,11 +1354,22 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     }
   }
 
+  // how high the ground is under (x, z) for someone whose feet are at height `feet`: the top of the tallest
+  // low object they are over and can stand on, or 0
+  function platformAt(x, z, feet) {
+    let top = 0;
+    for (const c of colliders) {
+      if (c.h === undefined || c.h <= top || feet < c.h - STEP) continue;
+      if ((x - c.x) ** 2 + (z - c.z) ** 2 <= c.r * c.r) top = c.h;
+    }
+    return top;
+  }
+
   // true if a point sits inside a building, so the camera can pull in
   function blocked(x, y, z) {
     for (const b of solids) if (y < b.h && (x - b.x) ** 2 + (z - b.z) ** 2 < b.r * b.r) return true;
     return false;
   }
 
-  return { build, update, collide, blocked, day, firePos, loons, sunDir };
+  return { build, update, collide, platformAt, blocked, day, firePos, loons, sunDir };
 }

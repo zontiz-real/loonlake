@@ -8,7 +8,7 @@ Fish for cash, climb through better rods and bait, fill out your journal, and wi
 
 **The rod makes you money. The gun keeps you alive.**
 
-Fishing is how you find the big money, and guns are how you collect it. Any fish you shoot is a real catch (journal, XP, quests, bag), but shots cost value: extra hits and overkill spoil the fish, so a clean single shot pays nearly full price and a shotgun blast pays little. Only the rod can win the derby and earn the first-catch-on-a-rod star. And now and then something huge takes your hook: a **boss**. You can't just reel it in. You shoot it to break its armor and wear it down while you keep tension on the line, then land it for the biggest payouts in the game.
+Fishing is how you find the big money, and guns are how you collect it. Any fish you shoot is a real catch (journal, XP, quests, bag), but shots cost value: extra hits and overkill spoil the fish, so a clean single shot pays nearly full price and a shotgun blast pays little. Only the rod counts in tournaments and earns the first-catch-on-a-rod star. And now and then something huge takes your hook: a **boss**. You can't just reel it in. You shoot it to break its armor and wear it down while you keep tension on the line, then land it for the biggest payouts in the game.
 
 Every seven minutes the lake boils. During a **frenzy** mutant fish leap out of the water and hunt anyone near it, and near the end a boss, The Old One, surfaces. It's also the richest time to fish: bites come almost at once and every catch is worth two and a half times as much. The best money in the game is reeling in fish while something is trying to eat you, so fish with a friend who guards you, or do both yourself.
 
@@ -38,14 +38,17 @@ Every seven minutes the lake boils. During a **frenzy** mutant fish leap out of 
   - **The Kraken** (carbon pro, ocean only): tentacle slams, blots the screen with ink. About $4,000.
 - **Hot spots.** Bubbling patches that drift around the lake. They bite faster and hold bigger fish. They show as gold rings on the minimap.
 - **Day and night.** A full day takes 12 minutes.
-- **Derbies.** Every 6 minutes a derby runs for 2.5 minutes. The heaviest fish takes the pot, which grows with each player who weighs in. If you log off, you still get paid.
+- **Weather.** Clear spells, clouds, rain and thunderstorms roll through on their own. Rain streaks down and dimples the water, the sky greys and the fog closes in, storms bring forked lightning bolts (with thunder that arrives after the flash, later the farther away it struck), and fish bite sooner in the wet. The clock line shows the weather. Debug: `/weather clear|cloudy|rain|storm`.
+- **Tournaments.** Every 6 minutes a 2.5 minute tournament runs, and the goal rotates: heaviest single fish, most fish, most total weight, or rarest catch. The pot grows with each player who weighs in and is split 60/25/15 between the top three (plus bonus XP). A live board shows the top three and your own rank, and you still get paid if you log off. Junk and treasure don't count.
+- **Inventory.** Press I or Tab (or click the bag slot). The Bag tab shows every fish as its own card with rarity, weight and value: sort them, lock the ones you want to keep, sell or release them one at a time, or sell everything unlocked at once. The Gear tab shows your rod, bait, bag, boat and every gun with its level and attachments, and lets you pick one up. The Items tab holds your pocket items and spare ammo. Moss sells bigger bags (16, 24, 36, then 50 fish).
+- **Selling.** Walk up to Moss and press E, or sell from the inventory; at Moss you get full price. Anywhere else, use the inventory or the Market app on your phone (P): a buyer comes to you and keeps 30%. Locked fish are never sold in bulk.
 - **Bags.** You start with a wicker creel that holds 16 fish. Moss sells a tackle backpack (24, $150), a cooler (36, $450), a live well (50, $1,100) and an ice chest (75, $2,400).
-- **Inventory (I or Tab).** Every fish in your bag as a card, colored by rarity. Sort by value, weight, rarity or newest; pick fish and sell them (full price at Moss, 70% anywhere else) or release them. It also picks which four guns ride on your hotbar, so the hotbar stays one row however many guns you own, and shows your pockets.
 - **Catch streaks.** Land fish back to back, each within 90 seconds of the last, and every fish sells for 10% more per catch in the streak, up to double. The streak and its timer show under your bag.
-- **Selling.** Walk up to Moss and press E; the prompt shows what your bag is worth. Tapping the bag slot near Moss sells in one tap. Anywhere else, press P and use the Market app on your phone: a buyer comes to you and keeps 30%.
 - **Your phone (P).** Market, a map of the whole area, your boat, messages, a camera that saves a clean screenshot, the journal, and settings.
 - **Boats.** Buy one from Moss ($180) or rent for $15 a trip at the end of the dock. Press E at any shoreline to launch, and E near land to step ashore. You can fish and shoot from the boat.
 - **The big water.** A channel runs south from the lake past a lighthouse out to open water with real swells. Out there you'll find cisco, whitefish, coho salmon, lake trout, a shipwreck bell, and, if the old-timers are right, Pressie.
+- **Knife.** Slot 2, free for everyone. Left click slashes (the swings alternate sides), right click is a slow heavy stab, and hitting someone from behind is a backstab that does more than double damage. It draws with a CS:GO-style flip, and **Y** plays a long inspect twirl.
+- **Animations.** Reloads are per gun: the glock and rifles drop the magazine and rack the slide, the revolver opens its cylinder, the shotgun loads shells and pumps, the bolt guns cycle the bolt. Guns and the knife have draw animations and recoil kick, and **Y** inspects your gun. Other players see all of it. The body animates too: swim strokes, rowing, cranking the reel, holding up a catch, drinking or smoking, flinching when hurt, a falling death, and a sprint lean.
 - **Fists.** Slot 1, or press F anywhere to throw a punch. Punches alternate hands, and every third punch in a quick combo is a haymaker that does double damage and shoves the target back. Anglers you punch fight back.
 - **Knife.** Everyone carries a hunting knife in slot 2. A slash does 38 damage; stab someone from behind and it's 95.
 - **More guns.** Besides the revolver, Glock, AR pistol, SMG, Draco, shotgun, hunting rifle and sniper, Moss sells a Desert Eagle (52 a shot), a double-barrel (two shells of 10 pellets), an M4 carbine (accurate full auto, takes a drum and laser), an M249 LMG (a 100-round belt, long reload), and a crossbow (75 a bolt, one at a time, and silent: nobody hears it).
@@ -53,6 +56,8 @@ Every seven minutes the lake boils. During a **frenzy** mutant fish leap out of 
 - **Combat.** The rifle hits fish, NPC anglers, and players. Lake fish take two rounds; a wounded one bolts and trails blood. Hits spray blood and a fine mist, droplets leave splats where they land, badly hurt people drip a trail, bodies ragdoll when they drop, and blood pools where they fall. In first person, getting hit or cutting someone up close puts blood on your screen. Turn blood off under Help (H). Hold right click to aim over the shoulder for a tighter shot. Camp is a no-shooting zone for players, and you get 5 seconds of protection after spawning. NPCs fight back when they're shot at, when they catch you with a gun near gunfire, or when you hurt someone in front of them.
 - **Saves.** Cash, gear, bag, ammo, pocket, and journal save per browser (a token in localStorage) to `data/players.json`.
 - **Chat.** Press Enter. Messages also show as speech bubbles.
+- **Friends.** The Friends app on your phone (P) lists everyone on the lake with their level, catches and distance. Whisper them a private message, or gift $25 (guests can't trade).
+- **Emotes.** Z wave, X dance, C cheer, V sit, B point, N laugh. Other players see them and get a speech bubble. Moving, jumping, fishing or fighting ends an emote.
 - **Phones.** Use the left thumb stick to move and drag on the right side to look. A Punch or Shoot button appears for whatever you're holding, with light aim assist. Tapping Cast switches to your rod automatically. Phones vibrate on bites and hits (Android). Tap Full screen on Android, or on iPhone use Share, then Add to Home Screen, to play without the browser bars. The layout works in portrait and landscape.
 - **Characters.** Pick one of four realistic rigged people (the default), with smooth-shaded skin and hair, glossy eyes and a soft sky-colored rim light, or the Roblox-style Blocky avatar (rounded blocks, hair and a smiley face, with a jump pose and a landing squash). Choose a skin tone and shirt color too. Your choices save.
 - **Graphics.** Hills around the lake, wind-blown grass, birches, maples with some fall color, bushes, low-poly rocks, a red barn for the shack, rowboats at the dock, a well and fence at camp, animated fish, sunlit cumulus clouds with high cirrus above them, and glow on firelight, lanterns, and sun glints. Help (H) has a Graphics setting. Auto picks High on computers and Low on phones.
@@ -64,7 +69,7 @@ WASD to walk, Shift to run. Click the game to lock the mouse, Esc to release it.
 
 - **Left click** uses whatever is in your hands: cast and reel with the rod, fire a gun (hold for full auto on the SMG), punch with fists, or take a drug.
 - **Right click** (hold) zooms. With a gun out it aims down the sights, and you can still shoot while zoomed.
-- **Space** jumps (about 1.5 m, hold it longer for a higher hop). Movement is Roblox-style: you reach full speed almost instantly, stop just as fast, and steer freely in the air. Hold Space to keep hopping, and each hop you land right into adds 7% more speed, with no cap, until you miss a hop.
+- **Space** jumps (about 1.5 m, hold it longer for a higher hop). Jumping is real: hop onto rocks, the fire benches, barrels, the beached boat, and the crate staircase behind Moss's stand (0.6 m, 1.1 m, then 1.6 m). Low things you can step onto; taller ones you have to jump. Walk off an edge and you fall. Movement is Roblox-style: you reach full speed almost instantly, stop just as fast, and steer freely in the air. Hold Space to keep hopping, and each hop you land right into adds speed (up to +35%) until you stop.
 - **R** reloads. Guns have magazines and share a pool of spare rounds.
 - **1-0, -, =** or the **scroll wheel** switch hotbar items: fists, knife, rod, bait, then whichever guns you own, then the drugs and your bag. Ctrl + wheel moves the camera.
 - **Q** reels your line in. **E** talks to Moss, sits at the shack, or launches/leaves your boat. **F** throws a punch.
@@ -78,7 +83,7 @@ Start with `npm run debug` (works in any terminal; or set `LOON_DEBUG=1` yoursel
 - `/cash 500` adds cash.
 - `/tp moss`, `/tp shack`, `/tp camp`, `/tp dock`, or `/tp x z` moves you.
 - `/hour 22` sets the clock.
-- `/derby` starts or ends a derby now.
+- `/derby` starts or ends a tournament now, and `/tmode 1-4` picks the next one (heaviest, most fish, total weight, rarest).
 - `/gear` maxes your rod, bait, and rifle.
 - `/fish 20` puts 20 random fish in your bag.
 - `/boss snapjaw` (or `piranha`, `gator`, `eel`, `leviathan`, `kraken`) makes your next bite that boss.

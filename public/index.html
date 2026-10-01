@@ -24,6 +24,7 @@
   <div id="game"></div>
   <div id="haze"></div>
   <div id="hurtFlash"></div>
+  <div id="lightning"></div>
   <div id="floaters"></div>
 
   <!-- join: a paper fishing license -->
@@ -179,32 +180,15 @@
     </div>
   </section>
 
+  <section id="inventory" class="sheet inv" hidden aria-label="Inventory">
+    <header><h2>Inventory</h2><p id="invCash"></p><button type="button" class="x" data-close aria-label="Close">×</button></header>
+    <nav id="invTabs" role="tablist"><button type="button" role="tab" data-tab="bag">Bag</button><button type="button" role="tab" data-tab="gear">Gear</button><button type="button" role="tab" data-tab="items">Items</button></nav>
+    <div id="invBody"></div>
+  </section>
+
   <section id="journal" class="sheet" hidden aria-label="Journal">
     <header><h2>Journal</h2><p id="journalCount"></p><button type="button" class="x" data-close aria-label="Close">×</button></header>
     <div id="journalGrid"></div>
-  </section>
-
-  <section id="inventory" class="sheet" hidden aria-label="Inventory">
-    <header><h2>Inventory</h2><p id="invSummary"></p><button type="button" class="x" data-close aria-label="Close">×</button></header>
-    <div class="invBar">
-      <div class="row" id="invSort" role="group" aria-label="Sort fish by">
-        <span class="lbl">Sort</span>
-        <button type="button" data-sort="value">Value</button>
-        <button type="button" data-sort="lbs">Weight</button>
-        <button type="button" data-sort="rarity">Rarity</button>
-        <button type="button" data-sort="new">Newest</button>
-      </div>
-      <div class="row">
-        <button type="button" id="invAll">Select all</button>
-        <button type="button" id="invRelease">Release</button>
-        <button type="button" id="invSell" class="primary">Sell</button>
-      </div>
-    </div>
-    <div id="invGrid"></div>
-    <h3>Guns on your hotbar <small id="invLoadoutNote"></small></h3>
-    <div id="invLoadout" class="row"></div>
-    <h3>Pockets</h3>
-    <p id="invPocket"></p>
   </section>
 
   <section id="help" class="sheet" hidden aria-label="Controls and settings">
@@ -214,17 +198,20 @@
         <div><dt>WASD</dt><dd>Walk. Hold Shift to run.</dd></div>
         <div><dt>Mouse</dt><dd>Look. Click the game first to lock the mouse, Esc to let go.</dd></div>
         <div><dt>Left click</dt><dd>Uses whatever is in your hands: cast and reel with the rod, shoot a gun (hold for full auto), throw punches, slash with the knife, take a drug.</dd></div>
-        <div><dt>Right click</dt><dd>Hold to zoom. With a gun out it aims down the sights, and you can still shoot.</dd></div>
-        <div><dt>Space</dt><dd>Jump. Hold it to keep hopping: every hop you land into adds speed. Let go early for a short hop.</dd></div>
-        <div><dt>R</dt><dd>Reload your gun.</dd></div>
+        <div><dt>Right click</dt><dd>Hold to zoom. With a gun out it aims down the sights, and you can still shoot. With the knife out it is a heavy stab (from behind it is a backstab).</dd></div>
+        <div><dt>Space</dt><dd>Jump onto rocks, barrels and crates. Hold it to keep hopping: every hop you land into adds speed. Let go early for a short hop.</dd></div>
+        <div><dt>R</dt><dd>Reload your gun. Every gun has its own reload: magazines drop and slap in, the revolver dumps its cylinder, the shotgun loads shell by shell, the bolt guns cycle.</dd></div>
+        <div><dt>Y</dt><dd>Inspect what you are holding. Other players see it too.</dd></div>
         <div><dt>A and D</dt><dd>While reeling, pull against the fish to ease the line.</dd></div>
         <div><dt>Q</dt><dd>Reel your line back in.</dd></div>
         <div><dt>E</dt><dd>Talk to Moss, sit down at the shack, launch your boat at the water, or step ashore.</dd></div>
-        <div><dt>1–0, -, =</dt><dd>Hold that hotbar item (the scroll wheel flips through them; Ctrl + wheel moves the camera). 1 is your fists, 2 your knife (stab from behind for a near-certain kill), guns fill in as you buy them, then the drugs and your bag. Walk into the water to swim.</dd></div>
+        <div><dt>1–0, -, =</dt><dd>Hold that hotbar item (the scroll wheel flips through them; Ctrl + wheel moves the camera). 1 is your fists, 2 your knife, then the rod and bait, guns fill in as you buy them, then the drugs and your bag. Walk into the water to swim.</dd></div>
         <div><dt>F</dt><dd>Throw a punch. Every third punch in a row is a haymaker.</dd></div>
         <div><dt>V</dt><dd>Switch between first and third person.</dd></div>
         <div><dt>Frenzy</dt><dd>When the lake boils, fish bite fast and pay x2.5, and mutants come out of the water. Shoot them, and when one staggers (belly up, glowing orange) finish it with the knife for health and double loot. The campfire keeps them away. Shooting ordinary fish only gets you scraps.</dd></div>
         <div><dt>P</dt><dd>Your phone: sell fish anywhere, the map, your boat, messages, and the camera.</dd></div>
+        <div><dt>Z X C V B N</dt><dd>Emotes: wave, dance, cheer, sit, point, laugh. Moving ends them.</dd></div>
+        <div><dt>I or Tab</dt><dd>Inventory: your fish (sell, lock, or release each one), your gear, and your items.</dd></div>
         <div><dt>J</dt><dd>Journal of every species you've landed.</dd></div>
         <div><dt>I or Tab</dt><dd>Inventory: every fish in your bag (sort, sell or release them one by one), which guns sit on your hotbar, and your pockets.</dd></div>
         <div><dt>Enter</dt><dd>Chat.</dd></div>
@@ -267,6 +254,7 @@
             <button type="button" data-app="map"><i style="--c:#2C8A86"><svg viewBox="0 0 24 24"><circle cx="12" cy="11" r="6" fill="none" stroke="#fff" stroke-width="2"/><path d="M12 17v4" stroke="#fff" stroke-width="2"/></svg></i>Map</button>
             <button type="button" data-app="boat"><i style="--c:#3E7CC9"><svg viewBox="0 0 24 24"><path d="M3 14h18l-3 5H6z" fill="#fff"/><path d="M12 4v9M12 5l6 7h-6" fill="#fff" stroke="#fff" stroke-width="1.5"/></svg></i>Boat</button>
             <button type="button" data-app="messages"><i style="--c:#4E9A48"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z" fill="#fff"/></svg></i>Messages</button>
+            <button type="button" data-app="friends"><i style="--c:#7A5AC2"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2" fill="#fff"/><circle cx="17" cy="9" r="2.6" fill="#fff"/><path d="M3 19c0-3.6 2.8-6 6-6s6 2.4 6 6zM15 19c0-2 1-3.6 2.6-4.4 2 .3 3.4 1.9 3.4 4.4z" fill="#fff"/></svg></i>Friends</button>
             <button type="button" data-app="camera"><i style="--c:#1D2A25"><svg viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="12" rx="2" fill="#fff"/><circle cx="12" cy="13" r="3.5" fill="#1D2A25"/><rect x="8" y="4" width="8" height="3" fill="#fff"/></svg></i>Camera</button>
             <button type="button" data-app="journal"><i style="--c:#D8961B"><svg viewBox="0 0 24 24"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z" fill="#fff"/></svg></i>Journal</button>
             <button type="button" data-app="settings"><i style="--c:#6A7A72"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2" fill="none" stroke="#fff" stroke-width="2.4"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/></svg></i>Settings</button>
@@ -293,6 +281,11 @@
           <h3>Messages</h3>
           <ul id="msgList"></ul>
           <form id="msgForm"><input id="msgInput" maxlength="140" placeholder="Text the lake" autocomplete="off"><button type="submit" class="primary">Send</button></form>
+        </div>
+        <div class="app" data-screen="friends">
+          <h3>Who is on the lake</h3>
+          <ul id="friendList"></ul>
+          <p class="small" id="friendNote"></p>
         </div>
         <div class="app" data-screen="camera">
           <h3>Camera</h3>
