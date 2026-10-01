@@ -58,6 +58,7 @@
     <canvas id="minimap" width="264" height="264" aria-label="Map"></canvas>
     <div id="stats">
       <p id="clockLine"></p>
+      <p id="placeLine"></p>
       <div id="hpBar" role="meter" aria-label="Health" aria-valuemin="0" aria-valuemax="100"><i></i></div>
       <p id="cashLine"></p>
       <p id="levelLine"></p>
@@ -67,6 +68,9 @@
       <ul id="questList" aria-label="Quests"></ul>
     </div>
   </aside>
+
+  <canvas id="compass" width="960" height="84" hidden aria-hidden="true"></canvas>
+  <div id="waypoint" hidden><i></i><b id="wpName"></b><span id="wpDist"></span></div>
 
   <div id="derby" hidden></div>
 
@@ -266,7 +270,8 @@
         </div>
         <div class="app" data-screen="map">
           <canvas id="bigMap" width="480" height="640" aria-label="Map of the lake"></canvas>
-          <p class="small">Gold rings are hot spots. The channel south runs out to the big water.</p>
+          <div id="placeList" class="chips" aria-label="Places"></div>
+          <p class="small">Tap a place to set a waypoint: a marker shows on your compass and in the world. Gold rings are hot spots. The channel south runs out to the big water.</p>
         </div>
         <div class="app" data-screen="boat">
           <h3>Your boat</h3>

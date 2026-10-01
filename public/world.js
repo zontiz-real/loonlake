@@ -341,6 +341,13 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
 
   // ---------- roads: ribbons laid on the ground, sampled so trees, grass and rocks keep off them
   const roads = [];
+  // named spots for the compass, maps and signs (the camp's own are added from the server's world data)
+  const places = [
+    { id: 'stop', name: 'Road Stop', x: 49, z: 50 },
+    { id: 'cabin', name: 'Old Cabin', x: -49, z: 50 },
+    { id: 'ramp', name: 'Boat ramp', x: -33.5, z: 0 },
+    { id: 'channel', name: 'Channel', x: 10.5, z: -48 },
+  ];
   const PLAZA = { x: -1, z: 43.5, r: 8 };
   const roadPts = [];
   const nearRoad = (x, z, pad = 0) => {
@@ -459,6 +466,8 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     scene.add(ground);
     flat(new THREE.Mesh(new THREE.RingGeometry(w.lakeRadius - 1.2, w.shoreRadius + 2.4, 128), new THREE.MeshStandardMaterial({ map: sand, roughness: 1 })), 0.02);
     flat(new THREE.Mesh(new THREE.CircleGeometry(w.lakeRadius, 96), new THREE.MeshStandardMaterial({ color: 0x1A3A3E, roughness: 1 })), 0.015);
+    places.unshift({ id: 'camp', name: 'Camp', x: w.camp.fire.x, z: w.camp.fire.z }, { id: 'dock', name: 'Dock', x: 0, z: w.dock.minZ + 1.5 });
+    places.push({ id: 'moss', name: "Moss's stand", x: w.camp.dealer.x, z: w.camp.dealer.z }, { id: 'shack', name: 'The Shack', x: w.camp.shack.x, z: w.camp.shack.z });
     buildRoads(w, kit);
 
     const waterGeo = new THREE.RingGeometry(0.01, w.lakeRadius, 140, 34);
@@ -487,10 +496,8 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     }
     lantern(d.maxX - 0.2, 1.2, d.minZ + 0.4, false);
     lantern(d.minX + 0.2, 1.2, d.minZ + 0.4, false);
-    const sign = makeLabel('Loon Lake', { bg: 'rgba(92, 58, 30, .92)', fg: '#F6E7BE', height: 0.62 });
-    sign.position.set(2.8, 2.1, d.maxZ + 1.2);
-    scene.add(sign);
-    box(0.12, 1.8, 0.12, 0x4A3322, 2.8, 0.9, d.maxZ + 1.2);
+    box(0.12, 2.0, 0.12, 0x4A3322, 2.8, 1.0, d.maxZ + 1.2);
+    board(2.8, 1.8, d.maxZ + 1.2, 'Loon Lake', null);
 
     // camp
     const camp = w.camp;
@@ -1017,12 +1024,64 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     roads.push({ pts: line, width });
   }
 
-  function signpost(x, z, labels) {
-    box(0.14, 2.3, 0.14, 0x4A3322, x, 1.15, z);
-    labels.forEach((t, i) => {
-      const s = makeLabel(t, { bg: 'rgba(92, 58, 30, .92)', fg: '#F6E7BE', height: 0.5 });
-      s.position.set(x, 2.55 + i * 0.52, z);
-      scene.add(s);
+  // a painted wooden board; `to` is where it points (it ends in an arrow tip), or null for a plain board
+  const boardWood = new THREE.MeshStandardMaterial({ color: 0x6B4A2E, roughness: 0.9 });
+  const boardCache = new Map();
+  function boardFace(text, sub) {
+    const key = text + '|' + sub;
+    if (boardCache.has(key)) return boardCache.get(key);
+    const tex = canvasTex(512, 128, (g, cw, ch) => {
+      g.fillStyle = '#6B4A2E';
+      g.fillRect(0, 0, cw, ch);
+      const r = mulberry32(text.length * 31 + 3);
+      for (let y = 4; y < ch; y += 8) { g.strokeStyle = `rgba(40, 24, 12, ${0.16 + r() * 0.16})`; g.beginPath(); g.moveTo(0, y + r() * 3); g.bezierCurveTo(cw * 0.3, y + r() * 4, cw * 0.65, y - r() * 4, cw, y + r() * 3); g.stroke(); }
+      g.strokeStyle = '#3A2616'; g.lineWidth = 6; g.strokeRect(5, 5, cw - 10, ch - 10);
+      g.fillStyle = '#F6E7BE';
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      let size = sub ? 60 : 72;
+      g.font = `700 ${size}px Fredoka, system-ui, sans-serif`;
+      while (g.measureText(text).width > cw - 60 && size > 28) { size -= 4; g.font = `700 ${size}px Fredoka, system-ui, sans-serif`; }
+      g.fillText(text, cw / 2, sub ? ch * 0.4 : ch / 2);
+      if (sub) { g.fillStyle = '#D9C493'; g.font = '600 34px Fredoka, system-ui, sans-serif'; g.fillText(sub, cw / 2, ch * 0.78); }
+    });
+    tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+    const m = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9 });
+    boardCache.set(key, m);
+    return m;
+  }
+  function board(x, y, z, text, to, sub = '') {
+    const w = 1.5;
+    const g = new THREE.Group();
+    const face = boardFace(text, sub);
+    const plank = new THREE.Mesh(new THREE.BoxGeometry(w, 0.36, 0.05), [boardWood, boardWood, boardWood, boardWood, face, face]);
+    plank.castShadow = true;
+    g.add(plank);
+    if (to) {
+      const tip = new THREE.Mesh(new THREE.BoxGeometry(0.255, 0.255, 0.05), boardWood);
+      tip.rotation.z = Math.PI / 4;
+      tip.position.x = w / 2;
+      tip.castShadow = true;
+      g.add(tip);
+    }
+    // the board hangs off the post and points along `to`; a plain board faces the road
+    const dx = to ? to[0] - x : 0;
+    const dz = to ? to[1] - z : 1;
+    const len = Math.hypot(dx, dz) || 1;
+    const ang = to ? Math.atan2(-dz / len, dx / len) : 0;
+    g.rotation.y = ang;
+    const ox = to ? (dx / len) * (w / 2 - 0.12) : 0;
+    const oz = to ? (dz / len) * (w / 2 - 0.12) : 0;
+    g.position.set(x + ox, y, z + oz);
+    scene.add(g);
+    return g;
+  }
+  // boards: [text, [x, z] it points to or null]; the distance from the post is painted under the name
+  function signpost(x, z, boards) {
+    box(0.14, 2.5, 0.14, 0x4A3322, x, 1.25, z);
+    boards.forEach(([text, to], i) => {
+      const sub = to ? `${Math.round(Math.hypot(to[0] - x, to[1] - z))} m` : '';
+      board(x, 2.3 - i * 0.42, z, text, to, sub);
     });
     colliders.push({ x, z, r: 0.2 });
   }
@@ -1055,14 +1114,15 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     scene.add(plaza);
 
     // signposts at the junctions and where the road runs out
-    signpost(-3.8, 34.6, ['Camp', 'Dock']);
-    signpost(...at(R - 2.8, 0.78), ['Road Stop']);
-    signpost(...at(R - 2.8, -0.78), ['Old Cabin']);
-    signpost(-(R - 2.8), 3.4, ['Boat ramp']);
-    signpost(...at(R - 2.8, Math.PI - gap - 0.12), ['Channel']);
-    signpost(...at(R - 2.8, -(Math.PI - gap - 0.12)), ['Channel']);
-    signpost(12.4, -56.5, ['Boats only', 'past here']);
-    signpost(-12.4, -56.5, ['Boats only', 'past here']);
+    const P = Object.fromEntries(places.map((q) => [q.id, [q.x, q.z]]));
+    signpost(-3.8, 34.6, [['Camp', P.camp], ['Dock', P.dock], ['Road Stop', P.stop], ['Old Cabin', P.cabin]]);
+    signpost(...at(R - 2.8, 0.78), [['Road Stop', P.stop], ['Camp', P.camp]]);
+    signpost(...at(R - 2.8, -0.78), [['Old Cabin', P.cabin], ['Camp', P.camp]]);
+    signpost(-(R - 2.8), 3.4, [['Boat ramp', P.ramp], ['Camp', P.camp]]);
+    signpost(...at(R - 2.8, Math.PI - gap - 0.12), [['Channel', P.channel], ['Camp', P.camp]]);
+    signpost(...at(R - 2.8, -(Math.PI - gap - 0.12)), [['Channel', P.channel], ['Camp', P.camp]]);
+    signpost(12.4, -56.5, [['Boats only', null], ['past here', null]]);
+    signpost(-12.4, -56.5, [['Boats only', null], ['past here', null]]);
     // lamps round the ring that glow at night
     for (let k = 0; k < 8; k++) {
       const [lx, lz] = at(R + 2.7, -2.6 + k * 0.75);
@@ -1087,7 +1147,7 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
         box(6.4, 0.45, 5.2, 0x3A2418, cx, 3.35, cz, { ry });
       }
       colliders.push({ x: cx, z: cz, r: 3.2 });
-      signpost(cx + fx * 6.2 + fz * 3.2, cz + fz * 6.2 - fx * 3.2, [title]);
+      signpost(cx + fx * 6.2 + fz * 3.2, cz + fz * 6.2 - fx * 3.2, [[title, null]]);
       extras(cx, cz, fx, fz);
     };
     const barrel = (x, z) => {
@@ -1449,5 +1509,5 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     return false;
   }
 
-  return { build, update, collide, platformAt, blocked, day, firePos, loons, sunDir, roads, plaza: PLAZA };
+  return { build, update, collide, platformAt, blocked, day, firePos, loons, sunDir, roads, plaza: PLAZA, places, onRoad: (x, z) => nearRoad(x, z, 0) };
 }

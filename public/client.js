@@ -232,7 +232,7 @@ let aimRot = 0;
 let castInfo = { valid: false, hot: false };
 let camLift = 0;
 const cam = { yaw: 0, pitch: 0.34, dist: TUNING.camDist, aim: 0, shake: 0 };
-if (window.__loon) Object.assign(window.__loon, { useDrug: (n) => useDrug(n), useFreeze: (n, p) => { const v = me(); if (!v) return; if (n == null) { v.useFreeze = null; v.useAnim = null; } else { v.useAnim = { name: n, t0: audioT }; v.useFreeze = p; } }, cam, vel, weather, playerViews: () => views.values(), fishState: () => ({ phase, power, reel: reel ? { tension: reel.tension, progress: reel.progress, dir: reel.dir } : null }), phys: () => ({ jumpY, jumpV, grounded }), fishViews: () => fishViews, makeFish, species: () => speciesById, hold: (h) => { held = h; hotbarSig = ''; }, data: () => myData, me: () => views.get(myId), npcViews: () => npcViews, ragStep: (id, n) => { const v = npcViews.get(id) || views.get(id); for (let i = 0; v && v.rag && i < n; i++) stepRagdoll(v, 1 / 60, audioT); } });
+if (window.__loon) Object.assign(window.__loon, { setWaypoint: (id) => setWaypoint(id), useDrug: (n) => useDrug(n), useFreeze: (n, p) => { const v = me(); if (!v) return; if (n == null) { v.useFreeze = null; v.useAnim = null; } else { v.useAnim = { name: n, t0: audioT }; v.useFreeze = p; } }, cam, vel, weather, playerViews: () => views.values(), fishState: () => ({ phase, power, reel: reel ? { tension: reel.tension, progress: reel.progress, dir: reel.dir } : null }), phys: () => ({ jumpY, jumpV, grounded }), fishViews: () => fishViews, makeFish, species: () => speciesById, hold: (h) => { held = h; hotbarSig = ''; }, data: () => myData, me: () => views.get(myId), npcViews: () => npcViews, ragStep: (id, n) => { const v = npcViews.get(id) || views.get(id); for (let i = 0; v && v.rag && i < n; i++) stepRagdoll(v, 1 / 60, audioT); } });
 let pointerLocked = false;
 // automated browsers can't hold pointer lock (it also blocks screenshots), so they use drag-to-look
 let noLock = isTouch || !!navigator.webdriver;
@@ -1897,6 +1897,7 @@ function openPhone(app) {
 }
 function showApp(app) {
   phoneApp = app;
+  if (app === 'map') renderPlaceChips();
   document.querySelectorAll('#phone .app').forEach((el) => el.classList.toggle('on', el.dataset.screen === app));
   renderPhone();
 }
@@ -2044,16 +2045,46 @@ function drawBigMap() {
   label(W.camp.shack.x, W.camp.shack.z, 'S', '#6B4A32');
   const [fx0, fz0] = map(13, -109);
   g.fillStyle = '#F2EFE6'; g.fillRect(fx0 - 4, fz0 - 9, 8, 18);
+  g.textAlign = 'center';
+  for (const q of world.places) {
+    const [x, z] = map(q.x, q.z);
+    g.fillStyle = PLACE_COLOR[q.id] || '#EEF2EC'; g.strokeStyle = '#102220'; g.lineWidth = 3;
+    g.beginPath(); g.arc(x, z, 9, 0, Math.PI * 2); g.fill(); g.stroke();
+    g.font = '600 15px Fredoka, system-ui, sans-serif';
+    g.lineWidth = 4; g.strokeStyle = 'rgba(16, 34, 30, .85)'; g.strokeText(q.name, x, z - 16);
+    g.fillStyle = '#EEF2EC'; g.fillText(q.name, x, z - 16);
+  }
+  if (waypoint) {
+    const [x, z] = map(waypoint.x, waypoint.z);
+    g.strokeStyle = '#F2B134'; g.lineWidth = 4;
+    g.beginPath(); g.arc(x, z, 17, 0, Math.PI * 2); g.stroke();
+    g.beginPath(); g.moveTo(x, z - 24); g.lineTo(x + 9, z - 34); g.lineTo(x - 9, z - 34); g.closePath(); g.fillStyle = '#F2B134'; g.fill();
+  }
   for (const v of views.values()) {
     if (v.data.alive === false) continue;
     const [x, z] = map(v.x, v.z);
     g.fillStyle = v.data.color; g.strokeStyle = '#102220'; g.lineWidth = 2.5;
     g.beginPath(); g.arc(x, z, v.data.id === myId ? 8 : 6, 0, Math.PI * 2); g.fill(); g.stroke();
   }
+  { const [mx, mz] = map(m.x, m.z); const a = m.rot; g.fillStyle = '#fff'; g.strokeStyle = '#102220'; g.lineWidth = 2; g.beginPath(); g.moveTo(mx + Math.sin(a) * 18, mz - Math.cos(a) * 18); g.lineTo(mx + Math.sin(a + 2.5) * 9, mz - Math.cos(a + 2.5) * 9); g.lineTo(mx + Math.sin(a - 2.5) * 9, mz - Math.cos(a - 2.5) * 9); g.closePath(); g.fill(); g.stroke(); }
   g.fillStyle = '#EEF2EC'; g.font = '600 14px Fredoka, sans-serif'; g.textAlign = 'center';
   g.fillText('The big water', c.width / 2, map(0, -140)[1]);
   g.fillText('N', c.width / 2, 16);
 }
+$('bigMap').addEventListener('click', (e) => {
+  if (!W) return;
+  const c = $('bigMap');
+  const r = c.getBoundingClientRect();
+  const S = c.width / 140;
+  const x = ((e.clientX - r.left) * (c.width / r.width)) / S - 70;
+  const z = 60 - ((e.clientY - r.top) * (c.height / r.height)) / S;
+  let best = null;
+  for (const q of world.places) {
+    const d = Math.hypot(q.x - x, q.z - z);
+    if (!best || d < best.d) best = { q, d };
+  }
+  if (best && best.d < 9) { sfx.ui(); setWaypoint(best.q.id); }
+});
 $('phone').addEventListener('click', (e) => {
   const btn = e.target.closest('button');
   if (!btn) return;
@@ -4045,7 +4076,9 @@ function renderVitals() {
   const clockText = fmtHour(clockHour) + (golden ? ', golden hour' : night ? ', night' : '') + (wxName ? `, ${wxName}` : '');
   const status = d.alive === false ? '' : d.safe ? 'Safe in camp. No shooting.' : '';
   const questSig = (d.quests || []).map((q) => `${q.type}${q.n}/${q.goal}`).join(',');
-  const sig = [clockText, d.hp, d.cash, d.bag.n, d.bag.value, status, d.xp, d.level, questSig].join('|');
+  const here = me();
+  const zone = here && W && d.alive !== false ? zoneName(here) : '';
+  const sig = [clockText, d.hp, d.cash, d.bag.n, d.bag.value, status, d.xp, d.level, questSig, zone].join('|');
   if (sig === vitalsSig) return;
   vitalsSig = sig;
   $('clockLine').innerHTML = night ? MOON_SVG : SUN_SVG;
@@ -4054,6 +4087,7 @@ function renderVitals() {
   hp.firstElementChild.style.width = `${clamp(d.hp, 0, 100)}%`;
   hp.classList.toggle('low', d.hp <= 34);
   hp.setAttribute('aria-valuenow', String(d.hp));
+  $('placeLine').textContent = zone;
   $('cashLine').textContent = `$${d.cash}`;
   $('bagLine').textContent = d.bag.n ? `${d.bag.n} fish in the bag, $${d.bag.value}` : 'Bag is empty';
   $('statusLine').textContent = status;
@@ -4079,6 +4113,144 @@ const QUEST_TEXT = {
 
 const mm = $('minimap');
 const mmCtx = mm.getContext('2d');
+// ================================================================ navigation: places, waypoint, compass
+
+let waypoint = null; // { id, name, x, z }
+function setWaypoint(id) {
+  if (!id || (waypoint && waypoint.id === id)) { waypoint = null; $('waypoint').hidden = true; flashPrompt('Waypoint cleared', '', 900); renderPlaceChips(); return; }
+  const q = world.places.find((x) => x.id === id);
+  if (!q) return;
+  waypoint = { ...q };
+  flashPrompt(`Waypoint: ${q.name}`, '', 1200);
+  renderPlaceChips();
+}
+function renderPlaceChips() {
+  const box = $('placeList');
+  if (!box || !world.places.length) return;
+  box.replaceChildren();
+  for (const q of world.places) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = q.name;
+    b.className = waypoint && waypoint.id === q.id ? 'on' : '';
+    b.addEventListener('click', () => setWaypoint(q.id));
+    box.append(b);
+  }
+  if (waypoint) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = 'Clear';
+    b.addEventListener('click', () => setWaypoint(null));
+    box.append(b);
+  }
+}
+// where you are, in words
+function zoneName(m) {
+  let best = null;
+  for (const q of world.places) {
+    const d = Math.hypot(q.x - m.x, q.z - m.z);
+    if (!best || d < best.d) best = { q, d };
+  }
+  if (inChannel(m.x, m.z, 0)) return 'In the channel';
+  if (m.z < W.ocean.maxZ + 6) return 'On the big water';
+  if (inWater(m.x, m.z) && !onDock(m.x, m.z)) return 'On the lake';
+  if (onDock(m.x, m.z)) return 'On the dock';
+  if (best && best.d < 9) return `At ${best.q.name}`;
+  if (best && best.d < 24) return `Near ${best.q.name}`;
+  if (world.onRoad(m.x, m.z)) return 'On the road';
+  if (Math.hypot(m.x, m.z) < W.shoreRadius + 6) return 'Lake shore';
+  return 'In the woods';
+}
+const cmp = $('compass');
+const cmpCtx = cmp.getContext('2d');
+const PLACE_COLOR = { camp: '#F2B134', dock: '#6FC3D8', moss: '#E0553F', shack: '#C99A6B', stop: '#9ED08A', cabin: '#C99A6B', ramp: '#6FC3D8', channel: '#6FC3D8' };
+function drawCompass(m) {
+  if (!m || !W) { cmp.hidden = true; return; }
+  cmp.hidden = false;
+  const g = cmpCtx;
+  const CW = cmp.width;
+  const CH = cmp.height;
+  const bearing = cam.yaw + Math.PI; // the way you are looking, clockwise from north (+z)
+  const span = 1.3; // radians shown either side
+  const X = (a) => CW / 2 + (angleDiff(a, bearing) / span) * (CW / 2);
+  g.clearRect(0, 0, CW, CH);
+  // tick marks every 5 degrees, longer every 15 and 45
+  g.strokeStyle = 'rgba(238, 242, 236, .85)';
+  g.fillStyle = '#EEF2EC';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  const names = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  for (let deg = 0; deg < 360; deg += 5) {
+    const a = (deg * Math.PI) / 180;
+    const x = X(a);
+    if (x < -10 || x > CW + 10) continue;
+    const major = deg % 45 === 0;
+    const mid = deg % 15 === 0;
+    g.lineWidth = major ? 3 : 2;
+    g.beginPath(); g.moveTo(x, 8); g.lineTo(x, major ? 26 : mid ? 20 : 15); g.stroke();
+    if (major) {
+      g.font = `700 ${deg % 90 === 0 ? 30 : 22}px Fredoka, system-ui, sans-serif`;
+      g.fillStyle = deg === 0 ? '#F2B134' : '#EEF2EC';
+      g.fillText(names[deg / 45], x, 44);
+    } else if (mid) {
+      g.font = '600 16px Fredoka, system-ui, sans-serif';
+      g.fillStyle = 'rgba(238, 242, 236, .65)';
+      g.fillText(String(deg), x, 38);
+    }
+  }
+  // the heading and a pointer
+  const deg = Math.round(((bearing * 180) / Math.PI + 360) % 360);
+  g.fillStyle = '#EEF2EC';
+  g.beginPath(); g.moveTo(CW / 2 - 8, 0); g.lineTo(CW / 2 + 8, 0); g.lineTo(CW / 2, 10); g.closePath(); g.fill();
+  g.font = '700 22px Fredoka, system-ui, sans-serif';
+  g.fillText(`${deg}°`, CW / 2, 66);
+  // places inside the window, and the waypoint (clamped to the edge when it is off to the side)
+  for (const q of world.places) {
+    const a = Math.atan2(q.x - m.x, q.z - m.z);
+    if (Math.abs(angleDiff(a, bearing)) > span) continue;
+    const x = X(a);
+    const d = Math.hypot(q.x - m.x, q.z - m.z);
+    if (d < 3) continue;
+    g.fillStyle = PLACE_COLOR[q.id] || '#EEF2EC';
+    g.beginPath(); g.moveTo(x, 50); g.lineTo(x + 8, 58); g.lineTo(x, 66); g.lineTo(x - 8, 58); g.closePath(); g.fill();
+    g.strokeStyle = 'rgba(8, 18, 16, .8)'; g.lineWidth = 2; g.stroke();
+    g.font = '600 15px Fredoka, system-ui, sans-serif';
+    g.fillStyle = '#EEF2EC';
+    g.fillText(q.name, x, 77);
+  }
+  if (waypoint) {
+    const a = Math.atan2(waypoint.x - m.x, waypoint.z - m.z);
+    const diff = angleDiff(a, bearing);
+    const x = clamp(X(a), 22, CW - 22);
+    const d = Math.round(Math.hypot(waypoint.x - m.x, waypoint.z - m.z));
+    g.fillStyle = '#F2B134';
+    g.strokeStyle = '#fff';
+    g.lineWidth = 3;
+    g.beginPath(); g.moveTo(x, 2); g.lineTo(x + 11, 14); g.lineTo(x, 26); g.lineTo(x - 11, 14); g.closePath(); g.fill(); g.stroke();
+    g.font = '700 16px Fredoka, system-ui, sans-serif';
+    g.fillStyle = '#F2B134';
+    g.fillText(`${d} m`, x, 38);
+    if (Math.abs(diff) > span) { g.fillStyle = '#fff'; g.fillText(diff > 0 ? '▶' : '◀', x + (diff > 0 ? -22 : 22), 14); }
+  }
+}
+const wpEl = $('waypoint');
+const wpV = new THREE.Vector3();
+function updateWaypoint(m) {
+  if (!waypoint || !m || !W) { wpEl.hidden = true; return; }
+  const d = Math.hypot(waypoint.x - m.x, waypoint.z - m.z);
+  if (d < 4) { flashPrompt(`Arrived at ${waypoint.name}`, 'good', 1800); sfx.pickup(); waypoint = null; wpEl.hidden = true; renderPlaceChips(); return; }
+  wpV.set(waypoint.x, 2.6, waypoint.z).project(camera);
+  let px = wpV.x;
+  let py = wpV.y;
+  if (wpV.z > 1) { px = -px; py = -py; if (Math.abs(px) < 0.5) px = px < 0 ? -1 : 1; } // behind you: pin to the nearer side edge
+  px = clamp(px, -0.93, 0.93);
+  py = clamp(py, -0.82, 0.86);
+  wpEl.hidden = false;
+  wpEl.style.transform = `translate(${((px + 1) / 2) * innerWidth}px, ${((1 - py) / 2) * innerHeight}px) translate(-50%, -50%)`;
+  $('wpName').textContent = waypoint.name;
+  $('wpDist').textContent = `${Math.round(d)} m`;
+}
+
 function drawMinimap(t) {
   const m = me();
   if (!m || !W) return;
@@ -4184,6 +4356,28 @@ function drawMinimap(t) {
     g.strokeStyle = '#102220';
     g.lineWidth = 2.5;
     g.beginPath(); g.arc(x, z, 6, 0, Math.PI * 2); g.fill(); g.stroke();
+  }
+  g.font = '700 13px Fredoka, system-ui, sans-serif';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  for (const q of world.places) {
+    const [x, z] = map(q.x, q.z);
+    if (Math.hypot(x - R, z - R) > R - 10) continue;
+    g.fillStyle = PLACE_COLOR[q.id] || '#EEF2EC';
+    g.strokeStyle = '#102220';
+    g.lineWidth = 2;
+    g.beginPath(); g.arc(x, z, 7, 0, Math.PI * 2); g.fill(); g.stroke();
+    g.fillStyle = '#102220';
+    g.fillText(q.name[0], x, z + 0.5);
+  }
+  if (waypoint) {
+    let [x, z] = map(waypoint.x, waypoint.z);
+    const off = Math.hypot(x - R, z - R);
+    if (off > R - 14) { x = R + ((x - R) / off) * (R - 14); z = R + ((z - R) / off) * (R - 14); }
+    g.fillStyle = '#F2B134';
+    g.strokeStyle = '#fff';
+    g.lineWidth = 3;
+    g.beginPath(); g.moveTo(x, z - 10); g.lineTo(x + 8, z); g.lineTo(x, z + 10); g.lineTo(x - 8, z); g.closePath(); g.fill(); g.stroke();
   }
   if (world.day.night > 0) {
     g.fillStyle = `rgba(8, 16, 40, ${world.day.night * 0.35})`;
@@ -4315,6 +4509,7 @@ function updateHud(dt, t) {
     $('deathText').textContent = `${$('death').dataset.lost} Back on the shore in ${Math.ceil(left / 1000)}.`;
   }
 
+  { const nm = myId && alive() ? me() : null; drawCompass(nm); updateWaypoint(nm); }
   slowT -= dt;
   if (slowT > 0) return;
   slowT = 0.12;

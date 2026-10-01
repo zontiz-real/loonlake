@@ -138,7 +138,7 @@ input {
 
 /* ---------- derby banner ---------- */
 #derby {
-  position: fixed; top: calc(14px + var(--safe-t)); left: 50%; transform: translateX(-50%);
+  position: fixed; top: calc(58px + var(--safe-t)); left: 50%; transform: translateX(-50%);
   padding: 8px 18px 9px; border-radius: 999px; z-index: 5; text-align: center; white-space: nowrap;
   background: #7A2616; color: #FFEBD9; border: 2px solid var(--brass);
   box-shadow: 0 8px 22px rgba(8, 18, 16, .35); font-size: .95rem;
@@ -662,3 +662,23 @@ body.touch #stats { max-width: min(170px, calc(100vw - 260px)); }
 body.touch #statusLine, body.touch #bagLine { white-space: normal; font-size: .82rem; }
 #derby { left: max(486px, calc(50% - 150px)); width: min(300px, calc(100vw - 486px - 250px)); }
 body.touch #derby { left: calc(12px + var(--safe-l)); width: min(250px, 62vw); }
+
+/* ---------- compass, waypoint, places ---------- */
+#compass {
+  position: fixed; top: calc(8px + var(--safe-t)); left: 50%; transform: translateX(-50%); width: min(480px, 54vw); height: auto; aspect-ratio: 960 / 84;
+  z-index: 4; pointer-events: none;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 14%, #000 86%, transparent); mask-image: linear-gradient(90deg, transparent, #000 14%, #000 86%, transparent);
+  filter: drop-shadow(0 1px 3px rgba(8, 18, 16, .7));
+}
+#compass[hidden] { display: none; }
+#waypoint { position: fixed; left: 0; top: 0; z-index: 4; pointer-events: none; display: grid; justify-items: center; gap: 1px; will-change: transform; text-shadow: 0 1px 4px rgba(8, 18, 16, .9); }
+#waypoint[hidden] { display: none; }
+#waypoint i { width: 16px; height: 16px; background: var(--brass); border: 2px solid #fff; transform: rotate(45deg); box-shadow: 0 0 10px rgba(242, 177, 52, .7); }
+#waypoint b { font-size: .8rem; font-weight: 600; color: #fff; }
+#waypoint span { font-size: .72rem; color: var(--brass); font-variant-numeric: tabular-nums; }
+#placeLine { font-size: .82rem; color: var(--brass); margin-top: -2px; }
+#placeLine:empty { display: none; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.chips button { font: inherit; font-size: .8rem; padding: 6px 10px; border-radius: 999px; border: 1px solid var(--line); background: rgba(236, 242, 234, .1); color: inherit; cursor: pointer; }
+.chips button.on { background: var(--brass); color: #1D2A25; border-color: var(--brass); font-weight: 600; }
+body.photo #compass, body.photo #waypoint { visibility: hidden; }
