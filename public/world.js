@@ -1086,6 +1086,116 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     colliders.push({ x, z, r: 0.2 });
   }
 
+  // ---------- big signs up in the air, so places can be found from far off
+  const banners = [];
+  const bannerTex = new Map();
+  function bannerFace(text, color) {
+    const key = text + color;
+    if (bannerTex.has(key)) return bannerTex.get(key);
+    const tex = canvasTex(256, 448, (g, cw, ch) => {
+      g.clearRect(0, 0, cw, ch);
+      const base = new THREE.Color(color);
+      const dark = base.clone().multiplyScalar(0.55).getStyle();
+      g.fillStyle = color;
+      g.beginPath(); g.moveTo(0, 0); g.lineTo(cw, 0); g.lineTo(cw, ch); g.lineTo(cw / 2, ch - 70); g.lineTo(0, ch); g.closePath(); g.fill();
+      g.lineWidth = 12; g.strokeStyle = dark; g.stroke();
+      g.strokeStyle = 'rgba(255,255,255,.55)'; g.lineWidth = 4;
+      g.beginPath(); g.moveTo(22, 22); g.lineTo(cw - 22, 22); g.lineTo(cw - 22, ch - 118); g.lineTo(cw / 2, ch - 92); g.lineTo(22, ch - 118); g.closePath(); g.stroke();
+      // a round badge with the first letter
+      g.fillStyle = dark; g.beginPath(); g.arc(cw / 2, 92, 52, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#FFF6DC'; g.font = '700 74px Fredoka, system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillText(text[0], cw / 2, 96);
+      // the name, one word to a line, shrunk to fit
+      const words = text.split(' ');
+      let size = 64;
+      g.font = `700 ${size}px Fredoka, system-ui, sans-serif`;
+      while (words.some((wd) => g.measureText(wd.toUpperCase()).width > cw - 60) && size > 26) { size -= 4; g.font = `700 ${size}px Fredoka, system-ui, sans-serif`; }
+      g.fillStyle = '#FFF6DC';
+      words.forEach((wd, i) => g.fillText(wd.toUpperCase(), cw / 2, 190 + i * (size + 8)));
+    });
+    tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+    const m = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.85, alphaTest: 0.5, side: THREE.FrontSide });
+    bannerTex.set(key, m);
+    return m;
+  }
+  function banner(x, z, text, color, h = 9, bw = 2.2) {
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.16, h, 8), new THREE.MeshStandardMaterial({ color: 0x3A2A1C, roughness: 0.9 }));
+    pole.position.set(x, h / 2, z);
+    pole.castShadow = true;
+    scene.add(pole);
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.5, 0.5, 8), new THREE.MeshStandardMaterial({ color: 0x7A7770, roughness: 1, flatShading: true }));
+    base.position.set(x, 0.25, z);
+    scene.add(base);
+    colliders.push({ x, z, r: 0.45 });
+    // a lamp on the top that glows at night
+    const lampMat = new THREE.MeshStandardMaterial({ color: 0x3A2E20, emissive: 0xFFB45C, emissiveIntensity: 0.2 });
+    emissives.push(lampMat);
+    const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.2, 10, 8), lampMat);
+    lamp.position.set(x, h + 0.25, z);
+    scene.add(lamp);
+    // the banner swings round the pole like a vane, and reads the same from both sides
+    const bh = bw * 1.85;
+    const pivot = new THREE.Group();
+    pivot.position.set(x, h - 0.3, z);
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(bw + 0.3, 0.1, 0.1), new THREE.MeshStandardMaterial({ color: 0x3A2A1C }));
+    arm.position.x = bw / 2 + 0.05;
+    pivot.add(arm);
+    const face = bannerFace(text, color);
+    for (const side of [1, -1]) {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(bw, bh), face);
+      m.position.set(bw / 2 + 0.1, -bh / 2 - 0.05, 0.03 * side);
+      if (side < 0) m.rotation.y = Math.PI;
+      m.castShadow = true;
+      pivot.add(m);
+    }
+    scene.add(pivot);
+    banners.push({ pivot, base: Math.random() * 6, phase: Math.random() * 6.28 });
+  }
+  // a wooden gate across a road with a board hanging from it
+  function archway(x, z, dx, dz, text, sub) {
+    const len = Math.hypot(dx, dz) || 1;
+    const ux = dx / len;
+    const uz = dz / len;
+    const sx = -uz; // across the road
+    const sz = ux;
+    const wood = new THREE.MeshStandardMaterial({ color: 0x4A3322, roughness: 0.9 });
+    const ang = Math.atan2(sx, sz);
+    const H = 5.2;
+    const half = 2.7;
+    for (const sd of [1, -1]) {
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.26, H, 0.26), wood);
+      post.position.set(x + sx * half * sd, H / 2, z + sz * half * sd);
+      post.castShadow = true;
+      scene.add(post);
+      colliders.push({ x: x + sx * half * sd, z: z + sz * half * sd, r: 0.3 });
+    }
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(half * 2 + 0.8, 0.3, 0.3), wood);
+    beam.position.set(x, H, z);
+    beam.rotation.y = ang - Math.PI / 2;
+    beam.castShadow = true;
+    scene.add(beam);
+    // the board hangs from the beam on two chains, facing both ways along the road
+    const face = boardFace(text, sub);
+    const boardM = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.95, 0.07), [boardWood, boardWood, boardWood, boardWood, face, face]);
+    boardM.position.set(x, H - 0.95, z);
+    boardM.rotation.y = ang - Math.PI / 2;
+    boardM.castShadow = true;
+    scene.add(boardM);
+    for (const sd of [1, -1]) {
+      const chain = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.5, 4), new THREE.MeshStandardMaterial({ color: 0x1D1D1D }));
+      chain.position.set(x + sx * 1.4 * sd, H - 0.45, z + sz * 1.4 * sd);
+      scene.add(chain);
+    }
+    // a lantern on each post top
+    for (const sd of [1, -1]) {
+      const lm = new THREE.MeshStandardMaterial({ color: 0x3A2E20, emissive: 0xFFB45C, emissiveIntensity: 0.2 });
+      emissives.push(lm);
+      const lampM = new THREE.Mesh(new THREE.SphereGeometry(0.17, 8, 6), lm);
+      lampM.position.set(x + sx * half * sd, H + 0.3, z + sz * half * sd);
+      scene.add(lampM);
+    }
+  }
+
   function buildRoads(w, kit) {
     const ruts = new THREE.MeshStandardMaterial({ map: dirtTexture(true), roughness: 1, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
     const flatDirt = new THREE.MeshStandardMaterial({ map: dirtTexture(false), roughness: 1, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
@@ -1123,6 +1233,22 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     signpost(...at(R - 2.8, -(Math.PI - gap - 0.12)), [['Channel', P.channel], ['Camp', P.camp]]);
     signpost(12.4, -56.5, [['Boats only', null], ['past here', null]]);
     signpost(-12.4, -56.5, [['Boats only', null], ['past here', null]]);
+    // tall banners over every named place, and gates over the roads that lead to them
+    const bn = (id, color, h, dx = 0, dz = 0, bw) => { const q = places.find((p) => p.id === id); if (q) banner(q.x + dx, q.z + dz, q.name, color, h, bw); };
+    bn('camp', '#D9962B', 10, 6.5, 3.5, 2.4);
+    bn('dock', '#2B8FA8', 8, -2.6, 2, 2);
+    bn('stop', '#4E9A44', 10, -3.5, -4, 2.4);
+    bn('cabin', '#8A5A32', 10, 3.5, -4, 2.4);
+    bn('ramp', '#2B8FA8', 7, -3.4, -3.6, 1.9);
+    bn('channel', '#2B8FA8', 8, 3.6, -8, 2);
+    bn('moss', '#B83A2A', 7, 3.2, 3.4, 1.9);
+    bn('shack', '#7A4A8A', 7, -3.6, 3.4, 1.9);
+    archway(...at(R + 0.0, 0.5), 0.7, -0.7, 'Road Stop', `${Math.round(Math.hypot(P.stop[0] - at(R, 0.5)[0], P.stop[1] - at(R, 0.5)[1]))} m`);
+    archway(...at(R + 0.0, -0.5), -0.7, -0.7, 'Old Cabin', `${Math.round(Math.hypot(P.cabin[0] - at(R, -0.5)[0], P.cabin[1] - at(R, -0.5)[1]))} m`);
+    archway(-0.6, 36.8, 0, 1, 'Camp', `${Math.round(Math.hypot(P.camp[0] + 0.6, P.camp[1] - 36.8))} m`);
+    archway(10.1, -42, 0, -1, 'Channel Trail', '');
+    archway(-10.1, -42, 0, -1, 'Channel Trail', '');
+
     // lamps round the ring that glow at night
     for (let k = 0; k < 8; k++) {
       const [lx, lz] = at(R + 2.7, -2.6 + k * 0.75);
@@ -1367,6 +1493,7 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
       skyU.uGlow.value *= 1 - wet * 0.95;
     }
     grassTime.value = t;
+    for (const b of banners) b.pivot.rotation.y = b.base + Math.sin(t * 0.7 + b.phase) * 0.22;
     if (birdFlock) {
       birdFlock.visible = day.night < 0.6 && wet < 0.5;
       if (birdFlock.visible) {

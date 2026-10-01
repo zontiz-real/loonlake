@@ -396,6 +396,7 @@ function makeModelAvatar(color, name, look, skin) {
   hat.add(limb(GEO.brim, MAT.hat, 0, 0, 0), limb(GEO.crown, MAT.hat, 0, 0.12, 0));
   hat.scale.setScalar(0.62);
   const pivot = new THREE.Group();
+  pivot.rotation.order = 'YXZ';
   const rodMat = new THREE.MeshStandardMaterial({ color: 0xC9A36A, roughness: 0.5, metalness: 0.15 });
   const rodKit = makeRod(rodMat);
   rodKit.setTier(0, '#C9A36A');
@@ -638,6 +639,7 @@ function makeBlockAvatar(color, name, skin = 0) {
   const nose = new THREE.Object3D();
 
   const pivot = new THREE.Group();
+  pivot.rotation.order = 'YXZ';
   pivot.position.set(0.6, 1.05, 0.35);
   const rodMat = new THREE.MeshStandardMaterial({ color: 0xC9A36A, roughness: 0.5, metalness: 0.15 });
   const rodKit = makeRod(rodMat);
@@ -3595,6 +3597,7 @@ function updateView(v, dt, t) {
   if (state === 'charging') tilt = -0.4 - power * 0.5;
   if (isMe && castSwing > 0) { castSwing = Math.max(0, castSwing - dt * 3); tilt = lerp(1.25, -0.8, castSwing); }
   if (fpNow) tilt += 0.4; // the rod points out over the water, not up at the sky
+  v.pivot.rotation.y += ((fpNow ? -0.34 : 0) - v.pivot.rotation.y) * Math.min(1, dt * 10); // and off to the right, out of the middle of the view
   v.pivot.rotation.x += (tilt - v.pivot.rotation.x) * Math.min(1, dt * (isMe ? 18 : 12));
   v.pivot.rotation.z = isMe && reel ? -reel.side * 0.3 : 0;
   if (v.rodKit) {
@@ -4233,9 +4236,21 @@ function drawCompass(m) {
     if (Math.abs(diff) > span) { g.fillStyle = '#fff'; g.fillText(diff > 0 ? '▶' : '◀', x + (diff > 0 ? -22 : 22), 14); }
   }
 }
+// a tall gold beam over the waypoint, so it can be found from across the lake
+const wpBeam = new THREE.Group();
+{
+  const outer = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 90, 20, 1, true), new THREE.MeshBasicMaterial({ color: 0xF2B134, transparent: true, opacity: 0.2, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
+  const core = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 90, 10, 1, true), new THREE.MeshBasicMaterial({ color: 0xFFE9A8, transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
+  outer.position.y = core.position.y = 45;
+  wpBeam.add(outer, core);
+  wpBeam.visible = false;
+  scene.add(wpBeam);
+}
 const wpEl = $('waypoint');
 const wpV = new THREE.Vector3();
 function updateWaypoint(m) {
+  wpBeam.visible = !!(waypoint && m);
+  if (waypoint) { wpBeam.position.set(waypoint.x, 0, waypoint.z); wpBeam.children[0].material.opacity = 0.16 + Math.sin(audioT * 3) * 0.05; }
   if (!waypoint || !m || !W) { wpEl.hidden = true; return; }
   const d = Math.hypot(waypoint.x - m.x, waypoint.z - m.z);
   if (d < 4) { flashPrompt(`Arrived at ${waypoint.name}`, 'good', 1800); sfx.pickup(); waypoint = null; wpEl.hidden = true; renderPlaceChips(); return; }
