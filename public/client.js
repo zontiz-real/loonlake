@@ -166,7 +166,7 @@ addEventListener('resize', () => {
 
 // ================================================================ state
 
-// the model kit loads while the join screen is up; if it fails the game still runs with the old blocky people
+// the model kit loads while the join screen is up; if it fails the game still runs with stand-in blocky people
 let kit = null;
 const joinLabel = $('joinBtn').textContent;
 $('joinBtn').disabled = true;
@@ -183,7 +183,7 @@ let myId = null;
 let myData = null;
 let joinInfo = null;
 let chosenColor = store.get('loonlake.color', null);
-let chosenLook = store.get('loonlake.look', LOOKS.length);
+let chosenLook = Math.min(store.get('loonlake.look', 0), LOOKS.length - 1);
 let chosenSkin = store.get('loonlake.skin', 1);
 let journal = {};
 let hotspots = [];
@@ -1028,7 +1028,7 @@ socket.on('connect', () => {
     if (!prof || joinInfo) return;
     if (!$('name').value) $('name').value = prof.name;
     if (prof.color) chosenColor = prof.color;
-    if (Number.isInteger(prof.look)) chosenLook = prof.look;
+    if (Number.isInteger(prof.look)) chosenLook = prof.look < LOOKS.length ? prof.look : 0;
     if (Number.isInteger(prof.skin)) chosenSkin = prof.skin;
     markSwatch();
     const r = $('returning');
@@ -1451,13 +1451,6 @@ function buildLookPickers() {
     b.addEventListener('click', () => { chosenLook = i; markSwatch(); });
     looks.append(b);
   });
-  const blocky = document.createElement('button');
-  blocky.type = 'button';
-  blocky.textContent = 'Blocky';
-  blocky.dataset.look = String(LOOKS.length);
-  blocky.setAttribute('role', 'radio');
-  blocky.addEventListener('click', () => { chosenLook = LOOKS.length; markSwatch(); });
-  looks.prepend(blocky);
   const skins = $('skins');
   skins.replaceChildren();
   SKINS.forEach((c, i) => {

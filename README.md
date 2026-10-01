@@ -34,7 +34,7 @@ Fish for cash, climb through better rods and bait, fill out your journal, and wi
 - **Friends.** The Friends app on your phone (P) lists everyone on the lake with their level, catches and distance. Whisper them a private message, or gift $25 (guests can't trade).
 - **Emotes.** Z wave, X dance, C cheer, V sit, B point, N laugh. Other players see them and get a speech bubble. Moving, jumping, fishing or fighting ends an emote.
 - **Phones.** Use the left thumb stick to move and drag on the right side to look. A Punch or Shoot button appears for whatever you're holding, with light aim assist. Tapping Cast switches to your rod automatically. Phones vibrate on bites and hits (Android). Tap Full screen on Android, or on iPhone use Share, then Add to Home Screen, to play without the browser bars. The layout works in portrait and landscape.
-- **Characters.** Pick the Roblox-style Blocky avatar (rounded blocks and a smiley face, with a jump pose and a landing squash) or one of four realistic rigged people, plus a skin tone and shirt color. Your choices save.
+- **Characters.** Pick one of four realistic rigged people (if the model files fail to load, plain blocky stand-ins appear instead), plus a skin tone and shirt color. Your choices save.
 - **Graphics.** Hills around the lake, wind-blown grass, birches, maples with some fall color, bushes, low-poly rocks, a red barn for the shack, rowboats at the dock, a well and fence at camp, animated fish, drifting clouds, and glow on firelight, lanterns, and sun glints. Help (H) has a Graphics setting. Auto picks High on computers and Low on phones.
 - **Settings.** Press H for controls, look speed, volume, brightness, invert Y, and camera shake.
 
