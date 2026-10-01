@@ -4,6 +4,7 @@ import { sfx } from './sfx.js';
 import { initTouch } from './touch.js';
 import { createWorld, makeLabel, wave, WATER_Y, DOCK_Y, isNightHour, isGoldenHour, groundHeight } from './world.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { createFx } from './fx.js';
 import { createWeather } from './weather.js';
 import { evalAnim, kick as kickAnim, zero as animZero, CUES, DUR, RELOAD_STYLE, swimArm, rowArm, useArm, catchArm } from './anim.js';
@@ -53,7 +54,7 @@ if (!/^[A-Za-z0-9_-]{16,64}$/.test(token || '')) {
   store.set('loonlake.token', token);
 }
 
-const settings = { sens: 1, volume: 0.8, bright: 0.8, invertY: false, shake: true, quality: 'auto', blood: true, ...store.get('loonlake.settings', {}) };
+const settings = { sens: 1, volume: 0.8, bright: 0.8, invertY: false, shake: true, quality: 'auto', blood: true, view: 'first', fov: 75, loadout: null, invSort: 'value', ...store.get('loonlake.settings', {}) };
 sfx.setVolume(settings.volume);
 
 const isTouch = matchMedia('(pointer: coarse)').matches || (navigator.maxTouchPoints > 0 && !matchMedia('(pointer: fine)').matches);
@@ -144,6 +145,9 @@ const vignette = new ShaderPass({
       float l = dot(c.rgb, vec3(0.299, 0.587, 0.114));
       c.rgb = mix(vec3(l), c.rgb, 1.2);
       c.rgb = (c.rgb - 0.5) * 1.1 + 0.5;
+      // a whisper of split toning: cool shadows, warm highlights
+      float g = dot(c.rgb, vec3(0.299, 0.587, 0.114));
+      c.rgb += mix(vec3(-0.004, 0.006, 0.012), vec3(0.012, 0.006, -0.008), smoothstep(0.2, 0.8, g));
       gl_FragColor = c;
     }`,
 });
@@ -184,7 +188,7 @@ let myId = null;
 let myData = null;
 let joinInfo = null;
 let chosenColor = store.get('loonlake.color', null);
-let chosenLook = store.get('loonlake.look', LOOKS.length);
+let chosenLook = store.get('loonlake.look', 0); // a realistic person by default; Blocky is still there, last in the list
 let chosenSkin = store.get('loonlake.skin', 1);
 let journal = {};
 let hotspots = [];
@@ -232,7 +236,7 @@ let aimRot = 0;
 let castInfo = { valid: false, hot: false };
 let camLift = 0;
 const cam = { yaw: 0, pitch: 0.34, dist: TUNING.camDist, aim: 0, shake: 0 };
-if (window.__loon) Object.assign(window.__loon, { cam, vel, weather, playerViews: () => views.values(), fishState: () => ({ phase, power, reel: reel ? { tension: reel.tension, progress: reel.progress, dir: reel.dir } : null }), phys: () => ({ jumpY, jumpV, grounded }), fishViews: () => fishViews, makeFish, species: () => speciesById, hold: (h) => { held = h; hotbarSig = ''; }, data: () => myData, me: () => views.get(myId), npcViews: () => npcViews, ragStep: (id, n) => { const v = npcViews.get(id) || views.get(id); for (let i = 0; v && v.rag && i < n; i++) stepRagdoll(v, 1 / 60, audioT); } });
+if (window.__loon) Object.assign(window.__loon, { weather, playerViews: () => views.values(), fishState: () => ({ phase, power, reel: reel ? { tension: reel.tension, progress: reel.progress, dir: reel.dir } : null }), phys: () => ({ jumpY, jumpV, grounded }), reel: () => reel, myId: () => myId, cam, vel, fishViews: () => fishViews, makeFish, makeBoatMesh, makeAvatar, socket, fx, screenBlood, panel: () => openPanel, makeMutant: (d) => makeMutant(d), makeBossView: (p, k) => makeBossView(p, k), bossViews: () => bossViews, updateBosses: (dt, t) => updateBosses(dt, t), species: () => speciesById, hold: (h) => { held = h; hotbarSig = ''; }, data: () => myData, me: () => views.get(myId), npcViews: () => npcViews, ragStep: (id, n) => { const v = npcViews.get(id) || views.get(id); for (let i = 0; v && v.rag && i < n; i++) stepRagdoll(v, 1 / 60, audioT); } });
 let pointerLocked = false;
 // automated browsers can't hold pointer lock (it also blocks screenshots), so they use drag-to-look
 let noLock = isTouch || !!navigator.webdriver;
@@ -247,7 +251,7 @@ const alive = () => !myData || myData.alive !== false;
 const onDock = (x, z) => W && x >= W.dock.minX && x <= W.dock.maxX && z >= W.dock.minZ && z <= W.dock.maxZ;
 const inChannel = (x, z, m = 0) => W && x >= W.channel.minX - m && x <= W.channel.maxX + m && z >= W.channel.minZ - m && z <= W.channel.maxZ + m;
 const inOcean = (x, z) => W && x > W.ocean.minX && x < W.ocean.maxX && z > W.ocean.minZ && z < W.ocean.maxZ;
-const onLand = (x, z) => onDock(x, z) || (Math.hypot(x, z) >= W.shoreRadius && Math.abs(x) <= W.bounds && Math.abs(z) <= W.bounds && !inChannel(x, z, 0.8));
+const onLand = (x, z) => onDock(x, z) || (Math.hypot(x, z) >= W.shoreRadius && Math.abs(x) <= W.edge && Math.abs(z) <= W.edge && !inChannel(x, z, 0.8));
 const inWater = (x, z) => W && !onDock(x, z) && (Math.hypot(x, z) < W.lakeRadius - 0.3 || inChannel(x, z) || inOcean(x, z));
 // where a body or boat rests: water surface, dock planks, or the ground
 const surfaceAt = (x, z, t) => (inWater(x, z) ? WATER_Y + wave(x, z, t) : onDock(x, z) ? DOCK_Y : groundHeight(x, z));
@@ -414,7 +418,10 @@ function makeModelAvatar(color, name, look, skin) {
   const whiskey = new THREE.Mesh(GEO.bottle, new THREE.MeshStandardMaterial({ color: 0xC47A32, roughness: 0.32, metalness: 0.08 }));
   const crank = new THREE.Mesh(GEO.pack, new THREE.MeshStandardMaterial({ color: 0xF4F1EA, roughness: 0.4 }));
   weed.name = 'weed'; whiskey.name = 'whiskey'; crank.name = 'crank';
-  hand.add(weed, whiskey, crank);
+  const knife = makeKnife();
+  knife.name = 'knife';
+  knife.rotation.x = -0.3;
+  hand.add(weed, whiskey, crank, knife);
   hand.visible = false;
   const highMark = new THREE.Mesh(GEO.mark, new THREE.MeshBasicMaterial({ color: 0x6DBF67 }));
   highMark.position.set(0.3, 1.95, 0);
@@ -566,15 +573,30 @@ const blockyFaces = new Map();
 function blockyFace(skinHex) {
   if (blockyFaces.has(skinHex)) return blockyFaces.get(skinHex);
   const cv = document.createElement('canvas');
-  cv.width = cv.height = 128;
+  cv.width = cv.height = 256;
   const g = cv.getContext('2d');
   g.fillStyle = skinHex;
-  g.fillRect(0, 0, 128, 128);
+  g.fillRect(0, 0, 256, 256);
+  // blush first, so the features sit on top
+  for (const x of [56, 200]) {
+    const grd = g.createRadialGradient(x, 156, 0, x, 156, 30);
+    grd.addColorStop(0, 'rgba(235, 96, 88, .38)');
+    grd.addColorStop(1, 'rgba(235, 96, 88, 0)');
+    g.fillStyle = grd;
+    g.fillRect(x - 30, 126, 60, 60);
+  }
   g.fillStyle = '#1B1B1F';
-  g.beginPath(); g.ellipse(44, 52, 7, 12, 0, 0, Math.PI * 2); g.fill();
-  g.beginPath(); g.ellipse(84, 52, 7, 12, 0, 0, Math.PI * 2); g.fill();
-  g.strokeStyle = '#1B1B1F'; g.lineWidth = 7; g.lineCap = 'round';
-  g.beginPath(); g.arc(64, 68, 30, 0.25 * Math.PI, 0.75 * Math.PI); g.stroke();
+  g.beginPath(); g.ellipse(88, 108, 14, 25, 0, 0, Math.PI * 2); g.fill();
+  g.beginPath(); g.ellipse(168, 108, 14, 25, 0, 0, Math.PI * 2); g.fill();
+  g.fillStyle = '#FFFFFF';
+  g.beginPath(); g.arc(93, 97, 5.5, 0, Math.PI * 2); g.fill();
+  g.beginPath(); g.arc(173, 97, 5.5, 0, Math.PI * 2); g.fill();
+  g.strokeStyle = '#1B1B1F'; g.lineCap = 'round';
+  g.lineWidth = 9; // brows
+  g.beginPath(); g.moveTo(64, 68); g.quadraticCurveTo(88, 56, 112, 66); g.stroke();
+  g.beginPath(); g.moveTo(144, 66); g.quadraticCurveTo(168, 56, 192, 68); g.stroke();
+  g.lineWidth = 12; // smile
+  g.beginPath(); g.arc(128, 132, 58, 0.22 * Math.PI, 0.78 * Math.PI); g.stroke();
   const tex = new THREE.CanvasTexture(cv);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;
@@ -587,23 +609,38 @@ const BLOCK = {
   leg: new RoundedBoxGeometry(0.39, 0.82, 0.39, 3, 0.06),
   sleeve: new RoundedBoxGeometry(0.37, 0.34, 0.37, 3, 0.06),
   forearm: new RoundedBoxGeometry(0.37, 0.5, 0.37, 3, 0.06),
+  shoe: new RoundedBoxGeometry(0.42, 0.17, 0.52, 2, 0.06),
+  belt: new RoundedBoxGeometry(0.86, 0.1, 0.46, 2, 0.03),
+  buckle: new RoundedBoxGeometry(0.13, 0.09, 0.03, 2, 0.01),
+  pocket: new RoundedBoxGeometry(0.22, 0.2, 0.03, 2, 0.01),
+  hairTop: new RoundedBoxGeometry(0.52, 0.1, 0.52, 2, 0.04),
+  hairBack: new RoundedBoxGeometry(0.53, 0.4, 0.12, 2, 0.05),
+  hairSide: new RoundedBoxGeometry(0.06, 0.26, 0.3, 2, 0.02),
 };
+const HAIR_COLORS = ['#2B1B10', '#5A3A1E', '#8A5A2B', '#C9A15B', '#1B1B1F', '#7A2E1E'];
+const nameHash = (n) => Math.abs([...String(n || '')].reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 7));
 function makeBlockAvatar(color, name, skin = 0) {
   const group = new THREE.Group();
   const skinHex = SKINS[skin] || SKINS[0];
   const plastic = (col) => new THREE.MeshStandardMaterial({ color: col, roughness: 0.5, metalness: 0 });
   const cloth = plastic(color);
-  const pantsMat = plastic(new THREE.Color(color).multiplyScalar(0.42).lerp(new THREE.Color(0x35507A), 0.5));
+  // denim, nudged toward the shirt color so a group of anglers still looks varied
+  const pantsMat = plastic(new THREE.Color(0x3B5B8C).lerp(new THREE.Color(color).multiplyScalar(0.35), 0.18));
+  const shoeMat = plastic(0x3A2A1E);
+  const hairMat = plastic(HAIR_COLORS[nameHash(name) % HAIR_COLORS.length]);
+  const trimMat = plastic(new THREE.Color(color).multiplyScalar(0.8));
   const skinMat = plastic(skinHex);
   const faceMat = new THREE.MeshStandardMaterial({ map: blockyFace(skinHex), roughness: 0.5 });
   const body = limb(BLOCK.torso, cloth, 0, 1.21, 0);
+  // belt, buckle and a chest pocket ride on the torso so they follow any squash or lean
+  body.add(limb(BLOCK.belt, shoeMat, 0, -0.34, 0), limb(BLOCK.buckle, MAT.metal, 0, -0.34, 0.235), limb(BLOCK.pocket, trimMat, -0.2, 0.12, 0.215));
   const belt = new THREE.Object3D();
   // hips and shoulders are pivots, so limbs swing from the joint instead of the middle
   const joint = (x, y) => { const g = new THREE.Group(); g.position.set(x, y, 0); return g; };
   const legL = joint(-0.205, 0.8);
   const legR = joint(0.205, 0.8);
-  legL.add(limb(BLOCK.leg, pantsMat, 0, -0.41, 0));
-  legR.add(limb(BLOCK.leg, pantsMat, 0, -0.41, 0));
+  legL.add(limb(BLOCK.leg, pantsMat, 0, -0.41, 0), limb(BLOCK.shoe, shoeMat, 0, -0.745, 0.05));
+  legR.add(limb(BLOCK.leg, pantsMat, 0, -0.41, 0), limb(BLOCK.shoe, shoeMat, 0, -0.745, 0.05));
   const armL = joint(-0.6, 1.56);
   const armR = joint(0.6, 1.56);
   armL.add(limb(BLOCK.sleeve, cloth, 0, -0.17, 0), limb(BLOCK.forearm, skinMat, 0, -0.55, 0));
@@ -614,6 +651,8 @@ function makeBlockAvatar(color, name, skin = 0) {
   const head = new THREE.Mesh(BLOCK.head, [skinMat, skinMat, skinMat, skinMat, faceMat, skinMat]);
   head.position.set(0, 1.86, 0);
   head.castShadow = true;
+  head.add(limb(BLOCK.hairTop, hairMat, 0, 0.2, 0), limb(BLOCK.hairBack, hairMat, 0, 0.04, -0.21),
+    limb(BLOCK.hairSide, hairMat, -0.235, 0.1, -0.04), limb(BLOCK.hairSide, hairMat, 0.235, 0.1, -0.04));
   const brim = limb(GEO.brim, MAT.hat, 0, 2.08, 0);
   const crown = limb(GEO.crown, MAT.hat, 0, 2.2, 0);
   brim.scale.setScalar(0.8);
@@ -654,7 +693,11 @@ function makeBlockAvatar(color, name, skin = 0) {
   whiskey.name = 'whiskey';
   crank.name = 'crank';
   whiskey.position.y = 0.02;
-  hand.add(weed, whiskey, crank);
+  const knife = makeKnife();
+  knife.name = 'knife';
+  knife.rotation.x = -0.3;
+  knife.scale.setScalar(1.4);
+  hand.add(weed, whiskey, crank, knife);
   hand.visible = false;
 
   const highMark = new THREE.Mesh(GEO.mark, new THREE.MeshBasicMaterial({ color: 0x6DBF67 }));
@@ -707,6 +750,23 @@ function setBubble(v, text) {
 }
 
 const BOAT_MODELS = ['boat_row', 'boat_fish', 'boat_speed'];
+// a soft ring of foam where the hull meets the water; the middle is clear so it never shows inside the boat
+const foamTex = (() => {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d');
+  const grd = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  grd.addColorStop(0, 'rgba(255,255,255,0)');
+  grd.addColorStop(0.62, 'rgba(255,255,255,0)');
+  grd.addColorStop(0.75, 'rgba(255,255,255,.85)');
+  grd.addColorStop(0.9, 'rgba(255,255,255,.25)');
+  grd.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grd;
+  g.fillRect(0, 0, 128, 128);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+})();
 function makeBoatMesh(tier = 0) {
   const def = (W && W.boats && W.boats[tier]) || { scale: 1 };
   const g = new THREE.Group();
@@ -714,9 +774,19 @@ function makeBoatMesh(tier = 0) {
     const name = BOAT_MODELS[tier] || BOAT_MODELS[0];
     const hull = kit.prop(name, 0.75);
     const sz = kit.baked(name, 0.75).size;
-    hull.scale.setScalar((3.2 * def.scale) / Math.max(sz.x, sz.z));
+    const hs = (3.2 * def.scale) / Math.max(sz.x, sz.z);
+    hull.scale.setScalar(hs);
     if (sz.x > sz.z) hull.rotation.y = Math.PI / 2;
     g.add(hull);
+    const foam = new THREE.Mesh(
+      new THREE.PlaneGeometry(Math.min(sz.x, sz.z) * hs * 1.45, Math.max(sz.x, sz.z) * hs * 1.2),
+      new THREE.MeshBasicMaterial({ map: foamTex, transparent: true, opacity: 0.5, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
+    );
+    foam.rotation.x = -Math.PI / 2;
+    foam.position.y = 0.2; // the boat sits 0.18 below the water line in its own space
+    foam.renderOrder = 2;
+    g.userData.foam = foam;
+    g.add(foam);
   } else {
     const hull = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.4, 3), new THREE.MeshStandardMaterial({ color: 0x6A3A1C }));
     hull.position.y = 0.2;
@@ -735,15 +805,23 @@ function makeBoatMesh(tier = 0) {
 }
 
 // ---------- guns: each one built from parts, muzzle toward +z, grip at the origin
+// guns, knives and the rod reflect a soft studio environment, so metal reads as metal instead of flat black
+const gearEnv = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
 const GM = {
-  steel: new THREE.MeshStandardMaterial({ color: 0x1B1D20, roughness: 0.35, metalness: 0.75 }),
-  poly: new THREE.MeshStandardMaterial({ color: 0x2A2C2F, roughness: 0.7, metalness: 0.1 }),
+  steel: new THREE.MeshStandardMaterial({ color: 0x2A2D31, roughness: 0.32, metalness: 0.85 }),
+  poly: new THREE.MeshStandardMaterial({ color: 0x2A2C2F, roughness: 0.6, metalness: 0.1 }),
   wood: new THREE.MeshStandardMaterial({ color: 0x7A4A28, roughness: 0.65, metalness: 0.05 }),
   darkWood: new THREE.MeshStandardMaterial({ color: 0x4A2E1A, roughness: 0.7 }),
   glass: new THREE.MeshStandardMaterial({ color: 0x24344E, roughness: 0.1, metalness: 0.6 }),
   laser: new THREE.MeshStandardMaterial({ color: 0x552222, emissive: 0xFF2A2A, emissiveIntensity: 1.4, roughness: 0.4 }),
   switchPlate: new THREE.MeshStandardMaterial({ color: 0xC9A227, roughness: 0.3, metalness: 0.8 }),
+  chrome: new THREE.MeshStandardMaterial({ color: 0xA7ADB3, roughness: 0.28, metalness: 0.9 }),
+  tan: new THREE.MeshStandardMaterial({ color: 0x9A8466, roughness: 0.7, metalness: 0.05 }),
+  string: new THREE.MeshStandardMaterial({ color: 0x2A2A2A, roughness: 0.9 }),
+  fletch: new THREE.MeshStandardMaterial({ color: 0xD8362A, roughness: 0.8 }),
+  sight: new THREE.MeshStandardMaterial({ color: 0xF2F4EE, emissive: 0x9CFF6A, emissiveIntensity: 0.6, roughness: 0.4 }),
 };
+Object.values(GM).forEach((m) => { m.envMap = gearEnv; m.envMapIntensity = 0.4; });
 function buildGunModel(id, a = {}) {
   const g = new THREE.Group();
   const part = (geo, mat, x, y, z, rx = 0, rz = 0) => {
@@ -754,7 +832,8 @@ function buildGunModel(id, a = {}) {
     g.add(m);
     return m;
   };
-  const box = (w, h, d, mat, x, y, z, rx = 0, rz = 0) => part(new THREE.BoxGeometry(w, h, d), mat, x, y, z, rx, rz);
+  // every block gets softly rounded edges so light rolls across the corners
+  const box = (w, h, d, mat, x, y, z, rx = 0, rz = 0) => part(new RoundedBoxGeometry(w, h, d, 2, Math.min(w, h, d) * 0.22), mat, x, y, z, rx, rz);
   const tube = (r, len, mat, x, y, z) => part(new THREE.CylinderGeometry(r, r, len, 10), mat, x, y, z, Math.PI / 2);
   const magParts = [];
   const drum = (r, y, z) => { const d = part(new THREE.CylinderGeometry(r, r, 0.07, 16), GM.poly, 0, y, z, 0, Math.PI / 2); magParts.push(d); return d; };
@@ -834,10 +913,82 @@ function buildGunModel(id, a = {}) {
     box(0.02, 0.05, 0.03, GM.steel, 0, 0.075, 0.08);
     box(0.03, 0.09, 0.04, GM.steel, 0, -0.08, 0.06);
     guard(0.0);
+  } else if (id === 'deagle') {
+    // big polished slide over a triangular-profile barrel
+    box(0.036, 0.05, 0.25, GM.chrome, 0, 0.05, 0.07);
+    box(0.034, 0.028, 0.2, GM.chrome, 0, 0.018, 0.08);
+    tube(0.009, 0.02, GM.steel, 0, 0.05, 0.2);
+    grip(0.12, -0.02);
+    guard(0.05);
+    box(0.02, 0.012, 0.06, GM.steel, 0, 0.078, -0.03);
+  } else if (id === 'm4') {
+    box(0.046, 0.07, 0.24, GM.poly, 0, 0.03, 0.0); // receiver
+    box(0.03, 0.022, 0.26, GM.steel, 0, 0.074, 0.05); // flat-top rail
+    box(0.05, 0.055, 0.22, GM.poly, 0, 0.035, 0.24); // handguard
+    tube(0.011, 0.2, GM.steel, 0, 0.04, 0.44);
+    tube(0.016, 0.04, GM.steel, 0, 0.04, 0.55); // flash hider
+    box(0.012, 0.04, 0.02, GM.steel, 0, 0.08, 0.34); // front sight post
+    box(0.04, 0.06, 0.2, GM.poly, 0, 0.01, -0.22); // stock
+    tube(0.014, 0.12, GM.steel, 0, 0.03, -0.1);
+    box(0.028, 0.14, 0.045, GM.steel, 0, -0.1, 0.07, 0.18); // mag
+    grip(0.1, -0.05);
+    guard(0.0);
+    if (a.drum) drum(0.08, -0.14, 0.07);
+    if (a.laser) { box(0.02, 0.02, 0.05, GM.poly, 0.032, 0.04, 0.3); box(0.012, 0.012, 0.012, GM.laser, 0.032, 0.04, 0.33); }
+  } else if (id === 'lmg') {
+    box(0.07, 0.09, 0.34, GM.poly, 0, 0.03, 0.0);
+    box(0.06, 0.03, 0.2, GM.steel, 0, 0.09, 0.02); // feed cover
+    tube(0.016, 0.5, GM.steel, 0, 0.04, 0.42);
+    box(0.045, 0.04, 0.26, GM.steel, 0, 0.065, 0.3); // heat shield
+    box(0.03, 0.02, 0.1, GM.steel, 0, 0.13, 0.04); // carry handle
+    box(0.09, 0.1, 0.12, GM.tan, -0.06, -0.08, 0.06); // ammo box
+    box(0.05, 0.08, 0.26, GM.poly, 0, 0.0, -0.28); // stock
+    box(0.01, 0.2, 0.01, GM.steel, -0.03, -0.06, 0.55, 0.5, 0.25); // bipod
+    box(0.01, 0.2, 0.01, GM.steel, 0.03, -0.06, 0.55, 0.5, -0.25);
+    grip(0.1, -0.08);
+    guard(-0.04);
+  } else if (id === 'dbarrel') {
+    tube(0.017, 0.56, GM.steel, -0.018, 0.045, 0.3);
+    tube(0.017, 0.56, GM.steel, 0.018, 0.045, 0.3);
+    box(0.07, 0.05, 0.12, GM.steel, 0, 0.03, 0.0); // breech
+    box(0.05, 0.035, 0.2, GM.wood, 0, 0.012, 0.16); // fore end
+    box(0.05, 0.1, 0.3, GM.wood, 0, -0.01, -0.22); // stock
+    box(0.008, 0.008, 0.008, GM.chrome, 0, 0.068, 0.57); // bead
+    grip(0.08, -0.07);
+  } else if (id === 'crossbow') {
+    box(0.04, 0.05, 0.56, GM.wood, 0, 0.0, 0.08); // stock and rail
+    box(0.05, 0.09, 0.2, GM.wood, 0, -0.02, -0.24);
+    // the bow: an arc across the front, and a string from each tip back to the latch
+    const arc = Math.PI * 0.62;
+    const limbs = part(new THREE.TorusGeometry(0.28, 0.012, 6, 20, arc), GM.poly, 0, 0.02, 0.36);
+    limbs.rotation.set(-Math.PI / 2, 0, -Math.PI / 2 - arc / 2); // centred on +z, tips swept back
+    for (const side of [-1, 1]) {
+      const tip = new THREE.Vector3(Math.sin(arc / 2) * 0.28 * side, 0.03, 0.36 + Math.cos(arc / 2) * 0.28);
+      const latch = new THREE.Vector3(0, 0.03, 0.02);
+      const len = tip.distanceTo(latch);
+      const str = part(new THREE.CylinderGeometry(0.002, 0.002, len, 3), GM.string, (tip.x + latch.x) / 2, 0.03, (tip.z + latch.z) / 2);
+      str.rotation.set(Math.PI / 2, 0, 0);
+      str.rotation.y = Math.atan2(tip.x - latch.x, tip.z - latch.z);
+      str.rotation.order = 'YXZ';
+    }
+    tube(0.004, 0.4, GM.chrome, 0, 0.04, 0.2); // bolt
+    box(0.002, 0.018, 0.04, GM.fletch, 0, 0.052, 0.03);
+    tube(0.014, 0.12, GM.poly, 0, 0.085, 0.02); // small scope
+    grip(0.09, -0.07);
   } else {
     tube(0.012, 0.5, GM.steel, 0, 0.05, 0.3);
     box(0.045, 0.07, 0.3, GM.poly, 0, 0.03, 0.0);
     grip(0.1, -0.05);
+  }
+  // shared details: a trigger in its guard, iron sights on the guns without a scope, and a muzzle crown
+  const trig = part(new THREE.TorusGeometry(0.016, 0.0035, 5, 10, Math.PI * 0.9), GM.steel, 0, -0.022, id === 'pistol' || id === 'glock' || id === 'deagle' ? 0.045 : 0.01, 0, Math.PI / 2);
+  trig.rotation.set(0, Math.PI / 2, 0);
+  const tall = { pistol: 0.068, glock: 0.072, deagle: 0.083, smg: 0.078, arp: 0.088, draco: 0.064, shotgun: 0.083 }[id];
+  if (tall) {
+    const front = { pistol: 0.21, glock: 0.16, deagle: 0.18, smg: 0.12, arp: 0.3, draco: 0.4, shotgun: 0.62 }[id];
+    const handgun = id === 'pistol' || id === 'glock' || id === 'deagle';
+    box(0.006, 0.014, 0.008, GM.sight, 0, tall, front);
+    box(0.024, 0.012, 0.01, GM.steel, -0.0, tall - 0.001, front - (handgun ? 0.17 : 0.3));
   }
   g.userData.mag = magParts;
   return g;
@@ -875,6 +1026,191 @@ function buildKnifeModel() {
   g.add(blade, edge, guard, grip, pommel);
   g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
   return g;
+}
+
+// a hunting knife: grip at the origin, blade along +z, edge down
+const KNIFE_MAT = {
+  blade: new THREE.MeshStandardMaterial({ color: 0xA9AEB3, roughness: 0.38, metalness: 0.85 }),
+  grip: new THREE.MeshStandardMaterial({ color: 0x3B2416, roughness: 0.7 }),
+  guard: new THREE.MeshStandardMaterial({ color: 0x8A7250, roughness: 0.35, metalness: 0.8 }),
+};
+[KNIFE_MAT.blade, KNIFE_MAT.guard].forEach((m) => { m.envMap = gearEnv; });
+const KNIFE_GEO = (() => {
+  const blade = new THREE.Shape();
+  blade.moveTo(0, 0);
+  blade.lineTo(0.12, -0.002);
+  blade.quadraticCurveTo(0.165, 0.002, 0.185, 0.022); // the belly sweeps up to the point
+  blade.lineTo(0.14, 0.03); // clip point
+  blade.lineTo(0, 0.03);
+  blade.lineTo(0, 0);
+  const g = new THREE.ExtrudeGeometry(blade, { depth: 0.003, bevelEnabled: true, bevelThickness: 0.0025, bevelSize: 0.002, bevelSegments: 1, curveSegments: 8 });
+  g.translate(0, -0.012, -0.0015);
+  g.rotateY(-Math.PI / 2); // shape x runs along +z
+  g.translate(0, 0, 0.045);
+  const grip = new RoundedBoxGeometry(0.026, 0.034, 0.11, 2, 0.01);
+  grip.translate(0, -0.004, -0.02);
+  const guard = new RoundedBoxGeometry(0.03, 0.058, 0.012, 2, 0.004);
+  guard.translate(0, 0.0, 0.04);
+  const pommel = new THREE.CylinderGeometry(0.016, 0.018, 0.012, 10);
+  pommel.rotateX(Math.PI / 2);
+  pommel.translate(0, -0.004, -0.078);
+  return { blade: g, grip, guard, pommel };
+})();
+function makeKnife() {
+  const g = new THREE.Group();
+  const add = (geo, mat) => { const m = new THREE.Mesh(geo, mat); m.castShadow = true; g.add(m); return m; };
+  add(KNIFE_GEO.blade, KNIFE_MAT.blade);
+  add(KNIFE_GEO.grip, KNIFE_MAT.grip);
+  add(KNIFE_GEO.guard, KNIFE_MAT.guard);
+  add(KNIFE_GEO.pommel, KNIFE_MAT.guard);
+  return g;
+}
+
+// ---------- first person: the camera sits in your head and your arms hold whatever you have out.
+// V switches between first and third person.
+const fpWanted = () => settings.view !== 'third';
+// dead (ragdolling) players watch from outside
+const fpActive = () => { if (!fpWanted() || !myId || !alive()) return false; const m = me(); return !!m && !m.rag; };
+const vm = { group: new THREE.Group(), holder: new THREE.Group(), key: '', swing: 1, swingSide: 'r', kick: 0, sway: new THREE.Vector2(), on: false };
+vm.group.add(vm.holder);
+vm.group.visible = false;
+camera.add(vm.group);
+scene.add(camera);
+const VM_MAT = {
+  skin: new THREE.MeshStandardMaterial({ color: 0xE2B07E, roughness: 0.62 }),
+  sleeve: new THREE.MeshStandardMaterial({ color: 0xE0452B, roughness: 0.85 }),
+  cuff: new THREE.MeshStandardMaterial({ color: 0x2E2A26, roughness: 0.9 }),
+};
+const VM_GEO = {
+  sleeve: new THREE.CylinderGeometry(0.042, 0.05, 0.34, 10),
+  cuff: new THREE.CylinderGeometry(0.052, 0.052, 0.03, 10),
+  wrist: new THREE.CylinderGeometry(0.036, 0.04, 0.07, 10),
+  fist: new RoundedBoxGeometry(0.085, 0.075, 0.1, 3, 0.028),
+  thumb: new RoundedBoxGeometry(0.03, 0.03, 0.06, 2, 0.012),
+};
+[VM_GEO.sleeve, VM_GEO.cuff, VM_GEO.wrist].forEach((geo) => geo.rotateX(Math.PI / 2));
+// a forearm reaching forward (-z) with the fist at the origin
+function vmArm(side = 1) {
+  const g = new THREE.Group();
+  const add = (geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); g.add(m); return m; };
+  add(VM_GEO.sleeve, VM_MAT.sleeve, 0, -0.005, 0.25);
+  add(VM_GEO.cuff, VM_MAT.cuff, 0, -0.005, 0.085);
+  add(VM_GEO.wrist, VM_MAT.skin, 0, 0, 0.055);
+  add(VM_GEO.fist, VM_MAT.skin, 0, 0, 0);
+  add(VM_GEO.thumb, VM_MAT.skin, -0.04 * side, 0.02, -0.015);
+  return g;
+}
+const VM_LONG = new Set(['rifle', 'sniper', 'shotgun', 'draco', 'arp', 'smg', 'm4', 'lmg', 'dbarrel', 'crossbow']);
+function buildViewmodel(key, item) {
+  vm.holder.clear();
+  vm.key = key;
+  vm.tip = null;
+  const hold = new THREE.Group();
+  vm.holder.add(hold);
+  if (isGun(item)) {
+    const gun = buildGunModel(item, (myData && myData.att && myData.att[item]) || {});
+    gun.rotation.y = Math.PI;
+    hold.add(gun);
+    const right = vmArm(1);
+    right.position.set(0.004, -0.085, 0.03);
+    right.rotation.x = 0.35;
+    hold.add(right);
+    if (VM_LONG.has(item)) {
+      const left = vmArm(-1);
+      left.position.set(-0.03, -0.035, -0.26);
+      left.rotation.set(0.2, -0.45, 0);
+      hold.add(left);
+    }
+  } else if (item === 'rod') {
+    // rod, cork grip and reel, angled up and out ahead of you; the line hangs off vm.tip
+    const rod = new THREE.Group();
+    const blank = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.011, 1.7, 8), new THREE.MeshStandardMaterial({ color: 0x2A3A44, roughness: 0.35, metalness: 0.3 }));
+    blank.position.y = 0.85;
+    const cork = new THREE.Mesh(new THREE.CylinderGeometry(0.017, 0.016, 0.26, 10), new THREE.MeshStandardMaterial({ color: 0xB08A5A, roughness: 0.9 }));
+    cork.position.y = -0.02;
+    const reelBody = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.03, 14), new THREE.MeshStandardMaterial({ color: 0x9AA0A6, roughness: 0.3, metalness: 0.8 }));
+    reelBody.rotation.z = Math.PI / 2;
+    reelBody.position.set(0, 0.06, 0.045);
+    const guides = [0.4, 0.8, 1.15, 1.45].map((y) => {
+      const r = new THREE.Mesh(new THREE.TorusGeometry(0.012 - y * 0.004, 0.0025, 4, 10), new THREE.MeshStandardMaterial({ color: 0xC9CED3, metalness: 0.8, roughness: 0.3 }));
+      r.position.set(0, y, 0.014);
+      return r;
+    });
+    rod.add(blank, cork, reelBody, ...guides);
+    vm.tip = new THREE.Object3D();
+    vm.tip.position.y = 1.7;
+    rod.add(vm.tip);
+    rod.rotation.x = -1.05;
+    const arm = vmArm(1);
+    arm.position.set(0, -0.02, 0.02);
+    hold.add(rod, arm);
+  } else if (item === 'knife') {
+    const k = makeKnife();
+    k.rotation.set(0.25, Math.PI, 0);
+    k.position.set(0, 0.01, -0.02);
+    hold.add(k, vmArm(1));
+  } else if (item === 'fists') {
+    const r = vmArm(1);
+    const l = vmArm(-1);
+    r.name = 'r';
+    l.name = 'l';
+    r.position.set(0.2, 0, 0);
+    l.position.set(-0.2, 0, 0);
+    r.rotation.set(0.25, 0.12, 0);
+    l.rotation.set(0.25, -0.12, 0);
+    hold.add(r, l);
+  } else if (DRUGS.includes(item)) {
+    const mesh = new THREE.Mesh(item === 'weed' ? GEO.bud : item === 'whiskey' ? GEO.bottle : GEO.pack,
+      new THREE.MeshStandardMaterial({ color: item === 'weed' ? 0x6DBF67 : item === 'whiskey' ? 0xC47A32 : 0xF4F1EA, roughness: 0.4 }));
+    mesh.position.set(0, item === 'whiskey' ? 0.1 : 0.05, -0.02);
+    hold.add(mesh, vmArm(1));
+  }
+  hold.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; } });
+  hold.userData.item = item;
+}
+const VM_HIP = { gun: [0.16, -0.15, -0.34], long: [0.15, -0.17, -0.44], knife: [0.2, -0.2, -0.36], fists: [0, -0.15, -0.36], drug: [0.2, -0.2, -0.38], rod: [0.2, -0.26, -0.36] };
+function updateViewmodel(dt, t, show) {
+  vm.group.visible = show;
+  if (!show) return;
+  const item = phase !== 'idle' && !bossFight() ? 'rod' : held;
+  const att = isGun(item) && myData && myData.att ? JSON.stringify(myData.att[item] || {}) : '';
+  const key = item + att + (isGun(item) && !ownsGun(item) ? 'x' : '');
+  if (key !== vm.key) buildViewmodel(key, isGun(item) && !ownsGun(item) ? 'none' : item);
+  const kind = isGun(item) ? (VM_LONG.has(item) ? 'long' : 'gun') : item === 'knife' ? 'knife' : item === 'fists' ? 'fists' : item === 'rod' ? 'rod' : 'drug';
+  const [hx, hy, hz] = VM_HIP[kind];
+  const aim = isGun(item) ? cam.aim : 0;
+  const m = me();
+  const moving = m && m.walking && jumpY === 0;
+  const speed = Math.hypot(vel.x, vel.z);
+  const bobA = moving ? Math.min(1, speed / 6) * (1 - aim * 0.85) : 0;
+  const bx = Math.sin(t * 9) * 0.014 * bobA;
+  const by = -Math.abs(Math.cos(t * 9)) * 0.016 * bobA + (jumpY > 0 ? -Math.min(0.05, jumpV * 0.008) : 0);
+  vm.kick *= Math.exp(-dt * 14);
+  vm.swing = Math.min(1, vm.swing + dt / (item === 'knife' ? 0.32 : 0.26));
+  const h = vm.holder;
+  h.position.set(lerp(hx, 0, aim) + bx, lerp(hy, -0.072, aim) + by, lerp(hz, -0.26, aim) + vm.kick * 1.4);
+  h.rotation.set(vm.kick * 3, 0, 0);
+  const sw = Math.sin(Math.min(1, vm.swing) * Math.PI);
+  const hold = h.children[0];
+  if (!hold) return;
+  hold.position.set(0, 0, 0);
+  hold.rotation.set(0, 0, 0);
+  if (item === 'rod') {
+    // pull back while charging a cast, lean forward while waiting, bow down under a fish
+    const back = phase === 'charging' ? power * 0.7 : 0;
+    const fight = phase === 'reeling' ? 0.25 + Math.sin(t * 17) * 0.03 : phase === 'bite' ? 0.12 : 0;
+    hold.rotation.set(back - fight, 0, 0);
+  } else if (item === 'knife' && vm.swing < 1) {
+    // a quick slash across and forward
+    hold.position.set(-sw * 0.16, sw * 0.04, -sw * 0.18);
+    hold.rotation.set(-sw * 0.5, sw * 0.6, -sw * 0.9);
+  } else if (item === 'fists') {
+    for (const arm of hold.children) {
+      const punching = vm.swing < 1 && arm.name === vm.swingSide;
+      arm.position.z = punching ? -sw * 0.26 : 0;
+      arm.position.y = punching ? sw * 0.05 : 0;
+    }
+  }
 }
 
 function makeBeam() {
@@ -952,12 +1288,39 @@ function disposeGroup(g) {
 }
 
 function makePickupMesh(it) {
+  const g = makePickupModel(it);
+  // a soft column of light over every pickup, colored by what it is, so loot is easy to find
+  const beam = new THREE.Mesh(BEAM_GEO, BEAM_MAT[BEAM_MAT[it.kind] ? it.kind : 'drug']);
+  beam.scale.setScalar(1 / (g.scale.x || 1));
+  g.add(beam);
+  return g;
+}
+const BEAM_GEO = (() => { const geo = new THREE.CylinderGeometry(0.07, 0.16, 3.2, 10, 1, true); geo.translate(0, 1.6, 0); return geo; })();
+const BEAM_MAT = Object.fromEntries(Object.entries({ cash: 0xFFC94A, fish: 0x6FC8FF, drug: 0x8DF08A, ammo: 0xFF9A3A, heal: 0xFF5A6A }).map(([k, c]) => [k, new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 0.28, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide })]));
+function makePickupModel(it) {
   let mesh;
   if (it.kind === 'cash') {
     mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.05, 14), new THREE.MeshStandardMaterial({ color: 0xF2B134, metalness: 0.6, roughness: 0.3, emissive: 0x4A3000 }));
     mesh.rotation.x = Math.PI / 2;
     const g = new THREE.Group();
     g.add(mesh);
+    return g;
+  }
+  if (it.kind === 'ammo') {
+    const g = new THREE.Group();
+    g.add(new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.24, 0.26), new THREE.MeshStandardMaterial({ color: 0x4A5A2A, roughness: 0.7 })));
+    const lid = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.05, 0.28), new THREE.MeshStandardMaterial({ color: 0xC9A227, metalness: 0.7, roughness: 0.3 }));
+    lid.position.y = 0.14;
+    g.add(lid);
+    return g;
+  }
+  if (it.kind === 'heal') {
+    const g = new THREE.Group();
+    g.add(new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.28, 0.2), new THREE.MeshStandardMaterial({ color: 0xF4F1EA, roughness: 0.5 })));
+    const red = new THREE.MeshStandardMaterial({ color: 0xE0202A, emissive: 0x600000 });
+    const a = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.06, 0.21), red);
+    const b = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.2, 0.21), red);
+    g.add(a, b);
     return g;
   }
   if (it.kind === 'weed') mesh = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 6), new THREE.MeshStandardMaterial({ color: 0x6DBF67 }));
@@ -1106,7 +1469,8 @@ socket.on('state', (s) => {
     v.data = d;
     if (d.id !== myId && d.em && d.em !== prevEm) setBubble(v, EMOTE_TEXT[d.em] || '');
     if (d.id !== myId) {
-      v.tx = d.x; v.tz = d.z; v.trot = d.rot; v.state = d.state; v.jy = d.jy || 0; v.jg = d.jg;
+      setTarget(v, d.x, d.z);
+      v.trot = d.rot; v.state = d.state; v.jy = d.jy || 0; v.jg = d.jg;
       if (d.bobber && !v.bobberPos) v.fly = { t: 0, from: v.tip.getWorldPosition(new THREE.Vector3()), remote: true };
       if (d.state === 'bite' && prevState !== 'bite' && d.bobber) fx.ripple(d.bobber.x, d.bobber.z, 0.8, 0.9, 0.5);
       v.bobberPos = d.bobber;
@@ -1118,6 +1482,9 @@ socket.on('state', (s) => {
   for (const [id, v] of views) if (!seen.has(id)) { removeView(v); views.delete(id); }
   syncNpcs(s.npcs || []);
   syncFish(s.fish || []);
+  syncMutants(s.mutants || []);
+  syncBosses(s.players || []);
+  frenzyState = s.frenzy;
   syncPickups(s.pickups || []);
   if (myId) {
     const sig = s.players.map((p) => `${p.id}:${p.cash}:${p.alive}:${p.caught}:${p.best?.lbs}`).join('|');
@@ -1146,7 +1513,8 @@ function syncNpcs(list) {
     let v = npcViews.get(d.id);
     if (!v) { v = makeNpcView(d); npcViews.set(d.id, v); }
     v.data = d;
-    v.tx = d.x; v.tz = d.z; v.trot = d.rot;
+    setTarget(v, d.x, d.z);
+    v.trot = d.rot;
   }
   for (const [id, v] of npcViews) {
     if (seen.has(id)) continue;
@@ -1156,21 +1524,81 @@ function syncNpcs(list) {
   }
 }
 
+// Fish swim under the surface, so each one also gets a dark silhouette on the water, and anything uncommon or better a
+// ring in its rarity color that pulses. Both are drawn after the water so they're readable from the shore.
+const FISH_MARK = (() => {
+  const c = document.createElement('canvas');
+  c.width = 64; c.height = 128;
+  const g = c.getContext('2d');
+  const grd = g.createRadialGradient(32, 64, 4, 32, 64, 60);
+  grd.addColorStop(0, 'rgba(0,0,0,1)');
+  grd.addColorStop(0.55, 'rgba(0,0,0,.75)');
+  grd.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = grd;
+  g.beginPath(); g.ellipse(32, 64, 26, 60, 0, 0, Math.PI * 2); g.fill();
+  const tex = new THREE.CanvasTexture(c);
+  const shadowGeo = new THREE.PlaneGeometry(1, 1);
+  shadowGeo.rotateX(-Math.PI / 2);
+  const ringGeo = new THREE.RingGeometry(0.78, 1, 36);
+  ringGeo.rotateX(-Math.PI / 2);
+  const shadow = new THREE.MeshBasicMaterial({ map: tex, color: 0x0A1A20, transparent: true, opacity: 0.42, depthWrite: false });
+  const ring = Object.fromEntries(Object.entries({ uncommon: 0x6DDFA0, rare: 0x5AA8FF, epic: 0xC08AFF, legendary: 0xFFC940 })
+    .map(([k, col]) => [k, new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false })]));
+  return { shadowGeo, ringGeo, shadow, ring };
+})();
+function makeFishMark(sid, mesh) {
+  const g = new THREE.Group();
+  const size = new THREE.Box3().setFromObject(mesh).getSize(new THREE.Vector3());
+  const len = Math.max(0.35, Math.max(size.x, size.z));
+  const sh = new THREE.Mesh(FISH_MARK.shadowGeo, FISH_MARK.shadow);
+  sh.scale.set(len * 0.45, 1, len * 1.1);
+  g.add(sh);
+  const rarity = (speciesById[sid] || {}).rarity;
+  if (FISH_MARK.ring[rarity]) {
+    const r = new THREE.Mesh(FISH_MARK.ringGeo, FISH_MARK.ring[rarity]);
+    r.scale.setScalar(Math.max(0.6, len * 0.9));
+    r.name = 'ring';
+    g.add(r);
+  }
+  g.renderOrder = 3;
+  g.traverse((o) => { o.renderOrder = 3; });
+  scene.add(g);
+  return g;
+}
+
+// Updates from the server arrive about 20 times a second. Instead of easing toward the last one (which moves in steps),
+// keep a smoothed velocity and aim slightly ahead of it, so other players and NPCs glide.
+function setTarget(v, x, z) {
+  if (v.tAt !== undefined && v.tx !== undefined) {
+    const dt = Math.max(0.03, audioT - v.tAt);
+    const vx = (x - v.tx) / dt;
+    const vz = (z - v.tz) / dt;
+    if (Math.hypot(vx, vz) > 60) { v.vx = v.vz = 0; v.x = x; v.z = z; } // a teleport or respawn: jump there
+    else { v.vx = lerp(v.vx || 0, vx, 0.6); v.vz = lerp(v.vz || 0, vz, 0.6); }
+  }
+  v.tx = x; v.tz = z; v.tAt = audioT;
+}
+function glide(v, k) {
+  const ahead = Math.min(0.1, audioT - (v.tAt || audioT));
+  v.x += (v.tx + (v.vx || 0) * ahead - v.x) * k;
+  v.z += (v.tz + (v.vz || 0) * ahead - v.z) * k;
+}
+
 function syncFish(list) {
   const seen = new Set();
   for (const f of list) {
     seen.add(f.id);
     let v = fishViews.get(f.id);
     if (!v || v.mesh.userData.sid !== f.sid) {
-      if (v) { scene.remove(v.mesh); disposeGroup(v.mesh); }
+      if (v) { scene.remove(v.mesh); disposeGroup(v.mesh); scene.remove(v.mark); }
       const mesh = makeFish(f.sid);
       scene.add(mesh);
-      v = { mesh, x: f.x, z: f.z, rot: f.rot };
+      v = { mesh, x: f.x, z: f.z, rot: f.rot, mark: makeFishMark(f.sid, mesh) };
       fishViews.set(f.id, v);
     }
     v.tx = f.x; v.tz = f.z; v.trot = f.rot; v.alive = f.alive; v.hurt = f.hurt;
   }
-  for (const [id, v] of fishViews) if (!seen.has(id)) { scene.remove(v.mesh); disposeGroup(v.mesh); fishViews.delete(id); }
+  for (const [id, v] of fishViews) if (!seen.has(id)) { scene.remove(v.mesh); disposeGroup(v.mesh); scene.remove(v.mark); fishViews.delete(id); }
 }
 
 function syncPickups(list) {
@@ -1189,14 +1617,581 @@ function syncPickups(list) {
   for (const [id, v] of pickupViews) if (!seen.has(id)) { scene.remove(v.mesh); disposeGroup(v.mesh); pickupViews.delete(id); }
 }
 
+
+// ================================================================ hooked bosses: the fight, and the monsters themselves
+
+const bossFight = () => !!(reel && reel.boss);
+const bossViews = new Map(); // one per player who has a boss on the line
+let bossSt = { hp: 1, stagger: false, weak: false };
+const bmat = (color, rough = 0.7, metal = 0.05, em = 0) => new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: metal, flatShading: true, emissive: em, emissiveIntensity: em ? 0.6 : 0 });
+const bpart = (geo, mat, x = 0, y = 0, z = 0, sx = 1, sy = 1, sz = 1) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.scale.set(sx, sy, sz); m.castShadow = true; return m; };
+const SPH = new THREE.SphereGeometry(1, 12, 9);
+const BOX = new THREE.BoxGeometry(1, 1, 1);
+const CONE = new THREE.ConeGeometry(1, 1, 7);
+const EYE = new THREE.MeshBasicMaterial({ color: 0xFFD23A });
+
+// each builder returns { group, tick(t, v), depth, size }. Models face +z.
+const BOSS_BUILD = {
+  snapjaw() {
+    const g = new THREE.Group();
+    const shell = bmat(0x4E6B33), skin = bmat(0x7C8A4A), bone = bmat(0xE8DDB8);
+    g.add(bpart(SPH, shell, 0, 0.55, 0, 1.25, 0.6, 1.6));
+    for (let i = 0; i < 7; i++) { const a = (i / 7) * Math.PI * 2; g.add(bpart(CONE, bone, Math.sin(a) * 0.75, 1.0, Math.cos(a) * 0.95, 0.16, 0.42, 0.16)); }
+    g.add(bpart(CONE, bone, 0, 1.25, -0.2, 0.22, 0.6, 0.22));
+    const head = new THREE.Group();
+    head.position.set(0, 0.5, 1.6);
+    head.add(bpart(BOX, skin, 0, 0.1, 0.35, 0.7, 0.45, 1.0));
+    const jaw = bpart(BOX, skin, 0, -0.18, 0.4, 0.66, 0.2, 0.95);
+    head.add(jaw);
+    for (let i = -2; i <= 2; i++) { head.add(bpart(CONE, bone, i * 0.13, -0.02, 0.85, 0.05, 0.16, 0.05)); }
+    head.add(bpart(SPH, EYE, 0.3, 0.32, 0.5, 0.08, 0.08, 0.08), bpart(SPH, EYE, -0.3, 0.32, 0.5, 0.08, 0.08, 0.08));
+    g.add(head);
+    for (const [x, z] of [[-1.1, 0.7], [1.1, 0.7], [-1.0, -0.8], [1.0, -0.8]]) g.add(bpart(SPH, skin, x, 0.15, z, 0.5, 0.18, 0.28));
+    g.add(bpart(CONE, skin, 0, 0.3, -1.9, 0.3, 1.3, 0.3));
+    g.children[g.children.length - 1].rotation.x = -Math.PI / 2;
+    return { group: g, depth: 0.35, size: 3.2, tick(t, v) { jaw.rotation.x = v.hitting ? 0.7 : Math.max(0, Math.sin(t * 3) * 0.12); head.rotation.y = Math.sin(t * 1.2) * 0.25; } };
+  },
+  piranha() {
+    const g = new THREE.Group();
+    const red = bmat(0xA82424, 0.4, 0.1), belly = bmat(0xE8A24A, 0.4);
+    const king = new THREE.Group();
+    king.add(bpart(SPH, red, 0, 0, 0, 0.5, 0.55, 1.0), bpart(CONE, red, 0, 0, -1.1, 0.4, 0.7, 0.1), bpart(SPH, belly, 0, -0.3, 0.1, 0.35, 0.2, 0.7), bpart(BOX, bmat(0xF4F1E6), 0, -0.1, 0.9, 0.5, 0.12, 0.12), bpart(SPH, EYE, 0.25, 0.2, 0.55, 0.08, 0.08, 0.08), bpart(SPH, EYE, -0.25, 0.2, 0.55, 0.08, 0.08, 0.08));
+    king.children[1].rotation.x = -Math.PI / 2;
+    king.scale.setScalar(1.6);
+    g.add(king);
+    // the swarm: instanced little fish orbiting the king
+    const fishGeo = new THREE.SphereGeometry(0.16, 8, 6);
+    fishGeo.scale(0.6, 0.7, 1.6);
+    const N = 26;
+    const swarm = new THREE.InstancedMesh(fishGeo, bmat(0xC03030, 0.4), N);
+    g.add(swarm);
+    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), p = new THREE.Vector3(), sc = new THREE.Vector3(1, 1, 1);
+    return {
+      group: g, depth: 0.25, size: 3, tick(t, v) {
+        const spread = v.hitting ? 2.8 : 1.5 + (v.hpFrac || 1) * 0.6;
+        for (let i = 0; i < N; i++) {
+          const a = t * (0.9 + (i % 5) * 0.12) + i * 2.4, r = spread * (0.55 + ((i * 37) % 10) / 14);
+          p.set(Math.sin(a) * r, 0.05 + Math.sin(t * 5 + i) * 0.12, Math.cos(a) * r);
+          e.set(0, a + Math.PI / 2, 0);
+          q.setFromEuler(e);
+          const alive = i < N * Math.max(0.25, (v.hpFrac || 1)) ? 1 : 0.0001; // the swarm thins as it takes damage
+          sc.setScalar(alive);
+          m4.compose(p, q, sc);
+          swarm.setMatrixAt(i, m4);
+        }
+        swarm.instanceMatrix.needsUpdate = true;
+      },
+    };
+  },
+  gator() {
+    const g = new THREE.Group();
+    const skin = bmat(0x4A5A2E), dark = bmat(0x2C3820), belly = bmat(0xA8A56A), bone = bmat(0xEEE6C8);
+    const segs = 6;
+    const body = [];
+    for (let i = 0; i < segs; i++) {
+      const z = 1.4 - i * 1.15, w = 0.85 - i * 0.07;
+      const s = bpart(SPH, skin, 0, 0.1, z, w, 0.55, 0.85);
+      g.add(s);
+      body.push(s);
+      g.add(bpart(CONE, dark, 0, 0.62, z, 0.14, 0.32, 0.14));
+    }
+    const head = new THREE.Group();
+    head.position.set(0, 0.2, 2.5);
+    head.add(bpart(SPH, skin, 0, 0.12, 0.2, 0.62, 0.42, 0.8)); // cranium
+    head.add(bpart(SPH, skin, 0, 0.08, 1.15, 0.4, 0.26, 1.15)); // long tapered snout
+    head.add(bpart(SPH, skin, 0, 0.1, 2.15, 0.34, 0.2, 0.42)); // snout tip
+    head.add(bpart(SPH, dark, 0.11, 0.3, 2.35, 0.06, 0.05, 0.06), bpart(SPH, dark, -0.11, 0.3, 2.35, 0.06, 0.05, 0.06)); // nostrils
+    head.add(bpart(SPH, dark, 0.34, 0.5, 0.05, 0.2, 0.13, 0.3), bpart(SPH, dark, -0.34, 0.5, 0.05, 0.2, 0.13, 0.3)); // brow ridges
+    const jaw = bpart(SPH, belly, 0, -0.14, 1.0, 0.36, 0.14, 1.35);
+    head.add(jaw);
+    for (let i = 0; i < 7; i++) { const z = 0.5 + i * 0.28; head.add(bpart(CONE, bone, 0.27 - i * 0.012, -0.02, z, 0.045, 0.16, 0.045), bpart(CONE, bone, -0.27 + i * 0.012, -0.02, z, 0.045, 0.16, 0.045)); }
+    head.add(bpart(SPH, EYE, 0.36, 0.5, 0.18, 0.09, 0.09, 0.09), bpart(SPH, EYE, -0.36, 0.5, 0.18, 0.09, 0.09, 0.09));
+    g.add(head);
+    const tail = bpart(CONE, skin, 0, 0.05, -6.2, 0.4, 3.0, 0.32);
+    tail.rotation.x = -Math.PI / 2;
+    g.add(tail);
+    for (const [x, z] of [[-0.95, 1.3], [0.95, 1.3], [-0.9, -1.4], [0.9, -1.4]]) g.add(bpart(SPH, dark, x, -0.1, z, 0.4, 0.15, 0.3));
+    g.add(bpart(BOX, bone, 0.4, 0.62, 2.7, 0.03, 0.05, 0.9)); // an old scar
+    return { group: g, depth: 0.15, size: 7, tick(t, v) { jaw.rotation.x = v.hitting ? 0.8 : 0.05 + Math.max(0, Math.sin(t * 2)) * 0.15; body.forEach((s, i) => { s.position.x = Math.sin(t * 2.2 - i * 0.7) * (0.12 + i * 0.07); }); tail.position.x = Math.sin(t * 2.2 - 6) * 0.6; if (v.hitting) g.rotation.z = Math.sin(t * 25) * 0.5; else g.rotation.z *= 0.9; } };
+  },
+  eel() {
+    const g = new THREE.Group();
+    const glow = bmat(0x1A3A48, 0.3, 0.1, 0x22CCFF), belly = bmat(0x8EEFFF, 0.3, 0, 0x33DDFF);
+    const N = 16, segs = [];
+    for (let i = 0; i < N; i++) { const s = bpart(SPH, i % 3 ? glow : belly, 0, 0, 0, 0.5 - i * 0.022, 0.45 - i * 0.02, 0.5); g.add(s); segs.push(s); }
+    const head = bpart(SPH, glow, 0, 0, 0, 0.55, 0.45, 0.8);
+    g.add(head, bpart(SPH, EYE, 0.28, 0.2, 0.5, 0.07, 0.07, 0.07), bpart(SPH, EYE, -0.28, 0.2, 0.5, 0.07, 0.07, 0.07));
+    g.children.slice(-2).forEach((e) => { e.material = new THREE.MeshBasicMaterial({ color: 0xFFFFFF }); });
+    const light = new THREE.PointLight(0x33DDFF, 2, 14, 1.6);
+    light.position.y = 0.6;
+    g.add(light);
+    // lightning: a jagged ring of lines that flashes when it discharges
+    const arcs = [];
+    for (let i = 0; i < 6; i++) {
+      const geo = new THREE.BufferGeometry().setFromPoints(Array.from({ length: 8 }, () => new THREE.Vector3()));
+      const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0xBDF6FF, transparent: true, opacity: 0.9 }));
+      line.visible = false;
+      g.add(line);
+      arcs.push(line);
+    }
+    return {
+      group: g, depth: 0.2, size: 6, tick(t, v) {
+        segs.forEach((s, i) => { s.position.set(Math.sin(t * 3 - i * 0.55) * (0.5 + i * 0.05), Math.sin(t * 2 + i) * 0.08, -i * 0.62); });
+        head.position.set(0, 0, 0.45);
+        light.intensity = v.hitting ? 9 : 1.5 + Math.sin(t * 9) * 0.5;
+        arcs.forEach((a, k) => {
+          a.visible = !!v.hitting;
+          if (!v.hitting) return;
+          const pos = a.geometry.attributes.position;
+          const ang = (k / arcs.length) * Math.PI * 2 + t * 4;
+          for (let j = 0; j < 8; j++) pos.setXYZ(j, Math.sin(ang) * j * 1.3 + (Math.random() - 0.5) * 0.7, 0.3 + (Math.random() - 0.5) * 0.7, Math.cos(ang) * j * 1.3 + (Math.random() - 0.5) * 0.7);
+          pos.needsUpdate = true;
+        });
+      },
+    };
+  },
+  leviathan() {
+    const g = new THREE.Group();
+    const skin = bmat(0x3E4A58, 0.5, 0.2), belly = bmat(0xC9C6BA, 0.5), plate = bmat(0xA9B6C6, 0.3, 0.8), bone = bmat(0xD8D0B8), fin = bmat(0x2E3844, 0.6, 0.1);
+    g.add(bpart(SPH, skin, 0, 0, 0, 1.3, 1.1, 3.8)); // torpedo body
+    g.add(bpart(SPH, belly, 0, -0.55, 0.3, 1.0, 0.6, 3.3));
+    g.add(bpart(SPH, skin, 0, 0.05, 3.6, 0.95, 0.8, 1.7)); // head
+    const snout = bpart(CONE, skin, 0, -0.05, 6.1, 0.5, 3.2, 0.34); // long shovel snout
+    snout.rotation.x = Math.PI / 2;
+    g.add(snout);
+    for (const s of [-1, 1]) {
+      g.add(bpart(CONE, bone, s * 0.18, -0.55, 6.4, 0.035, 0.7, 0.035)); // barbels
+      g.add(bpart(CONE, bone, s * 0.32, -0.55, 6.2, 0.035, 0.55, 0.035));
+      const pf = bpart(CONE, fin, s * 1.15, -0.5, 2.2, 0.12, 1.9, 0.8); // pectoral fins
+      pf.rotation.z = s * 1.2; pf.rotation.x = Math.PI / 2 - 0.3;
+      g.add(pf);
+    }
+    g.add(bpart(SPH, EYE, 0.78, 0.25, 4.1, 0.13, 0.13, 0.13), bpart(SPH, EYE, -0.78, 0.25, 4.1, 0.13, 0.13, 0.13));
+    const tail = bpart(CONE, skin, 0, 0.3, -4.9, 0.8, 2.4, 0.32); // heterocercal tail
+    tail.rotation.x = -Math.PI / 2;
+    g.add(tail);
+    const lobe = bpart(CONE, fin, 0, 1.0, -6.0, 0.18, 1.8, 0.7);
+    lobe.rotation.x = -0.5;
+    g.add(lobe);
+    g.add(bpart(CONE, fin, 0, 1.3, -1.5, 0.12, 1.4, 0.9)); // dorsal fin
+    g.children[g.children.length - 1].rotation.x = -0.35;
+    // three rows of big armor scutes you shoot off, one row per stage: dorsal and both flanks
+    const rows = [[], [], []];
+    for (let i = 0; i < 7; i++) {
+      const z = 2.9 - i * 0.95, y = 1.0 - Math.abs(z - 1) * 0.04;
+      for (let r = 0; r < 3; r++) {
+        const x = r === 0 ? 0 : (r === 1 ? 0.9 : -0.9), yy = r === 0 ? y + 0.1 : y - 0.35;
+        const a = bpart(CONE, plate, x, yy, z, 0.34, 0.6 - i * 0.03, 0.46);
+        if (r) a.rotation.z = r === 1 ? -0.9 : 0.9;
+        g.add(a);
+        rows[r].push(a);
+      }
+    }
+    return {
+      group: g, depth: 0.8, size: 12, rows, tick(t, v) {
+        g.rotation.z = Math.sin(t * 1.4) * 0.05;
+        tail.position.x = Math.sin(t * 2) * 0.35; lobe.position.x = Math.sin(t * 2 - 0.4) * 0.6;
+        rows.forEach((row, r) => row.forEach((a) => { a.visible = (v.stage || 0) <= r; }));
+      },
+    };
+  },
+  kraken() {
+    const g = new THREE.Group();
+    const skin = bmat(0x5A1F3E, 0.5, 0.1, 0x220818), belly = bmat(0xB05A86, 0.5);
+    g.add(bpart(SPH, skin, 0, 1.6, 0, 2.2, 2.6, 2.2));
+    g.add(bpart(SPH, EYE, 1.1, 1.9, 1.9, 0.32, 0.32, 0.32), bpart(SPH, EYE, -1.1, 1.9, 1.9, 0.32, 0.32, 0.32));
+    const tents = [];
+    for (let k = 0; k < 8; k++) {
+      const chain = [];
+      const a = (k / 8) * Math.PI * 2;
+      for (let i = 0; i < 15; i++) { const rad = Math.max(0.14, 0.62 - i * 0.036); const s = bpart(SPH, i % 4 === 3 ? belly : skin, 0, 0, 0, rad, rad, rad); g.add(s); chain.push(s); }
+      tents.push({ chain, a });
+    }
+    return {
+      group: g, depth: 1.6, size: 12, tick(t, v) {
+        tents.forEach(({ chain, a }, k) => {
+          const slam = v.hitting && k % 2 === 0 ? 1 : 0;
+          chain.forEach((s, i) => {
+            const r = 1.7 + i * 0.46;
+            const lift = slam ? Math.max(0, 5.5 - i * 0.42) * (Math.sin(Math.min(1, (v.hitAge || 0) * 4) * Math.PI)) : Math.sin(t * 1.6 + k + i * 0.4) * 0.4 + 0.9 + i * 0.07;
+            s.position.set(Math.sin(a + Math.sin(t * 0.7 + k) * 0.25) * r, 0.4 + lift * (i > 1 ? 1 : 0.3), Math.cos(a + Math.sin(t * 0.7 + k) * 0.25) * r);
+          });
+        });
+      },
+    };
+  },
+};
+
+function makeBossView(pid, kind) {
+  const b = (BOSS_BUILD[kind] || BOSS_BUILD.snapjaw)();
+  b.group.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  const wrap = new THREE.Group();
+  wrap.add(b.group);
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.92, 1, 48), new THREE.MeshBasicMaterial({ color: 0xFF2A1A, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide }));
+  ring.rotation.x = -Math.PI / 2;
+  ring.renderOrder = 3;
+  scene.add(ring);
+  scene.add(wrap);
+  return { pid, kind, wrap, model: b, ring, x: 0, z: 0, rise: 0, warnUntil: 0, hitUntil: 0, hitting: false, hpFrac: 1, stage: 0, st: 0, flash: 0, ringR: 6 };
+}
+function syncBosses(players) {
+  const seen = new Set();
+  for (const d of players) {
+    if (!d.boss || !d.bobber) continue;
+    seen.add(d.id);
+    let v = bossViews.get(d.id);
+    if (!v || v.kind !== d.boss.k) { if (v) removeBoss(d.id); v = makeBossView(d.id, d.boss.k); bossViews.set(d.id, v); }
+    if (d.boss.hp < v.hpFrac - 0.001) v.flash = 0.14;
+    v.hpFrac = d.boss.hp;
+    v.st = d.boss.st;
+    v.stage = d.boss.stage;
+    v.tx = d.bobber.x; v.tz = d.bobber.z;
+    v.owner = d;
+    if (!v.x) { v.x = v.tx; v.z = v.tz; }
+  }
+  for (const [id, v] of [...bossViews]) if (!seen.has(id) && !v.fake) removeBoss(id);
+}
+function removeBoss(id) {
+  const v = bossViews.get(id);
+  if (!v) return;
+  scene.remove(v.wrap);
+  scene.remove(v.ring);
+  disposeGroup(v.wrap);
+  v.ring.geometry.dispose();
+  v.ring.material.dispose();
+  bossViews.delete(id);
+}
+function updateBosses(dt, t) {
+  let mine = null;
+  for (const v of bossViews.values()) {
+    v.x += (v.tx - v.x) * Math.min(1, dt * 4);
+    v.z += (v.tz - v.z) * Math.min(1, dt * 4);
+    v.rise = Math.min(1, v.rise + dt * 0.9);
+    const surf = WATER_Y + wave(v.x, v.z, t);
+    const own = v.owner;
+    const face = own ? Math.atan2(own.x - v.x, own.z - v.z) : 0;
+    v.hitting = t < v.hitUntil;
+    v.hitAge = 1 - Math.max(0, v.hitUntil - t) / 0.7;
+    const warn = t < v.warnUntil;
+    const stag = v.st === 1;
+    let y = surf - v.model.depth - (1 - v.rise) * v.model.size * 0.5 + (v.hitting ? Math.sin(Math.min(1, v.hitAge) * Math.PI) * v.model.size * 0.22 : 0);
+    let jx = warn ? Math.sin(t * 60) * 0.12 : 0;
+    v.wrap.position.set(v.x + jx, y, v.z);
+    v.wrap.rotation.set(stag ? 0.5 : 0, lerpAngle(v.wrap.rotation.y, face, 0.08), stag ? Math.sin(t * 16) * 0.12 : 0);
+    v.model.tick(t, v);
+    // glow: red while it winds up an attack, orange while it's staggered, white on a hit
+    const col = v.flash > 0 ? 0xFFFFFF : stag ? 0xFF7A1A : warn ? 0xFF2A1A : 0x000000;
+    const inten = v.flash > 0 ? 0.6 : stag ? 0.5 + Math.sin(t * 16) * 0.25 : warn ? 0.6 + Math.sin(t * 30) * 0.2 : 0;
+    v.flash = Math.max(0, v.flash - dt);
+    v.model.group.traverse((o) => { if (o.isMesh && o.material.emissive && !(o.material.emissiveIntensity > 0 && o.material.color.getHex() === 0x1A3A48)) { o.material.emissive.setHex(col); o.material.emissiveIntensity = inten; } });
+    // the danger ring on the water
+    v.ring.position.set(v.x, surf + 0.06, v.z);
+    v.ring.scale.setScalar(v.ringR);
+    v.ring.material.opacity = warn ? 0.35 + Math.sin(t * 24) * 0.25 : 0;
+    if (v.pid === myId) mine = v;
+    if (Math.random() < dt * 5) fx.ripple(v.x + (Math.random() - 0.5) * v.model.size * 0.5, v.z + (Math.random() - 0.5) * v.model.size * 0.5, v.model.size * 0.2, 1.2, 0.35);
+  }
+  $('ink').classList.toggle('on', performance.now() < inkUntil);
+  // your own boss's bar
+  const bb = $('bossBar');
+  if (mine) {
+    bb.hidden = false;
+    bb.querySelector('b').textContent = `${BOSS_NAMES[mine.kind] || 'Boss'}${bossSt.weak ? ' (weak: reel it in!)' : ''}`;
+    bb.querySelector('i').style.width = `${Math.round(bossSt.hp * 100)}%`;
+  } else if (bb.querySelector('b').textContent !== 'The Old One') bb.hidden = true;
+}
+const BOSS_NAMES = { snapjaw: 'Snapjaw', piranha: 'Piranha Storm', gator: 'Gator King', eel: 'Voltaic Eel', leviathan: 'Leviathan Sturgeon', kraken: 'The Kraken' };
+function lerpAngle(a, b, k) { return a + angleDiff(b, a) * k; }
+
+let inkUntil = 0;
+socket.on('bossHooked', (e) => {
+  fx.splash(e.x, e.z, 40, 2);
+  if (e.pid === myId) { bigText(e.name.toUpperCase(), 'frenzy', 2200); sfx.horn(); cam.shake += 0.4; bossSt = { hp: 1, stagger: false, weak: false }; }
+  else if (camera.position.distanceTo(tmpA.set(e.x, 0, e.z)) < 60) flashPrompt(`${e.name} is on someone's line!`, '', 2000);
+});
+socket.on('bossState', (s) => {
+  bossSt = s;
+  if (reel && reel.boss) { reel.boss.landAt = s.landAt; reel.boss.wearCap = s.wearCap; }
+});
+socket.on('bossMove', (e) => {
+  const v = bossViews.get(e.pid);
+  const now = audioT;
+  if (v) {
+    if (e.phase === 'warn') { v.warnUntil = now + 0.9; v.ringR = Math.max(3, e.r || 6); }
+    else { v.hitUntil = now + 0.7; }
+  }
+  const dist = camera.position.distanceTo(tmpA.set(e.x, 0, e.z));
+  if (e.phase === 'warn') {
+    if (e.pid === myId || dist < 25) { flashPrompt(e.name.toUpperCase() + '!', 'alert', 900); if (dist < 30) sfx.horn(); cam.shake += 0.15; }
+    return;
+  }
+  fx.splash(e.x, e.z, 26, 1.8);
+  if (dist < 30) cam.shake += e.pid === myId ? 0.5 : 0.3;
+  if (e.pid === myId && reel && reel.boss) {
+    // the hit lands on the line: a spike of tension, or slack and lost ground, or a screen full of ink
+    if (e.kind === 'spike') reel.tension = Math.min(0.98, reel.tension + (reel.countered ? 0.16 : 0.32));
+    else if (e.kind === 'slack') { reel.tension = 0.05; reel.progress = Math.max(0.05, reel.progress - 0.2); }
+    else if (e.kind === 'ink') inkUntil = performance.now() + 3200;
+  }
+});
+socket.on('bossHit', (e) => {
+  const v = bossViews.get(e.pid);
+  if (v) v.flash = 0.14;
+  fx.floater(e.x + (Math.random() - 0.5) * 2, 1.6 + Math.random(), e.z + (Math.random() - 0.5) * 2, String(e.dmg), 'dmg', 0.9);
+  if (settings.blood) fx.blood(e.x, 0.8, e.z, 0, 0, 6, 0.7);
+  if (e.armor) {
+    bigText('ARMOR BROKEN', 'glory', 1200);
+    fx.gibs(e.x, 1.2, e.z, 18, 1.6);
+    fx.sparkle(e.x, 1.5, e.z, 0xC9D4E0, 40, 2.4);
+    sfx.kill();
+    cam.shake += 0.3;
+  }
+});
+socket.on('bossDown', (e) => {
+  const v = bossViews.get(e.pid);
+  const size = v ? v.model.size : 4;
+  fx.gibs(e.x, 0.8, e.z, Math.round(18 + size * 3), 2 + size * 0.15);
+  fx.blood(e.x, 0.6, e.z, 0, 0, 60, 1.6);
+  fx.splash(e.x, e.z, 40 + size * 4, 2.4);
+  if (e.pid === myId) cam.shake += 0.5;
+});
+socket.on('bossEnd', (e) => {
+  removeBoss(e.pid);
+  if (e.pid === myId) bossSt = { hp: 1, stagger: false, weak: false };
+});
+setInterval(() => {
+  // holding the line steady wears a boss down a little; only while you're actually reeling and not about to snap
+  if (reel && reel.boss && holdFish && reel.tension < TUNING.redline) socket.emit('bossWear');
+}, 1000);
+
+
+// ================================================================ the frenzy: mutants, the boss, and the payoff
+
+const mutantViews = new Map();
+let frenzyState = null;
+const MUTANT_LOOK = {
+  leaper: { sid: 'walleye', len: 1.3, hop: 0.45 },
+  snapper: { sid: 'pike', len: 2.3, hop: 0.35 },
+  gulper: { sid: 'catfish', len: 3.0, hop: 0.22 },
+  boss: { sid: 'sturgeon', len: 10, hop: 0 },
+};
+const MUTANT_EYE = new THREE.MeshBasicMaterial({ color: 0xFF2A1A });
+const MUTANT_EYE_GEO = new THREE.SphereGeometry(1, 8, 6);
+function makeMutant(d) {
+  const look = MUTANT_LOOK[d.k] || MUTANT_LOOK.leaper;
+  const body = makeFish(look.sid);
+  const size = new THREE.Box3().setFromObject(body).getSize(new THREE.Vector3());
+  const s = look.len / Math.max(0.2, size.x, size.z);
+  body.scale.multiplyScalar(s);
+  // something is wrong with these fish: bruised dark scales and a red glow from inside
+  // (each fish already has its own materials; cloning would drop the belly-to-back shading some models use)
+  body.traverse((o) => {
+    if (!o.isMesh) return;
+    for (const mat of Array.isArray(o.material) ? o.material : [o.material]) {
+      if (mat.customProgramCacheKey && mat.customProgramCacheKey() === 'fishgrad') mat.color.set(0x5A2E3A);
+      else mat.color.lerp(new THREE.Color(0x2E1622), 0.6);
+      if (mat.emissive) { mat.emissive.set(0x5A0612); mat.emissiveIntensity = 0.3; }
+    }
+  });
+  const g = new THREE.Group();
+  g.add(body);
+  const h = size.y * s;
+  for (const side of [-1, 1]) {
+    const eye = new THREE.Mesh(MUTANT_EYE_GEO, MUTANT_EYE);
+    eye.scale.setScalar(look.len * 0.035);
+    eye.position.set(side * look.len * 0.07, h * 0.25, look.len * 0.38);
+    g.add(eye);
+  }
+  const hp = makeHpBar();
+  hp.sprite.position.y = h + 0.6;
+  hp.sprite.scale.multiplyScalar(d.k === 'boss' ? 0 : 1);
+  g.add(hp.sprite);
+  scene.add(g);
+  return { group: g, body, hp, look, k: d.k, x: d.x, z: d.z, rot: d.rot, leapT: 1, flash: 0, mats: [] };
+}
+function syncMutants(list) {
+  const seen = new Set();
+  for (const d of list) {
+    seen.add(d.id);
+    let v = mutantViews.get(d.id);
+    if (!v) { v = makeMutant(d); mutantViews.set(d.id, v); }
+    if (v.hpFrac !== undefined && d.hp < v.hpFrac) v.flash = 0.12;
+    v.hpFrac = d.hp;
+    v.st = d.st;
+    v.trot = d.rot;
+    setTarget(v, d.x, d.z);
+  }
+  for (const [id, v] of mutantViews) if (!seen.has(id)) removeMutant(id, v);
+}
+function removeMutant(id, v) {
+  scene.remove(v.group);
+  disposeGroup(v.group);
+  mutantViews.delete(id);
+}
+function updateMutants(dt, t) {
+  const k = 1 - Math.exp(-10 * dt);
+  let boss = null;
+  for (const v of mutantViews.values()) {
+    glide(v, k);
+    v.rot += angleDiff(v.trot ?? v.rot, v.rot) * k;
+    const wet = inWater(v.x, v.z);
+    const surf = WATER_Y + wave(v.x, v.z, t);
+    let y = wet ? surf - (v.k === 'boss' ? 0.9 : 0.12) : Math.max(0, groundHeight(v.x, v.z)) + 0.15 + Math.abs(Math.sin(t * 9 + v.x)) * v.look.hop;
+    let tilt = wet ? Math.sin(t * 5 + v.z) * 0.1 : Math.sin(t * 14 + v.x) * 0.5; // on land they flop
+    if (v.leapT < 1) { v.leapT += dt / 0.55; y += Math.sin(Math.min(1, v.leapT) * Math.PI) * 1.6; }
+    if (v.bossLeap) {
+      const L = v.bossLeap;
+      L.t += dt / 0.9;
+      const f = Math.min(1, L.t);
+      v.x = lerp(L.from.x, L.to.x, f);
+      v.z = lerp(L.from.z, L.to.z, f);
+      y = lerp(surf, Math.max(0, groundHeight(v.x, v.z)), f) + Math.sin(f * Math.PI) * 9;
+      v.rot = Math.atan2(L.to.x - L.from.x, L.to.z - L.from.z);
+      tilt = 0;
+      v.body.rotation.x = -0.6 + f * 1.2;
+      if (f >= 1) { v.bossLeap = null; v.body.rotation.x = 0; setTarget(v, v.x, v.z); }
+    }
+    const stag = v.st === 'stag';
+    if (stag) tilt = Math.PI * 0.45 + Math.sin(t * 20) * 0.1; // belly up and twitching
+    v.group.position.set(v.x, y, v.z);
+    v.group.rotation.set(0, v.rot, tilt);
+    if (v.body.userData.mixer) v.body.userData.mixer.update(dt * (wet ? 1.4 : 3));
+    // hit flash, and a pulsing orange glow while staggered (the cue to finish it with the knife)
+    v.flash = Math.max(0, v.flash - dt);
+    const glow = v.flash > 0 ? 0.7 : stag ? 0.45 + Math.sin(t * 16) * 0.25 : 0.3;
+    const col = v.flash > 0 ? 0xFF3A2A : stag ? 0xFF7A1A : 0x5A0612;
+    v.body.traverse((o) => { if (o.isMesh && o.material.emissive) { o.material.emissive.setHex(col); o.material.emissiveIntensity = glow; } });
+    if (v.k !== 'boss') {
+      v.hp.sprite.visible = v.hpFrac < 1;
+      if (v.hp.sprite.visible) drawHp(v.hp, Math.round(v.hpFrac * 100));
+    } else boss = v;
+    if (wet && Math.random() < dt * (v.k === 'boss' ? 6 : 1.5)) fx.ripple(v.x, v.z, v.look.len * 0.4, 1.2, 0.35);
+  }
+  // the boss gets a bar across the top of the screen
+  const bb = $('bossBar');
+  bb.hidden = !boss;
+  if (boss) bb.querySelector('i').style.width = `${Math.round(boss.hpFrac * 100)}%`;
+  // standing next to a staggered mutant: tell people what to do
+  const m = me();
+  let near = false;
+  if (m) for (const v of mutantViews.values()) if (v.st === 'stag' && Math.hypot(v.x - m.x, v.z - m.z) < 2.8) near = true;
+  $('gloryHint').hidden = !near;
+}
+
+// big words in the middle of the screen: FRENZY, DOUBLE KILL, GUTTED
+let bigTextTimer = null;
+function bigText(text, cls = '', ms = 1400) {
+  const el = $('bigText');
+  el.textContent = text;
+  el.className = cls;
+  el.hidden = false;
+  void el.offsetWidth; // restart the pop animation
+  el.classList.add('pop');
+  clearTimeout(bigTextTimer);
+  bigTextTimer = setTimeout(() => { el.hidden = true; }, ms);
+}
+
+// kills close together build a multi-kill
+const multi = { n: 0, at: 0 };
+const MULTI_WORDS = ['', '', 'DOUBLE KILL', 'TRIPLE KILL', 'MULTI KILL', 'RAMPAGE', 'MASSACRE'];
+function countKill() {
+  const now = performance.now();
+  multi.n = now - multi.at < 2600 ? multi.n + 1 : 1;
+  multi.at = now;
+  if (multi.n >= 2) { bigText(MULTI_WORDS[Math.min(multi.n, MULTI_WORDS.length - 1)], 'multi', 1100); sfx.kill(); }
+}
+
+function renderFrenzy() {
+  const f = frenzyState;
+  const el = $('frenzy');
+  const on = !!(f && f.active && myId);
+  el.hidden = !on;
+  document.body.classList.toggle('frenzyOn', on);
+  if (!on) return;
+  const mine = f.top.find((e) => e.id === myId);
+  const lead = f.top[0];
+  el.replaceChildren();
+  const b = document.createElement('b');
+  b.textContent = 'FRENZY';
+  const time = document.createElement('span');
+  time.className = 'time';
+  time.textContent = fmtTime(f.endsIn);
+  el.append(b, time, document.createTextNode(`Fish pay x2.5 · ${mine ? `you ${mine.score}` : 'score by killing and catching'}${lead && lead.id !== myId ? ` · top: ${lead.name} ${lead.score}` : ''}`));
+}
+
+socket.on('frenzy', (e) => {
+  if (e.type === 'start') {
+    sfx.horn();
+    bigText('FRENZY', 'frenzy', 2600);
+    flashPrompt('The lake is boiling. Fish bite fast and pay x2.5. Things are coming out of the water.', 'good', 4200);
+  } else {
+    const myName = views.get(myId) && views.get(myId).data.name;
+    const mine = (e.top || []).findIndex((x) => x.name === myName);
+    bigText('THE LAKE SETTLES', 'calm', 2200);
+    if (e.top && e.top.length) flashPrompt(`Frenzy over. ${e.top.map((x, i) => `${i + 1}. ${x.name} ${x.score}`).join('  ')}`, 'good', 4500);
+    if (mine >= 0) sfx.coin();
+  }
+});
+socket.on('mutantRise', (p) => {
+  fx.splash(p.x, p.z, p.boss ? 60 : 16, p.boss ? 3 : 1);
+  if (p.boss) { bigText('THE OLD ONE', 'frenzy', 2600); sfx.horn(); cam.shake += 0.4; }
+  else if (camera.position.distanceTo(tmpA.set(p.x, 0, p.z)) < 30) sfx.splash(1.2);
+});
+socket.on('mutantLeap', (p) => {
+  const v = mutantViews.get(p.id);
+  if (v) v.leapT = 0;
+  fx.splash(p.x, p.z, 12, 0.9);
+});
+socket.on('mutantBite', (p) => {
+  if (p.hit && settings.blood) fx.blood(p.x, 1.1, p.z, 0, 0, 10, 0.7);
+  if (camera.position.distanceTo(tmpA.set(p.x, 1, p.z)) < 20) sfx.thud(true, 0.7);
+});
+socket.on('bossLeap', (p) => {
+  const v = mutantViews.get(p.id);
+  if (v) v.bossLeap = { from: p.from, to: p.to, t: 0 };
+  fx.splash(p.from.x, p.from.z, 26, 2);
+});
+socket.on('bossSlam', (p) => {
+  fx.puff(p.x, 0.4, p.z, 0x8A7A5A, 22);
+  fx.splash(p.x, p.z, 18, 1.6);
+  const m = me();
+  if (m && Math.hypot(m.x - p.x, m.z - p.z) < 14) cam.shake += 0.9;
+});
+socket.on('bossShare', (p) => {
+  const m = me();
+  bigText(`+$${p.share}`, 'cash', 2400);
+  if (m) fx.floater(m.x, 2.4, m.z, `${p.pct}% of the damage`, 'info', 2);
+});
+socket.on('mutantDie', (p) => {
+  const v = mutantViews.get(p.id);
+  const look = MUTANT_LOOK[p.k] || MUTANT_LOOK.leaper;
+  if (v) removeMutant(p.id, v);
+  if (p.fled) { fx.splash(p.x, p.z, 8, 0.6); return; }
+  // it comes apart
+  const wet = inWater(p.x, p.z);
+  if (settings.blood) {
+    fx.gibs(p.x, wet ? 0.3 : 0.6, p.z, Math.round(10 + look.len * 6), Math.min(3, 0.8 + look.len * 0.25));
+    fx.blood(p.x, wet ? 0.3 : 0.8, p.z, 0, 0, Math.round(20 + look.len * 10), 1.4);
+    if (wet) fx.waterBlood(p.x, p.z, 8);
+  } else fx.puff(p.x, 0.8, p.z, 0xF2EEE4, 20);
+  if (wet) fx.splash(p.x, p.z, 20 + look.len * 6, 1 + look.len * 0.2);
+  const mine = p.by === myId;
+  if (camera.position.distanceTo(tmpA.set(p.x, 1, p.z)) < 30) sfx.splat(1);
+  if (mine) {
+    countKill();
+    if (p.glory) { bigText('GUTTED', 'glory', 1300); cam.shake += 0.3; }
+  }
+});
+
 // ================================================================ server events
 
 socket.on('correct', ({ x, z }) => { const m = me(); if (m) { m.x = m.tx = x; m.z = m.tz = z; } });
 
-socket.on('bite', () => {
+socket.on('bite', (b) => {
   if (phase !== 'out') return;
   phase = 'bite';
   sfx.bite();
+  if (b && b.boss) { flashPrompt('Something huge took the bait! Click!', 'alert', 1200); cam.shake += 0.25; }
   const m = me();
   if (m && m.bobberPos) {
     fx.splash(m.bobberPos.x, m.bobberPos.z, 9, 0.6);
@@ -1217,6 +2212,12 @@ socket.on('feed', (f) => {
 });
 
 const messageLog = [];
+// NPCs shout during fights: a speech bubble over their head
+socket.on('npcSay', (c) => {
+  const v = npcViews.get(c.id);
+  if (v) setBubble(v, c.text);
+});
+
 socket.on('chat', (c) => {
   pushChat(c);
   messageLog.push(c);
@@ -1232,22 +2233,26 @@ socket.on('ragdoll', (r) => {
   if (!v) return;
   if (v.model) startRagdoll(v, r.dx, r.dz, r.force);
   if (settings.blood) {
-    const y = inWater(v.x, v.z) ? WATER_Y + 0.4 : 1.1;
-    fx.blood(v.x, y, v.z, r.dx, r.dz, 26, 1.2);
+    const y = inWater(v.x, v.z) ? 0.4 : 1.1;
+    fx.blood(v.x, y, v.z, r.dx, r.dz, 40, 1.4);
     if (inWater(v.x, v.z)) fx.waterBlood(v.x, v.z, 6);
   }
 });
 
 socket.on('shot', (shot) => {
   if (!shot || !shot.from || !shot.to) return;
+  // shots come from the server at flat-ground heights; lift them onto the hills
+  const liftAt = (x, z) => (inWater(x, z) ? 0 : Math.max(0, groundHeight(x, z)));
+  shot.from.y = (shot.from.y ?? 1.3) + liftAt(shot.from.x, shot.from.z);
   if (shot.surface) shot.to.y = surfaceAt(shot.to.x, shot.to.z, audioT) + 0.05;
+  else shot.to.y = (shot.to.y ?? 1) + liftAt(shot.to.x, shot.to.z);
   fx.tracer(shot.from, shot.to);
-  if (shot.gun) {
+  if (shot.gun && shot.gun !== 'crossbow') {
     // brass (or a red shotgun shell) pops out to the gun's right and bounces
     const cdx = shot.to.x - shot.from.x;
     const cdz = shot.to.z - shot.from.z;
     const cl = Math.hypot(cdx, cdz) || 1;
-    if (camera.position.distanceTo(tmpA.set(shot.from.x, 1.3, shot.from.z)) < 45) fx.casing(shot.from.x + cdz / cl * 0.15, 1.25, shot.from.z - cdx / cl * 0.15, cdx / cl, cdz / cl, shot.gun === 'shotgun');
+    if (camera.position.distanceTo(tmpA.set(shot.from.x, 1.3, shot.from.z)) < 45) fx.casing(shot.from.x + cdz / cl * 0.15, 1.25, shot.from.z - cdx / cl * 0.15, cdx / cl, cdz / cl, shot.gun === 'shotgun' || shot.gun === 'dbarrel');
   }
   if (shot.surface === 'water') {
     fx.splash(shot.to.x, shot.to.z, 9, 0.55);
@@ -1261,9 +2266,11 @@ socket.on('shot', (shot) => {
     const d = Math.hypot(dx, dz) || 1;
     if (shot.hit === 'fish') fx.waterBlood(shot.to.x, shot.to.z, shot.killed ? 6 : 3);
     else {
-      fx.blood(shot.to.x, 1.1, shot.to.z, dx / d, dz / d, shot.killed ? 22 : 14, 1);
+      fx.blood(shot.to.x, 1.1, shot.to.z, dx / d, dz / d, shot.killed ? 34 : 20, shot.killed ? 1.3 : 1);
+      if (shot.killed) fx.blood(shot.to.x, 1.5, shot.to.z, dx / d, dz / d, 16, 1.6); // exit spray
       if (Math.random() < 0.6 && !inWater(shot.to.x, shot.to.z)) fx.bloodPool(shot.to.x + (dx / d) * 0.6, surfaceAt(shot.to.x, shot.to.z, audioT), shot.to.z + (dz / d) * 0.6, 0.5 + Math.random() * 0.4);
-      const near = camera.position.distanceTo(new THREE.Vector3(shot.to.x, 1, shot.to.z));
+      const near = camera.position.distanceTo(new THREE.Vector3(shot.to.x, shot.to.y, shot.to.z));
+      if (near < 3.5 && fpActive()) screenBlood(0.5 * (1 - near / 3.5) + 0.15);
       if (near < 25) sfx.splat(Math.max(0.2, 1 - near / 25));
     }
   }
@@ -1289,7 +2296,7 @@ socket.on('punch', (p) => {
   if (p.hit) {
     if (d < 30) sfx.thud(p.heavy || p.kind === 'stab', 0.6);
     if (p.x != null) {
-      if (settings.blood) fx.blood(p.x, 1.4, p.z, Math.sin(p.rot), Math.cos(p.rot), p.heavy ? 10 : 4, 0.6);
+      if (settings.blood) fx.blood(p.x, 1.35, p.z, Math.sin(p.rot), Math.cos(p.rot), p.knife ? (p.backstab ? 34 : 18) : p.heavy ? 10 : 4, p.knife ? 1 : 0.6);
       else fx.puff(p.x, 1.25, p.z, 0xF2EEE4, p.heavy ? 12 : 6);
     }
     const target = [...views.values(), ...npcViews.values()].find((o) => o.data.alive !== false && Math.hypot(o.x - p.x, o.z - p.z) < 1.2);
@@ -1305,9 +2312,37 @@ socket.on('knock', (k) => {
   cam.shake += k.heavy ? 0.45 : 0.2;
 });
 
+// first person: blood on the lens when you get hit or cut someone up close. Each call throws a fresh set of spots.
+const bloodLayer = document.createElement('div');
+bloodLayer.id = 'screenBlood';
+document.body.append(bloodLayer);
+let bloodLevel = 0;
+function screenBlood(amount) {
+  if (!settings.blood) return;
+  const spots = [];
+  const n = 4 + Math.floor(amount * 10);
+  for (let i = 0; i < n; i++) {
+    const edge = Math.random() < 0.7;
+    const x = edge ? (Math.random() < 0.5 ? Math.random() * 22 : 78 + Math.random() * 22) : 20 + Math.random() * 60;
+    const y = Math.random() * 100;
+    const r = 3 + Math.random() * (edge ? 16 : 7) * (0.6 + amount);
+    const a = (0.55 + Math.random() * 0.4).toFixed(2);
+    spots.push(`radial-gradient(circle at ${x.toFixed(1)}% ${y.toFixed(1)}%, rgba(150,8,8,${a}) 0, rgba(120,4,4,${a}) ${(r * 0.5).toFixed(1)}vmin, rgba(90,0,0,0) ${r.toFixed(1)}vmin)`);
+  }
+  bloodLayer.style.backgroundImage = spots.join(',');
+  bloodLevel = Math.min(1, Math.max(bloodLevel, amount + 0.25));
+  bloodLayer.style.opacity = String(bloodLevel);
+}
+setInterval(() => {
+  if (bloodLevel <= 0) return;
+  bloodLevel = Math.max(0, bloodLevel - 0.05);
+  bloodLayer.style.opacity = String(bloodLevel);
+}, 100);
+
 socket.on('hurt', (h) => {
   sfx.hurt();
   hurtT = 1;
+  if (settings.blood && h && h.how !== 'punch') screenBlood(0.55);
   cam.shake += 0.35;
   const m = me();
   if (m) {
@@ -1353,7 +2388,7 @@ socket.on('died', (d) => {
   const lost = [];
   if (d.dropped) lost.push(`$${d.dropped}`);
   if (d.bag) lost.push(`${d.bag} fish`);
-  $('death').dataset.lost = lost.length ? `You dropped ${lost.join(' and ')} where you fell.` : 'You had nothing on you worth dropping.';
+  $('death').dataset.lost = d.eaten ? `They ate ${d.eaten} fish out of your bag. You kept your cash.` : lost.length ? `You dropped ${lost.join(' and ')} where you fell.` : 'You had nothing on you worth dropping.';
   $('death').hidden = false;
 });
 
@@ -1373,6 +2408,8 @@ socket.on('loot', (it) => {
   const y = 1.4;
   if (it.kind === 'cash') { fx.floater(it.x, y, it.z, `+$${it.amount}`, 'cash'); sfx.coin(); }
   else if (it.kind === 'fish') fx.floater(it.x, y, it.z, String(it.name).toLowerCase(), 'info');
+  else if (it.kind === 'ammo') fx.floater(it.x, y, it.z, `+${it.amount} ammo`, 'cash');
+  else if (it.kind === 'heal') fx.floater(it.x, y, it.z, `+${it.amount} health`, 'info');
   else fx.floater(it.x, y, it.z, `+1 ${it.kind}`, 'info');
 });
 
@@ -1462,7 +2499,7 @@ function buildLookPickers() {
   blocky.dataset.look = String(LOOKS.length);
   blocky.setAttribute('role', 'radio');
   blocky.addEventListener('click', () => { chosenLook = LOOKS.length; markSwatch(); });
-  looks.prepend(blocky);
+  looks.append(blocky);
   const skins = $('skins');
   skins.replaceChildren();
   SKINS.forEach((c, i) => {
@@ -1572,7 +2609,7 @@ canvas.addEventListener('wheel', (e) => {
   // Ctrl + wheel moves the camera; plain wheel flips through your hotbar like most games
   if (e.ctrlKey) { cam.dist = clamp(cam.dist + e.deltaY * 0.01, TUNING.camMin, TUNING.camMax); return; }
   const now = performance.now();
-  if (now - wheelAt < 110 || !myId || !alive() || openPanel || phase !== 'idle') return;
+  if (now - wheelAt < 110 || !myId || !alive() || openPanel || (phase !== 'idle' && !bossFight())) return;
   wheelAt = now;
   const list = hotbarList().filter((a) => a !== 'bag' && canHold(a));
   if (!list.length) return;
@@ -1604,6 +2641,13 @@ addEventListener('keydown', (e) => {
     case 'KeyI': case 'Tab': e.preventDefault(); if (!e.repeat) togglePanel('inventory'); break;
     case 'KeyP': if (!e.repeat) togglePanel('phone'); break;
     case 'KeyH': if (!e.repeat) togglePanel('help'); break;
+    case 'KeyV':
+      if (!e.repeat) {
+        settings.view = fpWanted() ? 'third' : 'first';
+        store.set('loonlake.settings', settings);
+        flashPrompt(fpWanted() ? 'First person (V to switch)' : 'Third person (V to switch)', '', 1200);
+      }
+      break;
     case 'Enter': e.preventDefault(); openChat(); break;
     case 'Escape': closePanels(); break;
     case 'Digit1': case 'Digit2': case 'Digit3': case 'Digit4': case 'Digit5':
@@ -2013,6 +3057,11 @@ function renderShop() {
   tackle.append(nextRod
     ? itemButton('rod', nextRod.name, `${nextRod.desc} Casts ${nextRod.castMax} m. You have a ${rod.name.toLowerCase()}.`, `$${nextRod.price}`, d.cash < nextRod.price)
     : itemButton(null, rod.name, 'The best rod Moss has. Casts all the way to the deep middle.', 'Owned', true, true));
+  const bagTier = d.bag.tier || 0;
+  const nextBag = W.bags[bagTier + 1];
+  tackle.append(nextBag
+    ? itemButton('bagup', nextBag.name, `${nextBag.desc} Yours holds ${W.bags[bagTier].cap}.`, `$${nextBag.price}`, d.cash < nextBag.price)
+    : itemButton(null, W.bags[bagTier].name, `The biggest bag there is. Holds ${W.bags[bagTier].cap} fish.`, 'Owned', true, true));
   const nextBait = W.baits[d.bait + 1];
   const bait = W.baits[d.bait];
   tackle.append(nextBait
@@ -2021,11 +3070,6 @@ function renderShop() {
 
   const gear = $('gearList');
   gear.replaceChildren();
-  const nextBag = W.bags[(d.bagTier || 0) + 1];
-  const curBag = W.bags[d.bagTier || 0];
-  gear.append(nextBag
-    ? itemButton('bagup', nextBag.name, `${nextBag.desc} Now: ${curBag.name.toLowerCase()}, ${curBag.cap} fish.`, `$${nextBag.price}`, d.cash < nextBag.price)
-    : itemButton(null, curBag.name, `${curBag.desc} The biggest pack Moss sells.`, 'Owned', true, true));
   const nextBoat = W.boats[(d.boatTier ?? -1) + 1];
   const boat = W.boats[d.boatTier];
   gear.append(nextBoat
@@ -2088,7 +3132,10 @@ function sell() {
 function buy(item) {
   socket.emit('buy', item, (res) => {
     if (!res) return;
-    if (res.ok) { sfx.coin(); if (res.gear) completeGoal('gear'); }
+    if (res.ok) {
+      sfx.coin();
+      if (res.gear) completeGoal('gear');
+    }
     if (res.msg) flashPrompt(res.msg, res.ok ? 'good' : '', 1600);
     shopSig = '';
   });
@@ -2279,11 +3326,15 @@ function showCatchTag(res) {
   const flags = $('tagFlags');
   flags.replaceChildren();
   const add = (text, cls) => { const f = document.createElement('span'); f.textContent = text; if (cls) f.className = cls; flags.append(f); };
+  if (res.shot) add('Shot', 'derby');
+  if (res.rodFirst) add('First on the rod', 'pb');
   if (res.first) add(`First ${res.name.toLowerCase()}`);
   if (res.pb) add('Personal best', 'pb');
   if (res.derbyLead) add('Leads the tournament', 'derby');
   else if (res.derby) add('Counts for the tournament', 'derby');
   if (res.hot) add('Hot spot');
+  if (res.frenzy) add('Frenzy x2.5', 'streak');
+  if (res.streak > 1) add(`Streak ${res.streak}: x${res.mult.toFixed(1)}`, 'streak');
   if (res.xpGain) add(`+${res.xpGain} XP`);
   if (res.levelUp) add(`Level ${res.level}! +$${res.levelBonus}`, 'pb');
   for (const q of res.questDone || []) add(`Quest done: +$${q.reward}`, 'derby');
@@ -2300,6 +3351,7 @@ function syncSettingsUI() {
   $('setSens').value = settings.sens;
   $('setVol').value = settings.volume;
   $('setBright').value = settings.bright;
+  $('setFov').value = settings.fov;
   $('setInvert').checked = settings.invertY;
   $('setShake').checked = settings.shake;
   $('setBlood').checked = settings.blood;
@@ -2309,6 +3361,7 @@ function saveSettings() {
   settings.sens = Number($('setSens').value);
   settings.volume = Number($('setVol').value);
   settings.bright = Number($('setBright').value);
+  settings.fov = Number($('setFov').value);
   applyBrightness();
   settings.invertY = $('setInvert').checked;
   settings.shake = $('setShake').checked;
@@ -2319,7 +3372,7 @@ function saveSettings() {
   sfx.setVolume(settings.volume);
   store.set('loonlake.settings', settings);
 }
-['setSens', 'setVol', 'setBright', 'setInvert', 'setShake', 'setQuality', 'setBlood'].forEach((id) => $(id).addEventListener('input', saveSettings));
+['setSens', 'setVol', 'setBright', 'setFov', 'setInvert', 'setShake', 'setQuality', 'setBlood'].forEach((id) => $(id).addEventListener('input', saveSettings));
 
 // ---------- goals
 
@@ -2580,8 +3633,9 @@ function hook() {
       if (m && m.bobberPos) fx.splash(m.bobberPos.x, m.bobberPos.z, 12, 0.9);
       reel = {
         diff: res.difficulty, tol: res.tol || 1, speed: res.speed || 1, flags: res.reel || {}, heavy: res.heavy,
-        tension: 0.15, progress: 0.2, surge: 0, surgeT: 1.4, dir: 0, dirT: 1.1, countered: false, strainAt: 0, side: 0,
+        tension: 0.15, progress: 0.2, surge: 0, surgeT: 1.4, dir: 0, dirT: 1.1, countered: false, strainAt: 0, side: 0, boss: res.boss || null,
       };
+      if (res.boss) { reel.heavy = true; bossSt = { hp: 1, stagger: false, weak: false, landAt: res.boss.landAt, wearCap: res.boss.wearCap }; flashPrompt(`${res.boss.name}! Reel to wear it down. Swap to a gun to break its armor.`, 'good', 3800); }
       cam.shake += 0.15;
       if (res.heavy) flashPrompt("It's a heavy one.", 'good', 1400);
     } else if (res.result === 'spooked') {
@@ -2635,16 +3689,21 @@ function updateReel(dt) {
   const sgn = Math.abs(steer) > 0.3 ? Math.sign(steer) : 0;
   r.countered = r.dir !== 0 && sgn === -r.dir;
   const wrong = r.dir !== 0 && sgn === r.dir;
+  const boss = r.boss;
+  const stag = !!(boss && bossSt.stagger);
   if (holdFish) {
     let gain = up + r.diff * 0.5 + r.surge * r.diff * 0.9 * surgeMul;
+    if (boss) gain *= stag ? 0.35 : 1 + boss.tier * 0.1;
     if (r.dir !== 0) gain *= r.countered ? 0.55 : wrong ? 1.45 : 1.12;
     r.tension += (gain * dt) / r.tol;
-    r.progress += TUNING.reelRate * r.speed * (1 - r.diff * 0.55) * (r.countered ? 1.25 : 1) * (f.calm ? 1.15 : 1) * dt;
+    r.progress += TUNING.reelRate * r.speed * (1 - r.diff * 0.55) * (r.countered ? 1.25 : 1) * (f.calm ? 1.15 : 1) * (stag ? 3 : boss ? 0.7 : 1) * dt;
     sfx.reel(audioT, r.tension);
   } else {
     r.tension = Math.max(0, r.tension - down * dt * (r.countered ? 1.2 : 1));
     r.progress -= (TUNING.reelDecay + r.surge * 0.05 + (r.dir && !r.countered ? 0.02 : 0)) * dt;
   }
+  // a boss can't be landed until it's weak: the reel stalls partway and the line strains until you wear it down
+  if (boss && !bossSt.weak && r.progress > 0.55) { r.progress = 0.55; if (audioT > (r.nagAt || 0)) { r.nagAt = audioT + 4; flashPrompt('Too strong to land. Keep the line steady, and shoot it (swap to a gun).', '', 2600); } }
   if (r.tension > TUNING.redline && audioT > r.strainAt) { r.strainAt = audioT + 0.22; sfx.strain(); cam.shake += 0.02; }
   if (r.tension >= 1) return finishReel(false, 'The line snapped.', true);
   if (r.progress <= 0) return finishReel(false, 'It got away.');
@@ -2705,7 +3764,7 @@ function attack() {
 
 // left mouse always uses whatever is in your hands
 function usePrimary() {
-  if (phase !== 'idle' || held === 'rod') { lmbFish = true; fishDown(); return; }
+  if ((phase !== 'idle' && !(bossFight() && isGun(held))) || held === 'rod') { lmbFish = true; fishDown(); return; }
   if (held === 'knife') tryKnife('slash');
   else if (held === 'fists') tryPunch();
   else if (isGun(held)) tryShoot();
@@ -2755,10 +3814,13 @@ function tryKnife(kind) {
   const m = me();
   const rot = assistRot(aimRot, 3, 1.1);
   if (m) { m.trot = m.rot = rot; playItemAnim(m, stab ? 'stab' : knifeSide ? 'slash1' : 'slash2'); }
+  vm.swing = 1;
+  vm.swingSide = knifeSide ? 'r' : 'l';
   socket.emit('punch', { rot, weapon: 'knife', kind }, (res) => {
     if (!res || !res.ok) { if (res && res.msg) flashPrompt(res.msg, '', 1300); return; }
     if (res.hit === 'safe') { flashPrompt('Camp is a no-fighting zone.', '', 1500); return; }
-    if (res.hit === 'player' || res.hit === 'npc') {
+    if (res.hit === 'mutant' && res.killed && res.bounty) fx.floater(res.x, 2.4, res.z, `+$${res.bounty * (res.glory ? 2 : 1)}`, 'cash', 1.3);
+    if (res.hit === 'player' || res.hit === 'npc' || res.hit === 'mutant') {
       sfx.thud(stab, 0.8);
       if (res.killed) sfx.kill();
       showHitmark(res.killed);
@@ -2767,7 +3829,9 @@ function tryKnife(kind) {
       if (res.x != null) {
         if (settings.blood) fx.blood(res.x, 1.4, res.z, Math.sin(rot), Math.cos(rot), res.back ? 16 : stab ? 12 : 6, 0.7);
         else fx.puff(res.x, 1.25, res.z, 0xF2EEE4, stab ? 12 : 6);
-        if (res.back) fx.floater(res.x, 2.2, res.z, 'Backstab!', 'dmg', 1.1);
+        if (fpActive()) screenBlood(res.killed ? 0.7 : 0.3);
+        if (res.dmg) fx.floater(res.x, 2.2, res.z, res.back ? `Backstab! ${res.dmg}` : String(res.dmg), 'dmg', res.back ? 1.15 : 0.85);
+        else if (res.back) fx.floater(res.x, 2.2, res.z, 'Backstab!', 'dmg', 1.1);
       }
     }
   });
@@ -2780,27 +3844,34 @@ function tryPunch() {
   if (!myId || !alive() || openPanel || chatOpen || phase !== 'idle') return;
   const now = performance.now();
   if (now < nextPunchAt) return;
-  localCombo = now - lastLocalPunch < 1100 ? (localCombo % 3) + 1 : 1;
+  const knife = held === 'knife';
+  localCombo = !knife && now - lastLocalPunch < 1100 ? (localCombo % 3) + 1 : 1;
   lastLocalPunch = now;
-  const heavy = localCombo === 3;
-  nextPunchAt = now + (heavy ? 610 : 360);
+  const heavy = !knife && localCombo === 3;
+  nextPunchAt = now + (knife ? 520 : heavy ? 610 : 360);
   const m = me();
-  const rot = assistRot(aimRot, 2.8, 1.1);
-  if (m) { m.trot = m.rot = rot; startPunch(m, heavy || localCombo === 1 ? 'r' : 'l', heavy); }
-  sfx.whoosh(heavy);
-  socket.emit('punch', { rot }, (res) => {
+  const rot = assistRot(aimRot, knife ? 3 : 2.8, 1.1);
+  const side = knife || heavy || localCombo === 1 ? 'r' : 'l';
+  if (m) { m.trot = m.rot = rot; startPunch(m, side, heavy); }
+  vm.swing = 1;
+  vm.swingSide = side;
+  sfx.whoosh(heavy || knife);
+  socket.emit('punch', { rot, knife }, (res) => {
     if (!res || !res.ok) { if (res && res.msg) flashPrompt(res.msg, '', 1300); return; }
     if (res.hit === 'safe') { flashPrompt('Camp is a no-fighting zone.', '', 1500); return; }
-    if (res.hit === 'player' || res.hit === 'npc') {
+    if (res.hit === 'mutant' && res.killed && res.bounty) fx.floater(res.x, 2.4, res.z, `+$${res.bounty * (res.glory ? 2 : 1)}`, 'cash', 1.3);
+    if (res.hit === 'player' || res.hit === 'npc' || res.hit === 'mutant') {
       sfx.thud(res.heavy);
       if (res.killed) sfx.kill();
       showHitmark(res.killed);
       cam.shake += res.heavy ? 0.3 : 0.12;
       buzz(res.heavy ? 45 : 20);
       if (res.x != null) {
-        if (settings.blood) fx.blood(res.x, 1.4, res.z, Math.sin(rot), Math.cos(rot), res.heavy ? 10 : 4, 0.6);
+        if (settings.blood) fx.blood(res.x, 1.35, res.z, Math.sin(rot), Math.cos(rot), knife ? (res.backstab ? 34 : 18) : res.heavy ? 10 : 4, knife ? 1 : 0.6);
         else fx.puff(res.x, 1.25, res.z, 0xF2EEE4, res.heavy ? 14 : 7);
         if (res.heavy) fx.floater(res.x, 2.2, res.z, 'Haymaker!', 'dmg', 0.9);
+        if (knife && fpActive()) screenBlood(res.killed ? 0.7 : 0.3);
+        if (knife && res.dmg) fx.floater(res.x, 2.2, res.z, res.backstab ? `Backstab! ${res.dmg}` : String(res.dmg), 'dmg', res.backstab ? 1.15 : 0.85);
       }
     }
   });
@@ -2822,7 +3893,7 @@ function reload() {
 }
 
 function tryShoot() {
-  if (!myId || !alive() || openPanel || chatOpen || phase !== 'idle') return;
+  if (!myId || !alive() || openPanel || chatOpen || (phase !== 'idle' && !bossFight())) return;
   const g = effGun(held);
   if (!g) return;
   if (!ownsGun(held)) { flashPrompt(`You need the ${g.name.toLowerCase()}. Moss sells them.`, '', 1500); return; }
@@ -2845,6 +3916,7 @@ function tryShoot() {
   if (m) { m.kick = 1; m.kickScale = clamp((g.recoil || 0.015) / 0.02, 0.4, 2.4); if (m.ia && m.ia.name === 'inspect') m.ia = null; }
   cam.shake += 0.08 + g.pellets * 0.015;
   cam.pitch -= g.recoil || 0.015;
+  vm.kick = Math.min(0.1, vm.kick + 0.025 + (g.recoil || 0.015) * 0.8);
   const gun = held;
   socket.emit('shoot', { rot: shotRot, aiming: cam.aim > 0.5, gun, dist: isTouch ? 0 : aimDist }, (res) => {
     if (!res) return;
@@ -2852,9 +3924,23 @@ function tryShoot() {
     if (res.reloading && myData && !myData.reloadGun) { myData.reloadGun = gun; myData.reloadLeft = g.reload; sfx.reload(); }
     if (res.hit === 'safe') { flashPrompt('Camp is a no-shooting zone.', '', 1500); return; }
     if (res.msg) flashPrompt(res.msg, '', 1500);
-    if (res.hit === 'player' || res.hit === 'npc' || res.hit === 'fish') {
+    if (res.hit === 'fish' && res.killed && res.catch) {
+      const c = res.catch;
+      if (RARITY_RANK[c.rarity] >= 3 || c.first) { c.shot = true; showCatchTag(c); sfx.land(c.rarity); } else fx.floater(res.x, 1, res.z, `${c.name} +$${c.value}`, 'cash', 1.4);
+      if (RARITY_RANK[c.rarity] >= 4) cam.shake += 0.25;
+      if (c.levelUp) fx.floater(res.x, 2.4, res.z, `Level ${c.level}!`, 'cash', 2);
+      if (c.mult > 1) fx.floater(res.x, 1.6, res.z, `streak x${c.mult.toFixed(1)}`, 'info', 1.2);
+      if (openPanel === 'journal') { journal[c.sid] = journal[c.sid] || { n: 0, best: 0 }; journal[c.sid].n++; journal[c.sid].best = Math.max(journal[c.sid].best, c.lbs); renderJournal(); }
+    }
+    if (res.hit === 'boss' && res.stagger && res.armor) flashPrompt('Armor broken! It\'s staggered. Swap to the rod and reel!', 'good', 1800);
+    if (res.hit === 'mutant' && res.stagger && !res.killed) flashPrompt('It\'s staggered! Knife it to gut it for health and double loot.', 'good', 1800);
+    if (res.hit === 'mutant' && res.killed && res.bounty) fx.floater(res.x, 2.4, res.z, `+$${res.bounty}`, 'cash', 1.3);
+    if (res.hit === 'player' || res.hit === 'npc' || res.hit === 'fish' || res.hit === 'mutant' || res.hit === 'boss') {
       showHitmark(res.killed);
-      if (res.dmg > 0 && res.x != null && res.hit !== 'fish') fx.floater(res.x, 2.1, res.z, res.crit ? `${res.dmg}!` : String(res.dmg), 'dmg', res.crit ? 1.15 : res.killed ? 1 : 0.8);
+      if (res.hit === 'mutant') cam.shake += res.killed ? 0.18 : 0.04;
+      if (res.dmg > 0 && res.x != null) fx.floater(res.x, res.hit === 'fish' ? 0.9 : 2.1, res.z, res.crit ? `${res.dmg}!` : String(res.dmg), res.hit === 'fish' ? 'info' : 'dmg', res.crit ? 1.15 : res.killed ? 1 : 0.8);
+      // overkill spoils a fish: show what that hit cost you
+      if (res.hit === 'fish' && res.loss > 0) fx.floater(res.x + 0.4, 0.4, res.z, `-$${res.loss}`, 'dmg', 1.1);
       buzz(20);
       if (res.killed) sfx.kill(); else sfx.hitmark();
       if (res.hit === 'fish') fx.splash(res.x, res.z, 10, 0.7);
@@ -2884,7 +3970,7 @@ function useDrug(name) {
 }
 
 // the hotbar only shows what you own, in order, and number keys pick by position
-const GUN_ORDER = ['pistol', 'glock', 'arp', 'smg', 'draco', 'shotgun', 'rifle', 'sniper'];
+const GUN_ORDER = ['pistol', 'glock', 'deagle', 'arp', 'smg', 'draco', 'm4', 'lmg', 'shotgun', 'dbarrel', 'crossbow', 'rifle', 'sniper'];
 const SLOT_KEYS_LABEL = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '='];
 function hotbarList() {
   const owned = myData && myData.guns ? GUN_ORDER.filter((g) => myData.guns[g]) : [];
@@ -2902,7 +3988,7 @@ function canHold(act) {
 
 function selectHold(act, useIfHeld) {
   if (!myId || !alive()) return;
-  if (phase !== 'idle') { flashPrompt('Reel in before you switch hands.', '', 1200); return; }
+  if (phase !== 'idle' && !bossFight()) { flashPrompt('Reel in before you switch hands.', '', 1200); return; }
   if (!canHold(act)) {
     flashPrompt(isGun(act) ? `You need the ${gunOf(act).name.toLowerCase()}. Moss sells them.` : `You are out of ${act}.`, '', 1400);
     return;
@@ -3063,8 +4149,17 @@ function updateLocal(m, dt) {
     world.collide(m, 0.35, jumpY);
     pushOutOfBodies(m);
     if (!ok(m.x, m.z)) { m.x = ox; m.z = oz; }
-    // whatever stopped us (walls, bodies, the shoreline) takes the speed with it
-    if (dt > 0) { vel.x = (m.x - ox) / dt; vel.z = (m.z - oz) / dt; }
+    // whatever stopped us (walls, bodies, the shoreline) takes the speed with it. A collision can only slow you down:
+    // being pushed out of a tree or another player must not turn into a burst of speed that slides you metres away.
+    if (dt > 0) {
+      const want = Math.hypot(vel.x, vel.z);
+      let ax = (m.x - ox) / dt;
+      let az = (m.z - oz) / dt;
+      const got = Math.hypot(ax, az);
+      if (got > want) { const k = want / got; ax *= k; az *= k; }
+      vel.x = ax;
+      vel.z = az;
+    }
   }
   if (inBoat) {
     const sp = Math.hypot(m.x - ox, m.z - oz) / Math.max(dt, 1e-3);
@@ -3080,6 +4175,7 @@ function updateLocal(m, dt) {
   }
   if (m.walking && m.swimming && Math.random() < dt * 5) fx.ripple(m.x, m.z, 0.7, 1, 0.4);
   if (!canMove && (phase === 'charging' || rifleUp)) m.trot = aimRot;
+  if (fpActive() && !inBoat) m.trot = cam.yaw + Math.PI; // in first person your body faces where you look
   if (lmbHeld && !openPanel && !chatOpen) {
     if (isGun(held) && effGun(held).auto) tryShoot();
     else if (held === 'fists') tryPunch();
@@ -3307,9 +4403,8 @@ function updateView(v, dt, t) {
   const isMe = v.data.id === myId;
   const aliveNow = v.data.alive !== false;
   if (!isMe) {
-    v.walking = Math.hypot(v.tx - v.x, v.tz - v.z) > 0.02;
-    v.x += (v.tx - v.x) * k;
-    v.z += (v.tz - v.z) * k;
+    v.walking = Math.hypot(v.vx || 0, v.vz || 0) > 0.4 || Math.hypot(v.tx - v.x, v.tz - v.z) > 0.05;
+    glide(v, k);
   }
   v.rot += angleDiff(v.trot, v.rot) * Math.min(1, dt * (isMe ? 16 : 12));
   const inBoat = isMe ? boating() : !!v.data.boat;
@@ -3326,12 +4421,15 @@ function updateView(v, dt, t) {
     v.y = wy - (v.model ? 0.46 : 0.15);
     v.boatMesh.position.y = (v.model ? 0.46 : 0.15) - 0.18;
     v.boatMesh.rotation.set(Math.sin(t * 1.3 + v.x) * 0.05, 0, Math.cos(t * 1.1 + v.z) * 0.05);
+    const foam = v.boatMesh.userData.foam;
+    if (foam) { foam.material.opacity = 0.42 + 0.14 * Math.sin(t * 2.2 + v.x); foam.scale.setScalar(1 + 0.03 * Math.sin(t * 1.7 + v.z)); foam.material.color.setScalar(1 - world.day.night * 0.7); }
     if (!isMe && v.walking && Math.random() < dt * 20) fx.wake(v.x - Math.sin(v.rot) * 1.4, v.z - Math.cos(v.rot) * 1.4, Math.sin(v.rot), Math.cos(v.rot), 7);
   } else {
     if (v.boatMesh) v.boatMesh.visible = false;
     const swimNow = isMe ? !!v.swimming : !!v.data.swim;
-    const restY = swimNow ? WATER_Y + wave(v.x, v.z, t) - 0.3 : onDock(v.x, v.z) ? DOCK_Y : 0;
-    v.y += (restY - v.y) * k;
+    const restY = swimNow ? WATER_Y + wave(v.x, v.z, t) - 0.3 : onDock(v.x, v.z) ? DOCK_Y : groundHeight(v.x, v.z);
+    // follow the hills exactly; only ease into big steps like the dock or the water
+    if (Math.abs(restY - v.y) > 0.6) v.y += (restY - v.y) * k; else v.y = restY;
     v.swimLean = (v.swimLean || 0) + ((swimNow && aliveNow ? 1.1 : 0) - (v.swimLean || 0)) * k;
   }
   v.swimNow = !inBoat && aliveNow && (isMe ? !!v.swimming : !!v.data.swim);
@@ -3395,8 +4493,9 @@ function updateView(v, dt, t) {
   const near = isMe ? 1 : clamp(1.1 - camera.position.distanceTo(v.group.position) / 30, 0, 1);
   v.ao = itemKey ? tickItemAnim(v, dt, near) : null;
   const drug = !fishing && aliveNow && (inHand === 'weed' || inHand === 'whiskey' || inHand === 'crank');
-  v.hand.visible = drug;
-  for (const child of v.hand.children) child.visible = drug && child.name === inHand;
+  const knifeOut = !fishing && aliveNow && inHand === 'knife';
+  v.hand.visible = drug || knifeOut;
+  for (const child of v.hand.children) child.visible = (drug || knifeOut) && child.name === inHand;
   v.label.visible = !isMe && aliveNow;
   const pose = !aliveNow || (emNow && !fishing) || ((v.swimNow || v.rowing) && !fishing) ? 'idle' : fishing || inHand === 'rod' ? 'rod' : gunHeld ? 'rifle' : knifeHeld ? 'knife' : inHand === 'fists' ? 'fists' : drug ? 'drug' : 'idle';
   if (v.model) {
@@ -3427,11 +4526,26 @@ function updateView(v, dt, t) {
     v.beam.visible = true;
     v.beam.position.copy(tmpA);
     tmpB.set(tmpA.x + fwdX * len, endY, tmpA.z + fwdZ * len);
-    v.beam.lookAt(tmpB);
-    v.beam.children[0].scale.z = len;
-    v.beam.children[0].position.z = len / 2;
-    v.beam.children[1].position.z = len;
-    v.beam.children[1].scale.setScalar(0.8 + Math.sin(t * 30) * 0.15);
+    if (isMe && vm.group.visible) {
+      // first person: from the gun in your hands to where the crosshair points
+      camera.getWorldDirection(tmpC);
+      const reach = tmpC.y < -0.02 ? Math.min(80, (surfaceAt(camera.position.x, camera.position.z, t) - camera.position.y) / tmpC.y) : 70;
+      vm.holder.getWorldPosition(tmpA).addScaledVector(tmpC, 0.35);
+      tmpB.copy(camera.position).addScaledVector(tmpC, Math.max(2, reach));
+      v.beam.position.copy(tmpA);
+      const flen = tmpA.distanceTo(tmpB);
+      v.beam.children[0].scale.z = flen;
+      v.beam.children[0].position.z = flen / 2;
+      v.beam.children[1].position.z = flen;
+      v.beam.lookAt(tmpB);
+      v.beam.children[1].scale.setScalar(0.8 + Math.sin(t * 30) * 0.15);
+    } else {
+      v.beam.lookAt(tmpB);
+      v.beam.children[0].scale.z = len;
+      v.beam.children[0].position.z = len / 2;
+      v.beam.children[1].position.z = len;
+      v.beam.children[1].scale.setScalar(0.8 + Math.sin(t * 30) * 0.15);
+    }
   } else if (v.beam) v.beam.visible = false;
   if (v.flash > 0) { v.flash -= dt; v.cloth.emissive.setRGB(v.flash > 0 ? 0.6 : 0, 0, 0); }
 
@@ -3444,6 +4558,10 @@ function updateView(v, dt, t) {
   v.pivot.rotation.z = isMe && reel ? -reel.side * 0.3 : 0;
   paintHigh(v, v.data.high);
   const hp = isMe && myData ? myData.hp : v.data.hp;
+  // badly hurt people leave a trail of drops behind them
+  if (settings.blood && aliveNow && hp > 0 && hp < 50 && !inBoat && !inWater(v.x, v.z) && Math.random() < dt * (hp < 25 ? 7 : 3.5)) {
+    fx.splat(v.x + (Math.random() - 0.5) * 0.4, surfaceAt(v.x, v.z, t), v.z + (Math.random() - 0.5) * 0.4, 0.07 + Math.random() * 0.1, 40);
+  }
   v.hp.sprite.visible = aliveNow && hp < 100 && hp > 0;
   if (v.hp.sprite.visible) drawHp(v.hp, hp);
   if (v.bubble && t > v.bubbleUntil) {
@@ -3452,12 +4570,24 @@ function updateView(v, dt, t) {
     v.bubble.material.dispose();
     v.bubble = null;
   }
+  if (isMe) {
+    // in first person you don't see your own body (your arms and rod are drawn on the camera); the boat stays under you
+    const fp = fpActive();
+    if (fp || v.fpHid) {
+      for (const c of v.group.children) {
+        if (c === v.boatMesh || c === v.label) continue;
+        if (c === v.pivot || c === v.rifle || c === v.hand || c === v.highMark || c === v.bubble || c === v.hp.sprite) { if (fp) c.visible = false; continue; }
+        c.visible = !fp; // switching back to third person shows the body again once; after that the usual rules apply
+      }
+      v.fpHid = fp;
+    }
+  }
   updateLine(v, dt, t, isMe, state);
 }
 
 function updateLine(v, dt, t, isMe, state) {
   if (!v.bobberPos || v.data.alive === false) { v.line.visible = v.bobber.visible = false; v.fly = null; return; }
-  const tip = v.tip.getWorldPosition(tmpA);
+  const tip = isMe && vm.tip && vm.group.visible ? vm.tip.getWorldPosition(tmpA) : v.tip.getWorldPosition(tmpA);
   const pos = tmpB.set(v.bobberPos.x, WATER_Y + 0.05 + wave(v.bobberPos.x, v.bobberPos.z, t), v.bobberPos.z);
   if (state === 'bite') pos.y -= 0.2 + Math.sin(t * 22) * 0.08;
   if (state === 'waiting' && isMe && nibble > 0) pos.y -= nibble * 0.1;
@@ -3508,20 +4638,19 @@ function updateNpc(v, dt, t) {
   const k = 1 - Math.exp(-12 * dt);
   const d = v.data;
   const aliveNow = d.alive !== false;
-  v.x += (v.tx - v.x) * k;
-  v.z += (v.tz - v.z) * k;
+  glide(v, k);
   v.rot += angleDiff(v.trot, v.rot) * k;
-  const moving = aliveNow && Math.hypot(v.tx - v.x, v.tz - v.z) > 0.02;
+  const moving = aliveNow && (Math.hypot(v.vx || 0, v.vz || 0) > 0.4 || Math.hypot(v.tx - v.x, v.tz - v.z) > 0.05);
   const combat = aliveNow && d.state === 'combat';
   v.group.rotation.y = v.rot;
   if (v.model) {
-    v.group.position.set(v.x, onDock(v.x, v.z) ? DOCK_Y : 0, v.z);
+    v.group.position.set(v.x, onDock(v.x, v.z) ? DOCK_Y : Math.max(0, groundHeight(v.x, v.z)), v.z);
     v.rifle.visible = combat;
     v.pivot.visible = aliveNow && d.role === 'angler' && !combat;
-    v.speed = moving ? 2 : 0;
+    v.speed = moving ? (d.state === 'flee' ? 5 : d.state === 'combat' ? 3.5 : 2) : 0;
     animateModel(v, dt, moving, false, !aliveNow ? 'idle' : combat ? 'rifle' : d.role === 'angler' ? 'rod' : 'idle', aliveNow);
   } else {
-    const y = (onDock(v.x, v.z) ? DOCK_Y : 0) + (moving ? Math.abs(Math.sin(t * 10)) * 0.06 : 0) + (aliveNow ? 0 : 0.35);
+    const y = (onDock(v.x, v.z) ? DOCK_Y : Math.max(0, groundHeight(v.x, v.z))) + (moving ? Math.abs(Math.sin(t * 10)) * 0.06 : 0) + (aliveNow ? 0 : 0.35);
     v.group.position.set(v.x, y, v.z);
     v.group.rotation.z = aliveNow ? 0 : Math.PI / 2;
     v.rifle.visible = combat || (aliveNow && d.role !== 'angler');
@@ -3563,8 +4692,16 @@ function updateFish(dt, t) {
     v.x += ((v.tx ?? v.x) - v.x) * k;
     v.z += ((v.tz ?? v.z) - v.z) * k;
     v.rot += angleDiff(v.trot ?? v.rot, v.rot) * k;
-    const y = v.alive ? WATER_Y - 0.2 + Math.sin(t * 2 + v.x) * 0.04 : WATER_Y + wave(v.x, v.z, t) + 0.02;
+    const surf = WATER_Y + wave(v.x, v.z, t);
+    const y = v.alive ? surf - 0.16 + Math.sin(t * 2 + v.x) * 0.035 : surf + 0.02;
     v.mesh.position.set(v.x, y, v.z);
+    if (v.mark) {
+      v.mark.visible = v.alive;
+      v.mark.position.set(v.x, surf + 0.025, v.z);
+      v.mark.rotation.y = v.rot;
+      const ring = v.mark.getObjectByName('ring');
+      if (ring) ring.material.opacity = 0.32 + 0.22 * Math.sin(t * 3);
+    }
     v.mesh.rotation.y = v.rot;
     v.mesh.rotation.z = v.alive ? (v.mesh.userData.mixer ? 0 : Math.sin(t * 6 + v.z) * 0.08) : 1.4;
     if (settings.blood && (v.hurt || !v.alive) && Math.random() < dt * (v.alive ? 5 : 1.5)) fx.waterBlood(v.x, v.z, 1);
@@ -3577,7 +4714,7 @@ function updatePickups(dt, t) {
   for (const v of pickupViews.values()) {
     v.x += ((v.tx ?? v.x) - v.x) * k;
     v.z += ((v.tz ?? v.z) - v.z) * k;
-    v.mesh.position.set(v.x, 0.4 + Math.sin(t * 3 + v.x) * 0.08, v.z);
+    v.mesh.position.set(v.x, 0.4 + Math.max(0, groundHeight(v.x, v.z)) + Math.sin(t * 3 + v.x) * 0.08, v.z);
     v.mesh.rotation.y = t * 1.6;
   }
 }
@@ -3666,10 +4803,56 @@ function updateCamera(m, dt, t) {
     cam.yaw -= d.x * s;
     cam.pitch += d.y * s * (settings.invertY ? -1 : 1);
   }
-  cam.pitch = clamp(cam.pitch, -0.35, 1.25);
+  const fp = fpActive();
+  cam.pitch = fp ? clamp(cam.pitch, -1.5, 1.5) : clamp(cam.pitch, -0.35, 1.25);
   const rifleOut = isGun(held) && ownsGun(held) && phase === 'idle' && alive();
   const aiming = aimHeld && alive() && !openPanel;
   cam.aim += ((aiming ? 1 : 0) - cam.aim) * Math.min(1, dt * 12);
+  updateViewmodel(dt, t, fp);
+  if (fp) {
+    // eyes in the head: face where the mouse points, bob a little when walking, sway when high
+    const sy = Math.sin(cam.yaw);
+    const cy = Math.cos(cam.yaw);
+    const cp = Math.cos(cam.pitch);
+    const moving = m.walking && jumpY === 0 && !boating();
+    const bob = moving && !reducedMotion ? Math.abs(Math.sin(t * 9)) * 0.035 * Math.min(1, Math.hypot(vel.x, vel.z) / 6) : 0;
+    // the ground under you is smoothed (hills and the dock edge don't jolt the view), a jump is not
+    const ground = (m.y || 0) + (boating() ? 1.3 : m.swimming ? 1.45 : 1.63);
+    cam.eyeGround = cam.eyeGround === undefined || Math.abs(cam.eyeGround - ground) > 1.5 ? ground : lerp(cam.eyeGround, ground, 1 - Math.exp(-dt * 18));
+    // a small dip when you land, harder after a longer fall
+    if (landedAt !== cam.seenLanding) { cam.seenLanding = landedAt; if (!reducedMotion) cam.dip = Math.min(0.11, 0.03 + (cam.lastFall || 0) * 0.012); }
+    if (jumpV < 0) cam.lastFall = -jumpV;
+    cam.dip = (cam.dip || 0) * Math.exp(-dt * 9);
+    const eyeY = cam.eyeGround + jumpY + bob - cam.dip;
+    camera.position.set(m.x, eyeY, m.z);
+    tmpB.set(m.x - sy * cp, eyeY - Math.sin(cam.pitch), m.z - cy * cp);
+    camera.lookAt(tmpB);
+    // lean a touch into strafes
+    const lateral = vel.x * cy - vel.z * sy;
+    cam.roll = lerp(cam.roll || 0, reducedMotion ? 0 : clamp(-lateral * 0.0035, -0.035, 0.035), 1 - Math.exp(-dt * 8));
+    camera.rotation.z += cam.roll;
+    const high = (myData && myData.high) || {};
+    const sway = (high.weed ? 0.15 : 0) + (high.whiskey ? 0.32 : 0);
+    if (sway && !reducedMotion) {
+      camera.rotation.z += Math.sin(t * 0.9) * sway * 0.12;
+      camera.rotation.x += Math.cos(t * 0.7) * sway * 0.05;
+    }
+    if (reel) cam.shake = Math.max(cam.shake, reel.tension > TUNING.redline ? 0.04 : 0);
+    const shake = settings.shake && !reducedMotion ? Math.min(cam.shake, 0.6) : 0;
+    if (shake > 0.001) {
+      camera.rotation.x += (Math.random() - 0.5) * shake * 0.06;
+      camera.rotation.y += (Math.random() - 0.5) * shake * 0.06;
+    }
+    cam.shake *= Math.exp(-dt * 8);
+    const zoomFov = rifleOut ? gunOf(held).zoom : 45;
+    const speedKick = clamp((Math.hypot(vel.x, vel.z) - 6.5) / 8, 0, 2.5) * 5 * (1 - cam.aim);
+    const fov = lerp(settings.fov || 75, zoomFov, cam.aim) + (high.crank ? 7 : 0) + speedKick;
+    if (Math.abs(camera.fov - fov) > 0.05) {
+      camera.fov += (fov - camera.fov) * Math.min(1, dt * 8);
+      camera.updateProjectionMatrix();
+    }
+    return;
+  }
   const dist = lerp(cam.dist, TUNING.aimDist, rifleOut ? cam.aim : cam.aim * 0.5);
   const shoulder = rifleOut ? lerp(0.45, 0.8, cam.aim) : cam.aim * 0.3;
   const sy = Math.sin(cam.yaw);
@@ -3735,14 +4918,20 @@ const SLOT_ART = {
   crank: '<path fill="currentColor" d="M13.2 2 5 13.2h6.2L10 22l9.2-12.4h-6z"/>',
   bag: '<path fill="currentColor" d="M2 12.2c4.2-4.6 9.2-4.8 13.4-2.2 2.2 1.3 4.2 1.4 6.6-.6-1.4 3.4-3.8 5.6-7 5.8C10.6 15.4 6.2 14.2 2 12.2z"/><circle cx="16.2" cy="10.6" r="1" fill="#163438"/>',
 };
+SLOT_ART.knife = '<path fill="currentColor" d="M3.2 20.8 8.6 15.4 7.4 14.2 9 12.6 10.2 13.8 19.6 4.4C20.6 3.4 21.4 3.2 21.6 3.4 21.8 3.6 21.6 4.6 20.6 5.6L11.4 15 12.6 16.2 11 17.8 9.8 16.6 4.4 22z"/>';
 SLOT_ART.glock = SLOT_ART.pistol;
+SLOT_ART.deagle = '<path fill="currentColor" d="M2.5 8h16l1.5 1.4H22v3.4h-5.2l-1 4.6c-.2.9-1 1.5-1.9 1.5h-2.2c-1 0-1.7-.9-1.5-1.8l.7-4.3H2.5z"/>';
+SLOT_ART.m4 = '<path fill="currentColor" d="M1 11h5.5l1-1.4h8.8V8.4h1.6v1.2H23v1.8h-4.2l-.6 1.4h-3.6l-.4 4.4h-2.4l.2-4.4H8.2L7 14.6H1z"/>';
+SLOT_ART.lmg = '<path fill="currentColor" d="M1 10.6h6l1-1.6h11V8h1.4v1H23v2.2h-4v1.2h-5.2v3.6h-4.4v-3.6H7.2L6 14.2H1z"/><path d="M17 12.4l-2 6M19 12.4l2 6" stroke="currentColor" stroke-width="1.2"/>';
+SLOT_ART.dbarrel = '<path fill="currentColor" d="M1 12.6h11l2.2-1.6H23v1.2h-8.4v1.4H23v1.2h-8.8l-2.2 1.6H1z"/>';
+SLOT_ART.crossbow = '<path d="M4 4c5 3 11 3 16 0M4 4l8 8 8-8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M12 6v16" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>';
 SLOT_ART.arp = SLOT_ART.smg;
 SLOT_ART.draco = SLOT_ART.rifle;
 let hotbarSig = '';
 function renderHotbar() {
   const d = myData;
   if (!d || !W) return;
-  const bagMax = d.bagMax || W.bagMax;
+  const bagMax = d.bag.cap || d.bagMax || W.bagMax;
   const gunSig = Object.keys(d.guns || {}).map((g) => `${d.guns[g] ? 1 : 0}${d.mag[g] || 0}`).join('') + JSON.stringify(d.att || 0);
   const sig = [held, d.rod, d.bait, gunSig, d.reloadGun, d.ammo, d.pocket.weed, d.pocket.whiskey, d.pocket.crank, d.bag.n, d.bag.value, d.highLeft.weed, d.highLeft.whiskey, d.highLeft.crank].join('|');
   if (sig === hotbarSig) return;
@@ -3752,7 +4941,7 @@ function renderHotbar() {
     { act: 'knife', art: 'knife', label: 'Combat knife: click to slash, right click to stab', key: '2' },
     { act: 'rod', art: 'rod', label: W.rods[d.rod].name, tier: [d.rod, W.rods.length], key: '2' },
     { act: 'bait', art: 'bait', label: W.baits[d.bait].name, tier: [d.bait, W.baits.length], key: '3' },
-    ...GUN_ORDER.filter((g) => d.guns[g]).map((g) => ({
+    ...(myData && myData.guns ? GUN_ORDER.filter((g) => myData.guns[g]) : []).map((g) => ({
       act: g, art: g, label: `${W.guns[g].name}, ${d.mag[g] || 0} loaded, ${d.ammo} spare`, count: d.mag[g] || 0,
     })),
     ...DRUGS.map((n, i) => ({ act: n, art: n, label: `${n}, ${d.pocket[n]} left`, count: d.pocket[n], empty: !d.pocket[n] && !d.high[n], on: d.high[n], timer: d.highLeft[n] / 30 })),
@@ -3780,6 +4969,7 @@ function renderHotbar() {
     if (s.on && s.timer > 0) { const tm = document.createElement('span'); tm.className = 'timer'; tm.style.width = `${Math.min(1, s.timer) * 100}%`; b.append(tm); }
     box.append(b);
   }
+  document.documentElement.style.setProperty('--hb', `${$('hotbar').offsetHeight}px`); // reel meters ride above a hotbar that wraps
 }
 
 function renderBoard(list) {
@@ -3874,7 +5064,14 @@ function renderVitals() {
   hp.classList.toggle('low', d.hp <= 34);
   hp.setAttribute('aria-valuenow', String(d.hp));
   $('cashLine').textContent = `$${d.cash}`;
-  $('bagLine').textContent = d.bag.n ? `${d.bag.n} fish in the bag, $${d.bag.value}` : 'Bag is empty';
+  $('bagLine').textContent = d.bag.n ? `${d.bag.n}/${d.bag.cap || W.bagMax} fish in the bag, $${d.bag.value}` : `Bag is empty (holds ${d.bag.cap || W.bagMax})`;
+  const sl = $('streakLine');
+  sl.hidden = !(d.streak > 1);
+  if (d.streak > 1) {
+    const mult = Math.min(W.streak.max, 1 + (d.streak - 1) * W.streak.step);
+    sl.textContent = `Catch streak ${d.streak}, fish sell for x${mult.toFixed(1)} · ${Math.ceil(d.streakLeft / 1000)}s`;
+    sl.classList.toggle('ending', d.streakLeft < 15000);
+  }
   $('statusLine').textContent = status;
   if (d.level) {
     $('levelLine').textContent = `Angler level ${d.level}`;
@@ -4029,12 +5226,13 @@ function promptFor() {
   if (phase === 'bite') return [isTouch ? 'Bite! Tap Hook' : 'Bite! Click', 'alert'];
   if (phase === 'reeling' && reel) {
     if (reel.tension > TUNING.redline) return ['Ease off!', 'alert'];
+    if (reel.boss) return [bossSt.stagger ? 'STAGGERED! Reel it in!' : bossSt.weak ? 'It\'s weak. Reel it in!' : isGun(held) ? 'Shoot it. Swap to the rod (2-3) to reel.' : 'Hold to reel and wear it down. Swap to a gun (5+) to hurt it.', bossSt.stagger || bossSt.weak ? 'good' : ''];
     return [reel.surge ? "It's running. Ease off." : isTouch ? 'Hold Reel' : 'Hold left click to reel', ''];
   }
   if (phase === 'idle' && m) {
     if (near(m, W.camp.dealer)) return [myData.bag.n ? (isTouch ? `Tap Moss to sell ${myData.bag.n} fish for $${myData.bag.value}` : `E to sell ${myData.bag.n} fish for $${myData.bag.value} and shop`) : (isTouch ? 'Tap Moss to trade' : 'E to trade with Moss'), 'good'];
     if (near(m, W.camp.shack)) return [isTouch ? 'Tap Shack to sit down' : 'E to sit down at the shack', ''];
-    if (myData.bag.n >= (myData.bagMax || W.bagMax)) return [isTouch ? 'Your bag is full. Sell to Moss or on your phone.' : 'Your bag is full. Sell to Moss, or press P and use the Market app.', ''];
+    if (myData.bag.n >= (myData.bag.cap || myData.bagMax || W.bagMax)) return [isTouch ? 'Your bag is full. Sell to Moss or on your phone.' : 'Your bag is full. Sell to Moss, or press P and use the Market app.', ''];
     if (boating() && nearLandEdge(m)) return [isTouch ? 'Tap Use to step ashore' : 'E to step ashore', ''];
     if (!boating() && myData.ownsBoat && nearWaterEdge(m)) return [isTouch ? 'Tap Use to launch your boat' : 'E to launch your boat', ''];
     if (!boating() && !myData.ownsBoat && onDock(m.x, m.z) && m.z < W.dock.minZ + 5) return [isTouch ? `Tap Use to rent a boat for $${W.boat.rent}` : `E to rent a boat for $${W.boat.rent}`, ''];
@@ -4128,6 +5326,7 @@ function updateHud(dt, t) {
   renderVitals();
   renderHotbar();
   renderDerby();
+  renderFrenzy();
   if (openPanel === 'shop') renderShop();
   if (openPanel === 'inventory') renderInventory();
   if (openPanel === 'phone') { renderPhone(); if (phoneApp === 'map') drawBigMap(); }
@@ -4208,6 +5407,8 @@ renderer.setAnimationLoop(() => {
   for (const v of npcViews.values()) updateNpc(v, dt, t);
   for (const v of views.values()) updateView(v, dt, t);
   updateFish(dt, t);
+  updateMutants(dt, t);
+  updateBosses(dt, t);
   updatePickups(dt, t);
   updateLeaps(dt);
   updateCamera(m, dt, t);
@@ -4223,11 +5424,16 @@ renderer.setAnimationLoop(() => {
   world.update(dt, t, clockHour, focus, { ripple: (x, z, s) => fx.ripple(x, z, s, 1.4, 0.5) }, Math.min(1, wx.level));
   sfx.rain(wx.rain * (myId && boating() ? 0.8 : 1));
   $('lightning').style.opacity = String(wx.flash * 0.85);
+  if (kit && kit.rim) kit.rim.copy(world.day.horizon).multiplyScalar(0.07 * (1 - world.day.night * 0.85)); // people pick up a little sky light on their edges
   if (W) updateAmbientFx(dt, t);
   fx.update(dt);
   const fireDist = m ? Math.hypot(m.x - world.firePos.x, m.z - world.firePos.z) : 99;
   sfx.ambient(t, world.day.night > 0.5, fireDist);
   updateHud(dt, t);
+  if (window.__loon && window.__view) { // ?debug only: lets headless tests park the camera
+    camera.position.set(...window.__view.p);
+    camera.lookAt(...window.__view.a);
+  }
   if (quality() === 'high') composer.render(dt);
   else renderer.render(scene, camera);
 });

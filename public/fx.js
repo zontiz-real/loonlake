@@ -57,6 +57,7 @@ function makeParticles(scene, max, additive) {
     p.a0 = o.alpha ?? 1;
     p.inout = !!o.inout;
     p.floor = o.floor ?? -99;
+    p.onFloor = o.onFloor || null;
     c.set(o.color || 0xffffff);
     col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
   }
@@ -73,7 +74,7 @@ function makeParticles(scene, max, additive) {
       const k = Math.max(0, 1 - p.drag * dt);
       p.vx *= k; p.vy *= k; p.vz *= k;
       p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
-      if (p.y < p.floor) { p.life = 0; }
+      if (p.y < p.floor) { p.life = 0; if (p.onFloor) p.onFloor(p.x, p.floor, p.z); }
       const f = 1 - Math.max(0, p.life) / p.max;
       pos[i * 3] = p.x; pos[i * 3 + 1] = p.y; pos[i * 3 + 2] = p.z;
       size[i] = p.s0 + (p.s1 - p.s0) * f;
@@ -159,7 +160,10 @@ export function createFx(scene, camera) {
   const floaters = [];
   const proj = new THREE.Vector3();
 
+  // heights handed to floaters and puffs are for flat ground; lift them onto hills (never below the lake level)
+  const lift = (x, z) => (isWater(x, z) ? 0 : Math.max(0, floorAt(x, z)));
   function floater(x, y, z, text, cls = 'info', life = 1.4) {
+    y += lift(x, z);
     const el = document.createElement('div');
     el.className = 'floater ' + cls;
     el.textContent = text;
@@ -197,15 +201,105 @@ export function createFx(scene, camera) {
   }
 
   const BLOOD = [0x7A0A0A, 0x9E1212, 0x5E0707, 0xB31818];
+  // blood spray: y is the height above whatever is underneath (ground, dock or water).
+  // Droplets arc out along the hit direction and leave a splat where they land, a fine mist hangs for a moment,
+  // and a few heavy gouts drop close by.
   function blood(x, y, z, dx = 0, dz = 0, n = 18, power = 1) {
+    const base = floorAt(x, z);
+    const wet = isWater(x, z);
+    const wy = base + y;
+    const land = (px, py, pz) => { if (!isWater(px, pz)) splat(px, floorAt(px, pz), pz, rand(0.12, 0.3) * Math.sqrt(power)); };
     for (let i = 0; i < n; i++) {
+      const px = x + rand(-0.1, 0.1);
+      const pz = z + rand(-0.1, 0.1);
       soft.spawn({
-        x: x + rand(-0.1, 0.1), y: y + rand(-0.15, 0.15), z: z + rand(-0.1, 0.1),
-        vx: dx * rand(1, 4.5) * power + rand(-1.3, 1.3) * power, vy: rand(0.4, 3.2) * power, vz: dz * rand(1, 4.5) * power + rand(-1.3, 1.3) * power,
-        g: -13, life: rand(0.35, 0.8), size: rand(0.06, 0.15), size1: 0.04,
-        color: BLOOD[Math.floor(Math.random() * BLOOD.length)], alpha: 0.95, floor: 0.02,
+        x: px, y: wy + rand(-0.15, 0.15), z: pz,
+        vx: dx * rand(1, 5) * power + rand(-1.4, 1.4) * power, vy: rand(0.4, 3.4) * power, vz: dz * rand(1, 5) * power + rand(-1.4, 1.4) * power,
+        g: -13, life: rand(0.5, 1.1), size: rand(0.05, 0.14), size1: 0.05,
+        color: BLOOD[Math.floor(Math.random() * BLOOD.length)], alpha: 0.95, floor: base + 0.02,
+        onFloor: !wet && i % 2 === 0 ? land : null,
       });
     }
+    for (let i = 0; i < Math.ceil(n / 3); i++) {
+      soft.spawn({
+        x: x + rand(-0.15, 0.15), y: wy + rand(-0.1, 0.2), z: z + rand(-0.15, 0.15),
+        vx: dx * rand(0.3, 1.2) * power + rand(-0.3, 0.3), vy: rand(-0.1, 0.4), vz: dz * rand(0.3, 1.2) * power + rand(-0.3, 0.3),
+        drag: 2.5, life: rand(0.4, 0.7), size: rand(0.12, 0.2) * power, size1: rand(0.3, 0.45) * power,
+        color: 0x6A0808, alpha: 0.22, inout: true,
+      });
+    }
+    for (let i = 0; i < Math.ceil(n / 8); i++) {
+      soft.spawn({
+        x, y: wy, z,
+        vx: dx * rand(0.4, 1.6) + rand(-0.5, 0.5), vy: rand(0.5, 1.8), vz: dz * rand(0.4, 1.6) + rand(-0.5, 0.5),
+        g: -15, life: 1.4, size: rand(0.12, 0.2), size1: 0.12, color: 0x5A0606, alpha: 1, floor: base + 0.02,
+        onFloor: wet ? null : (px, py, pz) => splat(px, floorAt(px, pz), pz, rand(0.35, 0.6)),
+      });
+    }
+  }
+
+  // chunks: heavy, tumbling bits of whatever just came apart, that leave a splat where they land
+  const GIB = [0x7A1A1A, 0xA83A3A, 0x5A0A0A, 0xC96A5A, 0x3A2A2A];
+  function gibs(x, y, z, n = 14, power = 1) {
+    const base = floorAt(x, z);
+    const wet = isWater(x, z);
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = rand(1.5, 5) * power;
+      soft.spawn({
+        x, y: base + y, z,
+        vx: Math.sin(a) * sp, vy: rand(2.5, 7) * power, vz: Math.cos(a) * sp,
+        g: -16, life: rand(0.9, 1.6), size: rand(0.12, 0.26) * Math.sqrt(power), size1: 0.1,
+        color: GIB[Math.floor(Math.random() * GIB.length)], alpha: 1, floor: base + 0.03,
+        onFloor: wet ? null : (px, py, pz) => { if (!isWater(px, pz)) splat(px, floorAt(px, pz), pz, rand(0.2, 0.45)); },
+      });
+    }
+  }
+
+  // ---------- blood splats on the ground: many small instanced decals that dry and fade
+  const SPLAT_MAX = 420;
+  const splatGeo = new THREE.PlaneGeometry(1, 1);
+  splatGeo.rotateX(-Math.PI / 2);
+  const splatMat = new THREE.MeshLambertMaterial({ map: blobTex, color: 0xFFFFFF, transparent: true, opacity: 0.9, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
+  const splats = new THREE.InstancedMesh(splatGeo, splatMat, SPLAT_MAX);
+  splats.frustumCulled = false;
+  splats.renderOrder = 2;
+  splats.count = 0;
+  scene.add(splats);
+  const splatData = Array.from({ length: SPLAT_MAX }, () => ({ t: 0, life: 0, size: 0, x: 0, y: 0, z: 0, rot: 0 }));
+  let splatCursor = 0;
+  const sM = new THREE.Matrix4();
+  const sQ = new THREE.Quaternion();
+  const sS = new THREE.Vector3();
+  const sP = new THREE.Vector3();
+  const sUp = new THREE.Vector3(0, 1, 0);
+  const sCol = new THREE.Color();
+  function splat(x, y, z, size = 0.25, life = 50) {
+    const i = splatCursor;
+    splatCursor = (splatCursor + 1) % SPLAT_MAX;
+    Object.assign(splatData[i], { t: 0, life, size, x, y: y + 0.025, z, rot: Math.random() * Math.PI * 2 });
+    splats.count = Math.max(splats.count, i + 1);
+    sCol.setRGB(0.2 + Math.random() * 0.08, 0.008, 0.008);
+    splats.setColorAt(i, sCol);
+    splats.instanceColor.needsUpdate = true;
+  }
+  function updateSplats(dt) {
+    for (let i = 0; i < splats.count; i++) {
+      const d = splatData[i];
+      let s = 0;
+      if (d.life > 0) {
+        d.t += dt;
+        const grow = Math.min(1, d.t / 0.25);
+        const fade = Math.min(1, (d.life - d.t) / 6);
+        s = d.t >= d.life ? 0 : d.size * (0.5 + 0.5 * grow) * Math.max(0, fade);
+        if (d.t >= d.life) d.life = 0;
+      }
+      sQ.setFromAxisAngle(sUp, d.rot);
+      sS.set(s, 1, s);
+      sM.compose(sP.set(d.x, d.y, d.z), sQ, sS);
+      splats.setMatrixAt(i, sM);
+    }
+    splats.instanceMatrix.needsUpdate = true;
   }
   function waterBlood(x, z, n = 4) {
     const y = WATER_Y + wave(x, z, time) + 0.03;
@@ -256,6 +350,7 @@ export function createFx(scene, camera) {
   }
 
   function puff(x, y, z, color = 0xD8D2C4, n = 8) {
+    y += lift(x, z);
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2;
       soft.spawn({
@@ -392,6 +487,7 @@ export function createFx(scene, camera) {
       r.mesh.material.opacity = r.strength * Math.pow(1 - f, 1.4);
     }
 
+    updateSplats(dt);
     for (const pl of pools) {
       if (!pl.mesh.visible) continue;
       pl.t += dt;
@@ -428,5 +524,5 @@ export function createFx(scene, camera) {
     }
   }
 
-  return { casing, setFloor: (fn, water) => { floorAt = fn; if (water) isWater = water; }, ripple, floater, tracer, splash, bubbles, puff, sparkle, fire, firefly, blood, bloodPool, waterBlood, wake, update };
+  return { casing, setFloor: (fn, water) => { floorAt = fn; if (water) isWater = water; }, ripple, floater, tracer, splash, bubbles, puff, sparkle, fire, firefly, blood, gibs, bloodPool, waterBlood, splat, wake, update };
 }

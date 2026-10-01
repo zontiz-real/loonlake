@@ -53,10 +53,13 @@ input {
   border: 2px solid transparent; background: rgba(236, 242, 234, .1);
   -webkit-user-select: text; user-select: text;
 }
+/* enamel panels: a soft top sheen, a frosted blur, and a drop shadow so they sit above the scene */
 .panel {
-  background: var(--enamel); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  background-color: var(--enamel);
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, 0) 45%);
+  backdrop-filter: blur(12px) saturate(1.25); -webkit-backdrop-filter: blur(12px) saturate(1.25);
   border: 1px solid var(--line); border-radius: 14px;
-  box-shadow: inset 0 1px 0 var(--enamel-hi);
+  box-shadow: 0 8px 24px rgba(6, 14, 12, .3), inset 0 1px 0 var(--enamel-hi);
 }
 
 /* ---------- paper tags ---------- */
@@ -124,13 +127,19 @@ input {
 }
 #stats {
   display: grid; gap: 5px; padding: 10px 12px; min-width: 148px;
-  background: var(--enamel); border: 1px solid var(--line); border-radius: 14px; backdrop-filter: blur(10px);
+  background-color: var(--enamel); border: 1px solid var(--line); border-radius: 14px;
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, 0) 45%);
+  backdrop-filter: blur(12px) saturate(1.25); -webkit-backdrop-filter: blur(12px) saturate(1.25);
+  box-shadow: 0 8px 24px rgba(6, 14, 12, .3), inset 0 1px 0 var(--enamel-hi);
 }
 #clockLine { font-size: .9rem; color: var(--muted); display: flex; gap: 6px; align-items: center; }
 #clockLine svg { width: 15px; height: 15px; }
 #hpBar { height: 8px; border-radius: 4px; background: rgba(236, 242, 234, .15); overflow: hidden; }
-#hpBar i { display: block; height: 100%; width: 100%; background: #6DBF67; border-radius: 4px; transition: width .2s, background .2s; }
-#hpBar.low i { background: var(--bobber); }
+#hpBar i {
+  display: block; height: 100%; width: 100%; border-radius: 4px; transition: width .2s, background .2s;
+  background: linear-gradient(180deg, #86D57F, #56AD50); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .35);
+}
+#hpBar.low i { background: linear-gradient(180deg, #F0654A, #C93C25); }
 #cashLine { font-size: 1.55rem; font-weight: 600; color: var(--brass); line-height: 1.05; }
 #bagLine { font-size: .9rem; }
 #statusLine { font-size: .82rem; color: var(--muted); }
@@ -210,7 +219,7 @@ input {
 
 /* ---------- meters ---------- */
 #meters {
-  position: fixed; left: 50%; bottom: calc(100px + var(--safe-b)); transform: translateX(-50%);
+  position: fixed; left: 50%; bottom: calc(var(--hb, 84px) + 24px + var(--safe-b)); transform: translateX(-50%);
   width: min(380px, 86vw); padding: 12px 16px; display: grid; gap: 10px; z-index: 4;
 }
 #reelMeters { display: grid; gap: 9px; }
@@ -229,10 +238,12 @@ input {
 #pullText { color: var(--muted); }
 
 /* ---------- hotbar ---------- */
-#hotbar { position: fixed; left: 50%; bottom: calc(16px + var(--safe-b)); transform: translateX(-50%); z-index: 6; }
+#hotbar { width: max-content; max-width: 96vw; position: fixed; left: 50%; bottom: calc(16px + var(--safe-b)); transform: translateX(-50%); z-index: 6; }
 #slots {
   display: flex; gap: 6px; padding: 7px; background: rgba(14, 30, 26, .7);
-  border: 1px solid var(--line); border-radius: 18px; backdrop-filter: blur(14px);
+  border: 1px solid var(--line); border-radius: 18px;
+  backdrop-filter: blur(14px) saturate(1.25); -webkit-backdrop-filter: blur(14px) saturate(1.25);
+  box-shadow: 0 10px 28px rgba(6, 14, 12, .35), inset 0 1px 0 var(--enamel-hi);
 }
 button.slot {
   width: 56px; height: 56px; padding: 0; border-radius: 12px; position: relative;
@@ -241,8 +252,8 @@ button.slot {
 button.slot svg { width: 26px; height: 26px; }
 button.slot.empty { color: rgba(236, 242, 234, .32); background: rgba(236, 242, 234, .04); }
 button.slot.on { border-color: var(--brass); color: var(--brass); }
-button.slot.held { border-color: var(--paper); background: rgba(238, 242, 236, .28); box-shadow: inset 0 0 0 1px rgba(238, 242, 236, .55); }
-button.slot.held.on { border-color: var(--brass); }
+button.slot.held { border-color: var(--paper); background: rgba(238, 242, 236, .28); box-shadow: inset 0 0 0 1px rgba(238, 242, 236, .55), 0 0 14px rgba(238, 242, 236, .25); transform: translateY(-2px); }
+button.slot.held.on { border-color: var(--brass); box-shadow: inset 0 0 0 1px rgba(242, 177, 52, .5), 0 0 14px rgba(242, 177, 52, .35); }
 button.slot .count { position: absolute; right: 5px; bottom: 2px; font-size: .76rem; font-weight: 600; }
 button.slot .key { position: absolute; left: 6px; top: 3px; font-size: .64rem; color: var(--muted); }
 button.slot .tier { position: absolute; left: 0; right: 0; bottom: 3px; display: flex; justify-content: center; gap: 2px; }
@@ -561,6 +572,56 @@ body.touch #ammoHud { bottom: calc(150px + var(--safe-b)); }
 
 #speedo { position: fixed; left: 50%; bottom: calc(96px + var(--safe-b)); transform: translateX(-50%); z-index: 6; pointer-events: none; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: .04em; color: var(--brass); text-shadow: 0 1px 4px rgba(0, 0, 0, .6); }
 
+/* blood on the lens in first person; the spots are painted by screenBlood() and fade out */
+#screenBlood { position: fixed; inset: 0; pointer-events: none; z-index: 2; opacity: 0; filter: blur(0.6px); }
+
+/* ---------- catch streak ---------- */
+#streakLine { font-size: .85rem; font-weight: 600; color: #FF9A4D; }
+#streakLine.ending { animation: streakBlink .6s ease-in-out infinite alternate; }
+@keyframes streakBlink { to { opacity: .45; } }
+#tagFlags span.streak { background: #E0662B; color: #fff; }
+
+/* ---------- the frenzy ---------- */
+#frenzy {
+  position: fixed; top: calc(62px + var(--safe-t)); left: 50%; transform: translateX(-50%);
+  padding: 8px 18px 9px; border-radius: 999px; z-index: 5; text-align: center; white-space: nowrap;
+  background: #4A0A14; color: #FFE3E0; border: 2px solid #FF4A3A; font-size: .95rem;
+  box-shadow: 0 0 24px rgba(255, 40, 30, .45); animation: frenzyGlow 1.2s ease-in-out infinite alternate;
+}
+#frenzy b { font-family: var(--display); font-weight: 400; letter-spacing: .06em; margin-right: 8px; color: #FF6A4D; }
+#frenzy .time { font-variant-numeric: tabular-nums; font-weight: 600; margin-right: 8px; }
+@keyframes frenzyGlow { to { box-shadow: 0 0 40px rgba(255, 40, 30, .8); } }
+body.frenzyOn #haze { box-shadow: inset 0 0 180px rgba(160, 0, 20, .55); animation: frenzyPulse 1.6s ease-in-out infinite alternate; }
+@keyframes frenzyPulse { to { box-shadow: inset 0 0 120px rgba(200, 10, 20, .75); } }
+#bossBar {
+  position: fixed; top: calc(108px + var(--safe-t)); left: 50%; transform: translateX(-50%); width: min(420px, 80vw);
+  z-index: 5; text-align: center; pointer-events: none;
+}
+#bossBar b { font-family: var(--display); font-weight: 400; letter-spacing: .08em; color: #FF6A4D; text-shadow: 0 2px 10px #000; font-size: 1.2rem; }
+#bossBar div { height: 12px; margin-top: 4px; border-radius: 6px; background: rgba(0, 0, 0, .55); border: 1px solid #FF4A3A; overflow: hidden; }
+#bossBar i { display: block; height: 100%; background: linear-gradient(90deg, #7A0A14, #FF3A2A); transition: width .15s; }
+#bigText {
+  position: fixed; left: 50%; top: 32%; transform: translate(-50%, -50%); z-index: 7; pointer-events: none;
+  font-family: var(--display); font-size: clamp(2.4rem, 7vw, 4.6rem); letter-spacing: .06em; white-space: nowrap;
+  color: #FFE3C4; text-shadow: 0 4px 0 #6A0A0A, 0 0 30px rgba(255, 60, 30, .8);
+}
+#bigText.pop { animation: bigPop .9s cubic-bezier(.2, 1.6, .4, 1) both; }
+#bigText.frenzy { color: #FF5A3A; }
+#bigText.multi { color: #FFD24A; font-size: clamp(2rem, 5vw, 3.4rem); }
+#bigText.glory { color: #FF8A2A; }
+#bigText.cash { color: var(--brass); text-shadow: 0 4px 0 #5A3A00, 0 0 24px rgba(255, 200, 60, .7); }
+#bigText.calm { color: #CFE8EC; text-shadow: 0 3px 0 #163438, 0 0 20px rgba(120, 200, 220, .6); }
+@keyframes bigPop { 0% { transform: translate(-50%, -50%) scale(2.2); opacity: 0; } 30% { opacity: 1; } 100% { transform: translate(-50%, -50%) scale(1); } }
+#gloryHint {
+  position: fixed; left: 50%; top: 58%; transform: translateX(-50%); z-index: 5; pointer-events: none;
+  padding: 7px 16px; border-radius: 999px; background: rgba(90, 20, 0, .85); color: #FFE3C4; border: 2px solid #FF8A2A;
+  font-weight: 600; animation: pulse .5s ease-in-out infinite alternate;
+}
+
+/* the kraken's ink */
+#ink { position: fixed; inset: 0; z-index: 3; pointer-events: none; opacity: 0; transition: opacity .3s;
+  background: radial-gradient(ellipse at 50% 60%, rgba(6, 0, 14, .96) 10%, rgba(20, 0, 30, .85) 45%, rgba(20, 0, 30, .3) 90%); }
+#ink.on { opacity: 1; }
 /* ---------- inventory ---------- */
 .inv { width: min(780px, 95vw); }
 #invCash { color: var(--brass); font-weight: 600; font-size: 1.1rem; }

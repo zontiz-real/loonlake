@@ -1,12 +1,11 @@
 // On-foot movement, Roblox-style: snappy and forgiving, with full control in the air.
-// Chaining hops (jumping again right as you land, which holding Space does for you) builds a speed boost.
+// Chaining hops (jumping again right as you land, which holding Space does for you) builds a speed boost with no ceiling.
 
 export const FEEL = {
-  groundAccel: 75, // m/s^2 toward the speed you are asking for
-  groundStop: 65, // m/s^2 when you let go
+  groundAccel: 52, // m/s^2 toward the speed you are asking for: full speed in about a tenth of a second, not instantly
+  groundStop: 44, // m/s^2 when you let go: a short glide to a stop
   airAccel: 42, // m/s^2 of steering while airborne
   hopStep: 0.07, // speed added by each chained hop
-  hopMax: 1.35, // top of the boost: 35% faster
   hopWindow: 0.14, // seconds after landing in which the next jump still counts as chained
 };
 
@@ -32,5 +31,5 @@ export function airMove(vel, dirx, dirz, wishSpeed, dt) {
 
 // The boost after a jump: chained if you took off within the window of touching down.
 export function nextHopBoost(boost, secondsSinceLanding) {
-  return secondsSinceLanding <= FEEL.hopWindow ? Math.min(FEEL.hopMax, boost + FEEL.hopStep) : 1;
+  return secondsSinceLanding <= FEEL.hopWindow ? boost + FEEL.hopStep : 1;
 }

@@ -21,18 +21,23 @@ const DAY_MS = 12 * 60 * 1000; // one full day on the lake
 const WORLD = {
   lakeRadius: 30,
   shoreRadius: 31,
-  bounds: 60,
+  bounds: 60, // the play area: spawns, NPCs and the map
+  edge: 200, // how far you can walk: out over the hills, well past the play area
   dock: { minX: -1.6, maxX: 1.6, minZ: 14, maxZ: 32 },
   moveSpeed: 6,
   sprint: 1.5,
   castMin: 4,
-  bagMax: 16,
+  bagMax: 16, // the starting bag; bigger ones are in `bags`
+  // bags you can buy from Moss, each one holding more fish
   bags: [
-    { name: 'Canvas satchel', cap: 16, price: 0, desc: 'Holds 16 fish.' },
-    { name: 'Tackle bag', cap: 24, price: 150, desc: 'Holds 24 fish.' },
-    { name: 'Fishing vest', cap: 36, price: 400, desc: 'Holds 36 fish, with a pocket for everything.' },
-    { name: "Angler's pack", cap: 50, price: 900, desc: 'Holds 50 fish. You will not need to run back to Moss.' },
+    { id: 'creel', name: 'Wicker creel', cap: 16, price: 0, desc: 'Holds 16 fish.' },
+    { id: 'backpack', name: 'Tackle backpack', cap: 24, price: 150, desc: 'Holds 24 fish.' },
+    { id: 'cooler', name: 'Cooler', cap: 36, price: 450, desc: 'Holds 36 fish on ice.' },
+    { id: 'livewell', name: 'Live well', cap: 50, price: 1100, desc: 'Holds 50 fish, still kicking.' },
+    { id: 'chest', name: 'Ice chest', cap: 75, price: 2400, desc: 'Holds 75 fish. A whole derby in one trip.' },
   ],
+  // catch streak: land fish back to back (within `window` ms of each other) and each one sells for more
+  streak: { window: 90000, step: 0.1, max: 2 },
   dayMs: DAY_MS,
   // a channel runs south from the lake out to the big water
   channel: { minX: -4.5, maxX: 4.5, minZ: -124, maxZ: -26 },
@@ -43,7 +48,9 @@ const WORLD = {
     { id: 'skiff', name: 'Aluminum skiff', price: 600, speed: 12.5, desc: 'Faster, wider, and it does not rot.', color: '#9AA5AD', scale: 1.15 },
     { id: 'cruiser', name: 'Sport cruiser', price: 1800, speed: 16.5, desc: 'Fast enough to cross the big water before the fish stop biting.', color: '#C43B2B', scale: 1.35 },
   ],
-  bhop: 1.6,
+  // how far past sprint speed the server lets a player move before snapping them back. Hopping has no cap on the client,
+  // so this is set far beyond what chained hops reach in practice (about 150 perfect hops in a row); it only stops teleports.
+  bhop: 12,
   market: { remote: 0.7 },
   camp: {
     dealer: { x: 10, z: 40 },
@@ -62,12 +69,17 @@ const WORLD = {
     arp: { name: 'AR pistol', price: 520, mag: 30, reload: 1900, damage: 17, cooldown: 82, spread: 0.062, pellets: 1, range: 52, auto: true, start: 90, zoom: 50, look: 0.8, recoil: 0.01, sound: 'smg', desc: 'Rifle round, pistol size. Full auto.' },
     draco: { name: 'Draco', price: 720, mag: 30, reload: 2100, damage: 28, cooldown: 115, spread: 0.07, pellets: 1, range: 58, auto: true, start: 90, zoom: 48, look: 0.85, recoil: 0.018, sound: 'rifle', desc: 'AK pistol. Hits hard, kicks harder. Takes a drum.' },
     sniper: { name: 'Sniper rifle', price: 900, mag: 4, reload: 3000, damage: 90, cooldown: 1300, spread: 0.006, pellets: 1, range: 110, auto: false, start: 8, zoom: 18, look: 1.25, recoil: 0.06, sound: 'sniper', desc: 'One or two shots at any distance.' },
+    deagle: { name: 'Desert Eagle', price: 450, mag: 7, reload: 1700, damage: 52, cooldown: 430, spread: 0.03, pellets: 1, range: 55, auto: false, start: 21, zoom: 48, look: 0.65, recoil: 0.05, sound: 'deagle', desc: 'A hand cannon. Seven rounds that each hit like a rifle.' },
+    dbarrel: { name: 'Double-barrel', price: 300, mag: 2, reload: 1900, damage: 15, cooldown: 220, spread: 0.15, pellets: 10, range: 20, auto: false, start: 16, zoom: 56, look: 1, recoil: 0.07, sound: 'shotgun', desc: 'Two shells, fired as fast as you can pull. Nothing survives both up close.' },
+    m4: { name: 'M4 carbine', price: 1100, mag: 30, reload: 2000, damage: 24, cooldown: 85, spread: 0.042, pellets: 1, range: 78, auto: true, start: 90, zoom: 40, look: 0.9, recoil: 0.011, sound: 'rifle', desc: 'Accurate full-auto rifle. Takes a drum and a laser.' },
+    lmg: { name: 'M249 LMG', price: 1700, mag: 100, reload: 4600, damage: 21, cooldown: 72, spread: 0.085, pellets: 1, range: 70, auto: true, start: 200, zoom: 46, look: 1.15, recoil: 0.009, sound: 'lmg', desc: 'A hundred-round belt. Slow to reload, slow to stop.' },
+    crossbow: { name: 'Crossbow', price: 650, mag: 1, reload: 1300, damage: 75, cooldown: 400, spread: 0.008, pellets: 1, range: 85, auto: false, start: 12, zoom: 30, look: 1, recoil: 0.02, sound: 'bow', silent: true, desc: 'Silent. Nobody hears it, so nobody comes running.' },
   },
   // gun upgrades: each level adds damage; the price is a share of the gun's own price
   gunLevels: { names: ['Mk I', 'Mk II', 'Mk III', 'Mk IV', 'Mk V'], mul: [1, 1.12, 1.25, 1.4, 1.6], price: [0, 0.6, 1, 1.6, 2.4] },
   attachments: {
     laser: { name: 'Laser beam', price: 90, spreadMul: 0.55, desc: 'A red beam shows where it points, and shots group tighter.', only: null },
-    drum: { name: 'Drum mag', price: 180, magMul: 2.5, reloadAdd: 700, desc: 'Two and a half times the rounds. Slower to reload.', only: ['glock', 'smg', 'arp', 'draco'] },
+    drum: { name: 'Drum mag', price: 180, magMul: 2.5, reloadAdd: 700, desc: 'Two and a half times the rounds. Slower to reload.', only: ['glock', 'smg', 'arp', 'draco', 'm4'] },
     switch: { name: 'Auto switch', price: 320, cooldownMul: 0.3, spreadMul: 1.5, desc: 'Turns it full auto. Burns through the mag.', only: ['glock', 'pistol'] },
   },
   rods: [
@@ -150,6 +162,30 @@ const SPECIES = [
 const LONG_IDS = new Set(['walleye', 'pike', 'muskie', 'eelpout', 'sturgeon', 'golden', 'catfish', 'bass', 'perch', 'cisco', 'whitefish', 'salmon', 'laketrout', 'pressie']);
 SPECIES.forEach((s) => { s.long = LONG_IDS.has(s.id); });
 SPECIES.push(...require('./species_extra'));
+// Boss catches are hooked, shot to pieces and landed: they get journal entries like any fish, but never roll as a normal bite
+const BOSSES = {
+  snapjaw: { id: 'snapjaw', name: 'Snapjaw', tier: 1, rodMin: 0, where: 'lake', hp: 420, wearCap: 0.3, landAt: 0.35, radius: 1.6, lbs: [180, 320], base: 220, color: '#5E7A3A',
+    hint: 'A snapping turtle the size of a table. Any rod can hook it.',
+    moves: [{ name: 'Lunge', kind: 'spike', r: 5, dmg: 12 }, { name: 'Thrash', kind: 'spike', r: 0, dmg: 0 }] },
+  piranha: { id: 'piranhastorm', name: 'Piranha Storm', tier: 1, rodMin: 0, where: 'lake', hp: 300, wearCap: 0.3, landAt: 0.35, radius: 2.2, lbs: [40, 70], base: 190, color: '#B02A2A',
+    hint: 'One hook, twenty piranhas. Thin the swarm, then reel in the king.',
+    moves: [{ name: 'Swarm', kind: 'spike', r: 6, dmg: 10 }, { name: 'Frenzy', kind: 'spike', r: 0, dmg: 0 }] },
+  gator: { id: 'gatorking', name: 'Gator King', tier: 2, rodMin: 1, where: 'lake', hp: 1400, wearCap: 0.55, landAt: 0.35, radius: 3, lbs: [400, 700], base: 700, color: '#4A5A2E',
+    hint: 'A scarred old alligator. Death rolls and tail whips hit anyone near it.',
+    moves: [{ name: 'Death roll', kind: 'spike', r: 7, dmg: 18 }, { name: 'Tail whip', kind: 'spike', r: 8, dmg: 16 }, { name: 'Submerge', kind: 'slack', r: 0, dmg: 0 }] },
+  eel: { id: 'voltaiceel', name: 'Voltaic Eel', tier: 2, rodMin: 2, where: 'lake', hp: 1200, wearCap: 0.55, landAt: 0.35, radius: 2.4, lbs: [90, 160], base: 650, color: '#3AC8E8',
+    hint: 'Glows blue. Every few seconds it discharges into the water and everyone near it.',
+    moves: [{ name: 'Discharge', kind: 'spike', r: 10, dmg: 14 }, { name: 'Thrash', kind: 'spike', r: 0, dmg: 0 }] },
+  leviathan: { id: 'leviathan', name: 'Leviathan Sturgeon', tier: 3, rodMin: 3, where: 'lake', hp: 3000, wearCap: 0.7, landAt: 0.35, radius: 4, lbs: [900, 1600], base: 1500, color: '#6E7A88',
+    hint: 'Armored plates you have to shoot off. It dives, goes slack, and breaches.',
+    moves: [{ name: 'Dive', kind: 'slack', r: 0, dmg: 0 }, { name: 'Breach', kind: 'spike', r: 9, dmg: 20 }, { name: 'Ram', kind: 'spike', r: 6, dmg: 16 }] },
+  kraken: { id: 'kraken', name: 'The Kraken', tier: 3, rodMin: 4, where: 'ocean', hp: 4200, wearCap: 0.75, landAt: 0.35, radius: 5, lbs: [2000, 3200], base: 4000, color: '#7A2A5A',
+    hint: 'Only in the big water. Tentacles slam the deck and it blots the screen with ink.',
+    moves: [{ name: 'Tentacle slam', kind: 'spike', r: 9, dmg: 22 }, { name: 'Ink', kind: 'ink', r: 0, dmg: 0 }, { name: 'Grab', kind: 'spike', r: 7, dmg: 18 }] },
+};
+for (const b of Object.values(BOSSES)) {
+  SPECIES.push({ id: b.id, name: b.name, where: b.where, rarity: 'legendary', w: 0, lbs: b.lbs, diff: 0.7 + b.tier * 0.08, base: b.base, color: b.color, hint: b.hint, boss: true, long: false });
+}
 // which 3D model each species uses (anything not listed uses the plain long or round fish)
 const MODEL_OF = {};
 const assignModel = (model, ids) => ids.forEach((id) => { MODEL_OF[id] = model; });
@@ -164,6 +200,7 @@ const FISHY = (s) => !['junk', 'treasure'].includes(s.rarity) && !s.when;
 const SWIMMERS = SPECIES.filter((s) => ['common', 'uncommon', 'rare'].includes(s.rarity) && !s.when && s.where === 'lake');
 // what you can see swimming in the big water: everything up to sharks
 const OCEAN_SWIMMERS = SPECIES.filter((s) => s.where === 'ocean' && FISHY(s) && s.rarity !== 'legendary');
+const LAKE_RARE = SPECIES.filter((s) => s.where === 'lake' && !s.when && (s.rarity === 'epic' || s.rarity === 'legendary') && !s.boss);
 const CHANNEL_SWIMMERS = SWIMMERS.filter((s) => s.lbs[1] < 25);
 const FISH_HP = { common: 2, uncommon: 2, rare: 3, epic: 5, legendary: 8 };
 const RARITY_RANK = { junk: 0, common: 1, uncommon: 2, treasure: 3, rare: 3, epic: 4, legendary: 5 };
@@ -239,7 +276,7 @@ const inOcean = (x, z) => {
 };
 const onLand = (x, z) =>
   onDock(x, z) ||
-  (Math.hypot(x, z) >= WORLD.shoreRadius && Math.abs(x) <= WORLD.bounds && Math.abs(z) <= WORLD.bounds && !inChannel(x, z, 0.8));
+  (Math.hypot(x, z) >= WORLD.shoreRadius && Math.abs(x) <= WORLD.edge && Math.abs(z) <= WORLD.edge && !inChannel(x, z, 0.8));
 const inWater = (x, z) => !onDock(x, z) && (Math.hypot(x, z) < WORLD.lakeRadius - 0.3 || inChannel(x, z) || inOcean(x, z));
 // boats stay a couple of metres off the beach so the hull never digs into the sand
 const boatOk = (x, z) => inWater(x, z) && (Math.hypot(x, z) < WORLD.lakeRadius - 2.2 || inChannel(x, z) || inOcean(x, z));
@@ -392,9 +429,9 @@ function advanceQuests(p, species, hot) {
 // ---------------------------------------------------------------- guns
 
 // critical hit chance per gun, and how hard a kill shot shoves the body
-const CRIT = { pistol: 0.1, glock: 0.08, rifle: 0.12, shotgun: 0.05, smg: 0.05, arp: 0.07, draco: 0.09, sniper: 0.3 };
-const CRIT_MUL = { sniper: 2 };
-const KICK = { pistol: 7, glock: 6, rifle: 11, shotgun: 16, smg: 6, arp: 8, draco: 11, sniper: 22 };
+const CRIT = { pistol: 0.1, glock: 0.08, rifle: 0.12, shotgun: 0.05, smg: 0.05, arp: 0.07, draco: 0.09, sniper: 0.3, deagle: 0.15, dbarrel: 0.05, m4: 0.08, lmg: 0.06, crossbow: 0.35 };
+const CRIT_MUL = { sniper: 2, crossbow: 2 };
+const KICK = { pistol: 7, glock: 6, rifle: 11, shotgun: 16, smg: 6, arp: 8, draco: 11, sniper: 22, deagle: 13, dbarrel: 20, m4: 9, lmg: 9, crossbow: 14 };
 // full damage up close, fading to 55% at the end of a gun's range
 function falloff(dist, range) {
   const near = range * 0.4;
@@ -450,7 +487,7 @@ function storeProfile(p) {
   if (!p || p.guest) return;
   profiles[p.token] = {
     name: p.name, color: p.color, look: p.look, skin: p.skin, cash: p.cash, rod: p.rod, bait: p.bait,
-    guns: p.guns, mag: p.mag, att: p.att, glvl: p.glvl, ammo: p.ammo, pocket: p.pocket, bag: p.bag, bagTier: p.bagTier, ownsBoat: !!p.ownsBoat, boatTier: p.boatTier,
+    guns: p.guns, mag: p.mag, att: p.att, glvl: p.glvl, ammo: p.ammo, pocket: p.pocket, bag: p.bag, bagTier: p.bagTier || 0, ownsBoat: !!p.ownsBoat, boatTier: p.boatTier,
     journal: p.journal, caught: p.caught, earned: p.earned, derbyWins: p.derbyWins,
     best: p.best, xp: p.xp, quests: p.quests, seen: nowMs(),
   };
@@ -604,6 +641,352 @@ function tickDerby() {
   else if (derby.active && now >= derby.endsAt) finishDerby();
 }
 
+// Everything that happens when a fish is landed, whether on the rod or with a gun: journal, best, streak, value,
+// bag, XP, quests and level. `opts.rod` is true for a rod catch (the derby is rod-only).
+function recordCatch(p, s, lbs, value, opts = {}) {
+  const entry = p.journal[s.id] || (p.journal[s.id] = { n: 0, best: 0 });
+  const first = entry.n === 0;
+  const pb = !first && lbs > entry.best;
+  entry.n += 1;
+  entry.best = Math.max(entry.best, lbs);
+  if (opts.rod) { entry.rod = (entry.rod || 0) + 1; }
+  p.caught += 1;
+  const rank = RARITY_RANK[s.rarity];
+  if (rank >= 1 && s.rarity !== 'treasure' && (!p.best || lbs > p.best.lbs)) p.best = { name: s.name, lbs };
+  // back-to-back catches build a streak, and the streak multiplies what each fish is worth
+  const now = nowMs();
+  p.streak = now < (p.streakUntil || 0) ? (p.streak || 0) + 1 : 1;
+  p.streakUntil = now + WORLD.streak.window;
+  const mult = Math.min(WORLD.streak.max, 1 + (p.streak - 1) * WORLD.streak.step);
+  // a rod catch of a species for the first time pays a bonus of its own: the rod is how you fill the journal properly
+  const rodFirst = !!opts.rod && (entry.rod || 0) === 1;
+  value = Math.round(value * mult * (frenzy.active ? FRENZY.fishMul : 1) * (opts.valueMul || 1));
+  if (frenzy.active) frenzyScore(p, Math.max(5, Math.round(value / 4)), false);
+  const bagged = giveFish(p, s.name, lbs, value);
+  const levelBefore = levelOf(p.xp);
+  const xpGain = (XP_BY_RARITY[s.rarity] || 5) + (first ? 20 : 0) + (pb ? 10 : 0) + (opts.hot ? 5 : 0) + (opts.xpBonus || 0);
+  p.xp += xpGain;
+  const questDone = advanceQuests(p, s, opts.hot);
+  const level = levelOf(p.xp);
+  const levelBonus = level > levelBefore ? 25 * level : 0;
+  if (levelBonus) {
+    p.cash += levelBonus;
+    feed(`${p.name} reached angler level ${level}`, 'join');
+  }
+  const derbyEntry = !!opts.rod && derby.active && s.rarity !== 'junk' && s.rarity !== 'treasure';
+  const derbyLead = opts.rod ? derbyWeighIn(p, s, lbs) : false;
+  if (rank >= 3) {
+    const article = /^[aeiou]/i.test(s.name) ? 'an' : 'a';
+    feed(`${p.name} ${opts.rod ? 'landed' : 'shot'} ${article} ${lbs} lb ${s.name.toLowerCase()}`, s.rarity);
+  }
+  return {
+    value, bagged, streak: p.streak, mult, frenzy: frenzy.active, first, pb, rodFirst, hot: !!opts.hot, derby: derbyEntry, derbyLead,
+    xpGain: xpGain + questDone.reduce((n, q) => n + q.xp, 0), level, levelUp: levelBonus > 0, levelBonus, questDone,
+  };
+}
+
+// a fish taken by a gun: it is smaller than the trophy end of its range, but it pays and counts like any other catch
+function rollShotFish(s) {
+  const [lo, hi] = s.lbs;
+  const frac = hi > lo ? Math.pow(Math.random(), 1.3) * 0.65 : 0.5;
+  const places = hi < 1 ? 100 : 10;
+  const lbs = Math.max(0.01, Math.round((lo + (hi - lo) * frac) * places) / places);
+  return { lbs, value: Math.round(s.base * (0.6 + 0.9 * frac)) };
+}
+
+// ---------------------------------------------------------------- boss hooks
+//
+// Now and then a bite is not a fish. A boss takes the hook, and the fight is two people's job (or one person's, doing both):
+// the rod keeps the line alive, the gun breaks the boss's armor and health. Even the starter rod can hook a Tier 1 boss.
+
+function bossChance(p) {
+  const hot = p.bobber && hotspotAt(p.bobber.x, p.bobber.z);
+  return 0.06 + p.bait * 0.025 + (hot ? 0.05 : 0) + (isNight(hourNow()) ? 0.02 : 0) + (frenzy.active ? 0.08 : 0);
+}
+
+function rollBoss(p, forceId) {
+  const region = p.bobber ? waterRegion(p.bobber.x, p.bobber.z) : 'lake';
+  let pool = Object.values(BOSSES).filter((b) => b.where === region && p.rod >= b.rodMin);
+  if (forceId && BOSSES[forceId]) pool = [BOSSES[forceId]];
+  if (!pool.length) return null;
+  const weights = pool.map((b) => (b.tier === 1 ? 6 : b.tier === 2 ? 3 : 1) * (b.tier > 1 ? 1 + p.bait * 0.3 : 1));
+  let r = Math.random() * weights.reduce((a, b) => a + b, 0);
+  let def = pool[0];
+  for (let i = 0; i < pool.length; i++) if ((r -= weights[i]) <= 0) { def = pool[i]; break; }
+  const species = SPECIES.find((s) => s.id === def.id);
+  const [lo, hi] = def.lbs;
+  const frac = Math.pow(Math.random(), 1.2);
+  return {
+    species, lbs: Math.round(lo + (hi - lo) * frac), value: Math.round(def.base * (0.8 + 0.5 * frac)), frac, difficulty: 0.55 + def.tier * 0.09, hot: false,
+    bossDef: def,
+  };
+}
+
+function startBossFight(p, def) {
+  p.boss = { def, kind: def.id, hp: def.hp, maxHp: def.hp, hitBy: new Map(), staggerUntil: 0, nextMove: nowMs() + 3500, pending: 0, stage: 0, lastWear: 0 };
+  io.emit('bossHooked', { pid: p.id, kind: def.id, name: def.name, tier: def.tier, x: p.bobber.x, z: p.bobber.z });
+  feed(`${p.name} hooked ${def.name}!`, 'legendary');
+}
+
+function bossState(p) {
+  const b = p.boss;
+  const sock = sockOf(p.id);
+  if (!b || !sock) return;
+  sock.emit('bossState', { hp: b.hp / b.maxHp, stagger: nowMs() < b.staggerUntil, weak: b.hp <= b.maxHp * b.def.landAt, wearCap: b.def.wearCap, landAt: b.def.landAt });
+}
+
+// a hit on a hooked boss, from anyone with a gun; returns what the shooter sees
+function hitBoss(owner, dmg, shooter) {
+  const b = owner && owner.boss;
+  if (!b) return { hit: null };
+  const now = nowMs();
+  const before = b.hp / b.maxHp;
+  b.hp = Math.max(0, b.hp - dmg);
+  if (shooter && shooter.id) b.hitBy.set(shooter.id, (b.hitBy.get(shooter.id) || 0) + dmg);
+  const after = b.hp / b.maxHp;
+  // armor plates come off at 66% and 33%: a stagger, wide open, and the boss's pull drops
+  let armor = false;
+  for (const mark of [0.66, 0.33]) if (before > mark && after <= mark) { armor = true; b.staggerUntil = now + 4200; b.stage += 1; }
+  const at = owner.bobber || { x: owner.x, z: owner.z };
+  io.emit('bossHit', { pid: owner.id, x: at.x, z: at.z, dmg: Math.round(dmg), armor, stage: b.stage });
+  bossState(owner);
+  return { hit: 'boss', killed: false, x: at.x, z: at.z, dmg: Math.round(dmg), stagger: now < b.staggerUntil, armor, bossHp: after };
+}
+
+function tickBosses() {
+  const now = nowMs();
+  for (const p of players.values()) {
+    const b = p.boss;
+    if (!b || p.state !== 'reeling' || !p.bobber) continue;
+    if (b.pending || now < b.nextMove || now < b.staggerUntil) continue;
+    const mv = b.def.moves[Math.floor(Math.random() * b.def.moves.length)];
+    b.pending = now + 900;
+    io.emit('bossMove', { pid: p.id, phase: 'warn', name: mv.name, kind: mv.kind, r: mv.r, x: p.bobber.x, z: p.bobber.z });
+    setTimeout(() => {
+      if (p.boss !== b || !p.bobber) return;
+      if (mv.dmg && mv.r) {
+        for (const q of players.values()) {
+          if (q.alive && Math.hypot(q.x - p.bobber.x, q.z - p.bobber.z) < mv.r) hurtPlayer(q, mv.dmg, { name: b.def.name, id: 'bs' + p.id, x: p.bobber.x, z: p.bobber.z }, 'thrashed');
+        }
+      }
+      io.emit('bossMove', { pid: p.id, phase: 'hit', name: mv.name, kind: mv.kind, r: mv.r, x: p.bobber.x, z: p.bobber.z });
+      b.pending = 0;
+      b.nextMove = nowMs() + rand(4200, 7000) * (b.hp / b.maxHp < 0.4 ? 0.75 : 1);
+    }, 900);
+  }
+}
+
+// ---------------------------------------------------------------- the frenzy
+//
+// The game's spine: the rod makes you money, the gun keeps you alive. Every few minutes the lake boils. Mutant fish
+// leap out and hunt anyone near the water, and a boss surfaces near the end. Fish bite almost at once and are worth
+// far more, so the best money in the game is fishing while things are trying to eat you. Mutants drop ammo and health,
+// so the fight pays for itself. A badly hurt mutant staggers; finish it with the knife for health and a bigger drop.
+
+const FRENZY = {
+  firstIn: 3 * 60 * 1000, every: 7 * 60 * 1000, length: 110 * 1000, bossAt: 70 * 1000,
+  fishMul: 2.5, // what rod-caught fish are worth during a frenzy
+  biteScale: 0.25, // how much faster fish bite
+  topBonus: [400, 200, 100], // paid to the top three scorers at the end
+};
+const MUTANT = {
+  leaper: { name: 'Leaper', sid: 'walleye', hp: 40, speed: 5.0, bite: 6, reach: 1.5, bounty: 12, score: 10, radius: 0.5 },
+  snapper: { name: 'Snapper', sid: 'pike', hp: 95, speed: 3.9, bite: 16, reach: 1.9, bounty: 30, score: 25, radius: 0.7 },
+  gulper: { name: 'Gulper', sid: 'catfish', hp: 230, speed: 2.7, bite: 28, reach: 2.3, bounty: 80, score: 60, radius: 1.1 },
+  boss: { name: 'The Old One', sid: 'sturgeon', hp: 2600, speed: 3.2, bite: 40, reach: 4, bounty: 1200, score: 500, radius: 3 },
+};
+const frenzy = { active: false, endsAt: 0, nextAt: nowMs() + FRENZY.firstIn, bossSpawned: false, scores: new Map(), nextSpawn: 0 };
+const mutants = [];
+let mutantSerial = 1;
+// gunfire spooks the fish nearby for a while: bites slow down around it
+const spooks = [];
+
+function startFrenzy() {
+  Object.assign(frenzy, { active: true, endsAt: nowMs() + FRENZY.length, bossSpawned: false, nextSpawn: nowMs() + 3000 });
+  frenzy.scores.clear();
+  io.emit('frenzy', { type: 'start', length: FRENZY.length });
+  feed('The lake is boiling. FRENZY! Fish bite fast and pay x2.5, and something is coming out of the water.', 'derby');
+}
+
+function endFrenzy() {
+  frenzy.active = false;
+  frenzy.nextAt = nowMs() + FRENZY.every;
+  // whatever is still out there sinks back down
+  for (const m of mutants) io.emit('mutantDie', { id: m.id, x: m.x, z: m.z, k: m.kind, fled: true });
+  mutants.length = 0;
+  const top = [...frenzy.scores.values()].sort((a, b) => b.score - a.score).slice(0, 3);
+  top.forEach((e, i) => {
+    const p = players.get(e.id);
+    if (!p) return;
+    p.cash += FRENZY.topBonus[i];
+    p.earned += FRENZY.topBonus[i];
+    storeProfile(p);
+  });
+  if (top.length) feed(`The frenzy is over. ${top.map((e, i) => `${i + 1}. ${e.name} (${e.score})`).join(', ')}.`, 'derby');
+  else feed('The frenzy is over. The lake settles.', 'derby');
+  io.emit('frenzy', { type: 'end', top: top.map((e, i) => ({ name: e.name, score: e.score, kills: e.kills, bonus: FRENZY.topBonus[i] })) });
+}
+
+function frenzyScore(p, add, kill) {
+  const e = frenzy.scores.get(p.id) || { id: p.id, name: p.name, score: 0, kills: 0 };
+  e.score += add;
+  if (kill) e.kills += 1;
+  frenzy.scores.set(p.id, e);
+}
+
+// a spot in the water near a player, so mutants come at people who are fishing
+function waterNear(x, z, minR, maxR) {
+  for (let i = 0; i < 20; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const r = rand(minR, maxR);
+    const px = x + Math.sin(a) * r;
+    const pz = z + Math.cos(a) * r;
+    if (inWater(px, pz)) return { x: px, z: pz };
+  }
+  return null;
+}
+
+function spawnMutant(kind, at) {
+  const def = MUTANT[kind];
+  const m = { id: 'mu' + (mutantSerial++), kind, x: at.x, z: at.z, rot: 0, hp: def.hp, maxHp: def.hp, target: null, nextBite: 0, staggerUntil: 0, leapAt: 0, born: nowMs(), hitBy: new Map() };
+  mutants.push(m);
+  return m;
+}
+
+const nearFire = (x, z) => Math.hypot(x - WORLD.camp.fire.x, z - WORLD.camp.fire.z) < 7;
+
+function tickFrenzy(dt) {
+  const now = nowMs();
+  if (!frenzy.active) { if (now >= frenzy.nextAt) startFrenzy(); return; }
+  if (now >= frenzy.endsAt) { endFrenzy(); return; }
+  const hunters = [...players.values()].filter((p) => p.alive);
+  // keep the pressure up: more mutants the more people there are, spawned in the water near someone
+  // it ramps up: a few at first, a crowd by the end
+  const ramp = 1 - (frenzy.endsAt - now) / FRENZY.length;
+  const cap = Math.round(2 + hunters.length * (1.5 + ramp * 2.5));
+  if (now >= frenzy.nextSpawn && mutants.length < cap && hunters.length) {
+    frenzy.nextSpawn = now + rand(900, 2200);
+    const p = hunters[Math.floor(Math.random() * hunters.length)];
+    const spot = waterNear(p.x, p.z, 8, 22);
+    if (spot) {
+      const r = Math.random();
+      spawnMutant(r < 0.62 ? 'leaper' : r < 0.9 ? 'snapper' : 'gulper', spot);
+      io.emit('mutantRise', spot);
+    }
+  }
+  if (!frenzy.bossSpawned && now >= frenzy.endsAt - FRENZY.length + FRENZY.bossAt) {
+    frenzy.bossSpawned = true;
+    spawnMutant('boss', { x: 0, z: 0 });
+    io.emit('mutantRise', { x: 0, z: 0, boss: true });
+    feed('THE OLD ONE has surfaced in the middle of the lake. Kill it before the frenzy ends.', 'legendary');
+  }
+  for (let i = mutants.length - 1; i >= 0; i--) {
+    const m = mutants[i];
+    const def = MUTANT[m.kind];
+    if (now < m.staggerUntil) continue; // staggered: wide open for a knife
+    // hunt the closest living player, ignoring anyone by the campfire (they hate the fire)
+    let best = null;
+    for (const p of hunters) {
+      if (nearFire(p.x, p.z) && m.kind !== 'boss') continue;
+      const d = Math.hypot(p.x - m.x, p.z - m.z);
+      if (!best || d < best.d) best = { p, d };
+    }
+    if (!best) { m.rot += dt; continue; }
+    const t = best.p;
+    m.target = t.id;
+    const toward = Math.atan2(t.x - m.x, t.z - m.z);
+    if (m.kind === 'boss') {
+      // the boss circles the lake and every few seconds hurls itself at the nearest player on the shore
+      if (now >= m.leapAt + 5200 && best.d < 45) {
+        m.leapAt = now;
+        m.leapFrom = { x: m.x, z: m.z };
+        m.leapTo = { x: t.x, z: t.z };
+        io.emit('bossLeap', { id: m.id, from: m.leapFrom, to: m.leapTo });
+        setTimeout(() => {
+          if (!mutants.includes(m)) return;
+          io.emit('bossSlam', { x: m.leapTo.x, z: m.leapTo.z });
+          for (const p of players.values()) {
+            if (p.alive && Math.hypot(p.x - m.leapTo.x, p.z - m.leapTo.z) < 4.5) hurtPlayer(p, def.bite, { name: def.name, id: m.id, x: m.leapTo.x, z: m.leapTo.z }, 'crushed');
+          }
+        }, 900);
+      }
+      const ang = Math.atan2(m.z, m.x) + dt * 0.18;
+      const r = WORLD.lakeRadius * 0.55;
+      m.x += (Math.cos(ang) * r - m.x) * Math.min(1, dt * 0.6);
+      m.z += (Math.sin(ang) * r - m.z) * Math.min(1, dt * 0.6);
+      m.rot = ang + Math.PI / 2;
+      continue;
+    }
+    m.rot = toward;
+    if (best.d > def.reach * 0.8) {
+      const step = def.speed * dt;
+      const nx = m.x + Math.sin(toward) * step;
+      const nz = m.z + Math.cos(toward) * step;
+      if (!nearFire(nx, nz) && (onLand(nx, nz) || inWater(nx, nz) || Math.hypot(nx, nz) < WORLD.shoreRadius + 0.5)) {
+        const wasWater = inWater(m.x, m.z);
+        m.x = nx; m.z = nz;
+        if (wasWater && !inWater(nx, nz)) io.emit('mutantLeap', { id: m.id, x: nx, z: nz });
+      }
+    }
+    if (best.d < def.reach && now >= m.nextBite) {
+      m.nextBite = now + rand(1200, 1700);
+      const res = hurtPlayer(t, def.bite, { name: `A ${def.name.toLowerCase()}`, id: m.id, x: m.x, z: m.z }, 'ate');
+      io.emit('mutantBite', { id: m.id, x: t.x, z: t.z, hit: !!res });
+    }
+  }
+  // old spooks fade
+  for (let i = spooks.length - 1; i >= 0; i--) if (now > spooks[i].until) spooks.splice(i, 1);
+}
+
+// damage to a mutant from a player's gun or knife; returns what the shooter should see
+function hitMutant(m, dmg, p, knife) {
+  const def = MUTANT[m.kind];
+  const now = nowMs();
+  // a staggered mutant finished with the knife: a glory kill
+  const glory = knife && now < m.staggerUntil && m.kind !== 'boss';
+  if (glory) dmg = m.hp;
+  m.hp -= dmg;
+  if (p) m.hitBy.set(p.id, (m.hitBy.get(p.id) || 0) + Math.min(dmg, m.hp + dmg));
+  if (m.hp > 0) {
+    if (m.kind !== 'boss' && m.hp < m.maxHp * 0.25 && !m.staggered) {
+      m.staggered = true;
+      m.staggerUntil = now + 3200;
+    }
+    return { hit: 'mutant', killed: false, x: m.x, z: m.z, dmg: Math.round(dmg), stagger: now < m.staggerUntil };
+  }
+  mutants.splice(mutants.indexOf(m), 1);
+  const out = { hit: 'mutant', killed: true, x: m.x, z: m.z, dmg: Math.round(dmg), glory, kind: m.kind, bounty: def.bounty };
+  if (m.kind === 'boss') {
+    // everyone who hurt it gets a share of the bounty by damage done
+    const total = [...m.hitBy.values()].reduce((a, b) => a + b, 0) || 1;
+    for (const [id, d] of m.hitBy) {
+      const q = players.get(id);
+      if (!q) continue;
+      const share = Math.round(def.bounty * (d / total));
+      q.cash += share;
+      q.earned += share;
+      frenzyScore(q, Math.round(def.score * (d / total)), id === (p && p.id));
+      q.xp += 150;
+      const sock = sockOf(id);
+      if (sock) sock.emit('bossShare', { share, pct: Math.round((d / total) * 100) });
+    }
+    for (let i = 0; i < 6; i++) spawnPickup(i % 2 ? 'ammo' : 'heal', i % 2 ? 30 : 40, m.x + rand(-3, 3), m.z + rand(-3, 3));
+    feed(`${p ? p.name : 'Someone'} landed the killing blow on THE OLD ONE.`, 'legendary');
+  } else if (p) {
+    p.cash += def.bounty * (glory ? 2 : 1);
+    p.earned += def.bounty * (glory ? 2 : 1);
+    p.xp += Math.round(def.score / 2);
+    frenzyScore(p, def.score * (glory ? 2 : 1), true);
+    if (glory) p.hp = Math.min(COMBAT.hp, p.hp + 25);
+    // the fight pays for itself: ammo and health fall out of what you kill
+    const r = Math.random();
+    if (glory || r < 0.45) spawnPickup('ammo', Math.round((m.kind === 'gulper' ? 20 : m.kind === 'snapper' ? 12 : 6) * (glory ? 2 : 1)), m.x, m.z);
+    if (glory || r > 0.72) spawnPickup('heal', m.kind === 'gulper' ? 35 : 15, m.x + 0.6, m.z);
+  }
+  io.emit('mutantDie', { id: m.id, x: m.x, z: m.z, k: m.kind, glory, by: p ? p.id : null });
+  return out;
+}
+
 // ---------------------------------------------------------------- fishing
 
 function pickSpecies(p) {
@@ -689,6 +1072,7 @@ function reelPayload(p) {
     tol: rod.tol,
     speed: rod.speed,
     heavy: p.fish.frac > 0.7 || rank >= 4,
+    boss: p.boss ? { name: p.boss.def.name, tier: p.boss.def.tier, hp: 1, landAt: p.boss.def.landAt, wearCap: p.boss.def.wearCap } : null,
     reel: { calm: h.weed, hard: h.whiskey, spike: h.crank },
   };
 }
@@ -701,6 +1085,7 @@ function clearTimers(p) {
 
 function resetLine(p) {
   clearTimers(p);
+  if (p.boss) { io.emit('bossEnd', { pid: p.id }); p.boss = null; }
   p.state = 'idle';
   p.bobber = null;
   p.fish = null;
@@ -713,15 +1098,19 @@ function scheduleBite(p, socket) {
   let scale = h.weed ? 0.55 : 1;
   if (p.bobber && hotspotAt(p.bobber.x, p.bobber.z)) scale *= 0.45;
   if (isGolden()) scale *= 0.75;
+  if (frenzy.active) scale *= FRENZY.biteScale;
+  else if (p.bobber && spooks.some((sp) => Math.hypot(sp.x - p.bobber.x, sp.z - p.bobber.z) < 24)) scale *= 2.2; // gunfire nearby
   scale *= BITE_WEATHER[WEATHER.kind] || 1;
-  p.biteWindow = TIMING.biteWindow * (h.whiskey ? 0.7 : 1);
+  p.biteWindow = TIMING.biteWindow * (h.whiskey ? 0.7 : 1) * 1.15;
   const wait = Math.max(1200, rand(TIMING.biteMin, TIMING.biteMax) * scale * (p.fastBite ? 0.15 : 1));
   p.biteTimer = setTimeout(() => {
     if (p.state !== 'waiting') return;
     p.state = 'bite';
-    p.fish = rollCatch(p);
+    const boss = p.forceBoss ? rollBoss(p, p.forceBoss) : Math.random() < bossChance(p) ? rollBoss(p) : null;
+    p.forceBoss = null;
+    p.fish = boss || rollCatch(p);
     p.biteAt = nowMs();
-    socket.emit('bite');
+    socket.emit('bite', boss ? { boss: true } : undefined);
     p.windowTimer = setTimeout(() => {
       if (p.state !== 'bite') return;
       socket.emit('missed');
@@ -744,15 +1133,17 @@ function spawnPickup(kind, amount, x, z, name) {
 }
 
 const bagCap = (p) => WORLD.bags[Math.max(0, Math.min(WORLD.bags.length - 1, p.bagTier || 0))].cap;
+const SPECIES_BY_NAME = new Map(SPECIES.map((s) => [s.name, s]));
 
 function giveFish(p, name, lbs, value) {
+  p.bagRev = (p.bagRev || 0) + 1;
   if (p.bag.length >= bagCap(p)) {
     p.cash += value;
     p.earned += value;
     return false;
   }
-  const sp = SPECIES.find((x) => x.name === name);
-  p.bag.push({ id: 'b' + (bagSerial++), name, sid: sp ? sp.id : null, rarity: sp ? sp.rarity : 'common', lbs, value, locked: false });
+  const sp = SPECIES_BY_NAME.get(name);
+  p.bag.push({ id: 'b' + (bagSerial++), name, sid: sp ? sp.id : null, rarity: sp ? sp.rarity : 'common', lbs, value, locked: false, t: nowMs() });
   return true;
 }
 
@@ -802,6 +1193,18 @@ function killPlayer(p, byName, verb = 'shot', from) {
   p.respawnAt = nowMs() + COMBAT.respawn;
   resetLine(p);
   p.high = { weed: 0, whiskey: 0, crank: 0 };
+  // eaten in a frenzy: you keep your cash, but they get half your bag
+  if (from && String(from.id || '').startsWith('mu')) {
+    const eaten = Math.ceil(p.bag.length / 2);
+    p.bag.sort(() => Math.random() - 0.5).splice(0, eaten);
+    p.bagRev = (p.bagRev || 0) + 1;
+    if (p.bj && p.bj.status === 'play') p.bj = null;
+    feed(`${byName} ${verb} ${p.name}`, 'combat');
+    const s = sockOf(p.id);
+    if (s) s.emit('died', { by: byName, verb, dropped: 0, bag: 0, eaten, sank: false, respawn: COMBAT.respawn });
+    storeProfile(p);
+    return;
+  }
   const drop = Math.floor(p.cash * COMBAT.dropCash);
   const bagCount = p.bag.length;
   if (drop > 0) {
@@ -826,6 +1229,7 @@ function hurtPlayer(target, dmg, shooter, verb) {
   if (byPlayer && (inCamp(target) || nowMs() < target.safeUntil)) return 'safe';
   target.hp -= dmg;
   resetLine(target);
+  if (byPlayer) witness(players.get(shooter.id), target);
   const sock = sockOf(target.id);
   if (sock) sock.emit('lineCut');
   if (target.hp <= 0) {
@@ -862,19 +1266,21 @@ function pointAlong(x, z, rot, dist) {
 
 function firstHit(ox, oz, rot, cone, range, skipId) {
   let best = null;
-  const consider = (kind, id, x, z, alive) => {
+  const consider = (kind, id, x, z, alive, radius = 0.45) => {
     if (!alive || id === skipId) return;
     const dist = Math.hypot(x - ox, z - oz);
-    if (dist < 0.35 || dist > range) return;
+    if (dist < 0.35 || dist > range + radius) return;
     const ang = Math.atan2(x - ox, z - oz);
-    // wider angular tolerance up close so point-blank shots register
-    const tol = Math.max(cone, Math.atan2(0.45, dist));
+    // wider angular tolerance up close so point-blank shots register, and for big bodies
+    const tol = Math.max(cone, Math.atan2(radius, dist));
     if (Math.abs(angleDiff(ang, rot)) > tol) return;
     if (!best || dist < best.dist) best = { kind, id, dist, x, z };
   };
   school.forEach((f) => consider('fish', f.id, f.x, f.z, f.alive));
   players.forEach((o) => consider('player', o.id, o.x, o.z, o.alive));
   npcs.forEach((n) => consider('npc', n.id, n.x, n.z, n.alive));
+  mutants.forEach((m) => consider('mutant', m.id, m.x, m.z, true, MUTANT[m.kind].radius));
+  players.forEach((o) => { if (o.boss && o.bobber && o.state === 'reeling') consider('boss', 'bs-' + o.id, o.bobber.x, o.bobber.z, true, o.boss.def.radius); });
   return best;
 }
 
@@ -883,21 +1289,28 @@ function applyHit(hit, shooter, dmg = COMBAT.damage) {
   if (hit.kind === 'fish') {
     const f = school.find((x) => x.id === hit.id);
     if (!f || !f.alive) return { hit: null };
-    f.hp -= 1;
+    const over = dmg - f.hp; // damage past what it took to kill it
+    f.hp -= dmg;
+    // wounding it first, and blowing it apart, both cost value: 12% per extra hit and up to 30% for pure overkill
+    f.spoil = Math.min(0.6, (f.spoil || 0) + 0.12);
+    if (f.hp <= 0 && over > f.maxHp * 1.2) f.spoil += Math.min(0.3, (over / f.maxHp) * 0.12);
+    const spSp = SPECIES.find((x) => x.id === f.sid);
+    const loss = spSp ? Math.max(1, Math.round(spSp.base * 0.12)) : 0;
     if (f.hp > 0) {
       // wounded: it bolts and bleeds, one more round finishes it
       f.hurtUntil = nowMs() + 5000;
       f.rot += Math.PI * (0.6 + Math.random() * 0.8);
-      return { hit: 'fish', killed: false, x: f.x, z: f.z };
+      return { hit: 'fish', killed: false, x: f.x, z: f.z, dmg: Math.round(dmg), loss };
     }
     f.alive = false;
     f.floatUntil = nowMs() + 7000;
-    const pay = Math.max(1, Math.round(f.base * 0.45));
-    if (shooter.bag) {
-      const stored = giveFish(shooter, f.name, null, pay);
-      feed(stored ? `${shooter.name} bagged a shot ${f.name.toLowerCase()}` : `${shooter.name} shot a ${f.name.toLowerCase()} for $${pay}`, 'combat');
-    }
-    return { hit: 'fish', killed: true, x: f.x, z: f.z };
+    // a shot fish is a real catch: bag, journal, XP, quests and streak all count. Only the derby and the trophy end of the
+    // weight range are the rod's.
+    const sp = SPECIES.find((x) => x.id === f.sid);
+    if (!shooter.bag || !sp) return { hit: 'fish', killed: true, x: f.x, z: f.z };
+    const shot = rollShotFish(sp);
+    const rec = recordCatch(shooter, sp, shot.lbs, shot.value, { rod: false, valueMul: Math.max(0.4, 1 - (f.spoil || 0) + 0.12) });
+    return { hit: 'fish', killed: true, x: f.x, z: f.z, dmg: Math.round(dmg), loss: 0, catch: { name: sp.name, sid: sp.id, rarity: sp.rarity, lbs: shot.lbs, ...rec } };
   }
   if (hit.kind === 'player') {
     const t = players.get(hit.id);
@@ -905,13 +1318,17 @@ function applyHit(hit, shooter, dmg = COMBAT.damage) {
     if (res === 'hit' && players.has(shooter.id)) feed(`${shooter.name} hit ${t.name}`, 'combat');
     return { hit: res === 'safe' ? 'safe' : 'player', killed: res === 'kill', x: hit.x, z: hit.z, dmg: res === 'safe' ? 0 : dmg };
   }
+  if (hit.kind === 'boss') return hitBoss(players.get(String(hit.id).slice(3)), dmg, shooter);
+  if (hit.kind === 'mutant') {
+    const m = mutants.find((x) => x.id === hit.id);
+    if (!m) return { hit: null };
+    return hitMutant(m, dmg, players.get(shooter.id), false);
+  }
   const n = npcs.find((x) => x.id === hit.id);
   if (!n || !n.alive) return { hit: null };
   n.hp -= dmg;
-  if (shooter.id && players.has(shooter.id)) {
-    n.aggro = shooter.id;
-    n.aggroUntil = nowMs() + 9000;
-  }
+  n.lastHurt = nowMs();
+  if (shooter.id && players.has(shooter.id)) provoke(n, players.get(shooter.id), 'I\'m hit!');
   const killed = n.hp <= 0;
   if (killed) killNpc(n, shooter.name, undefined, shooter);
   return { hit: 'npc', killed, x: hit.x, z: hit.z, dmg };
@@ -935,10 +1352,7 @@ function alertAnglers(p, rot) {
     const dist = Math.hypot(n.x - p.x, n.z - p.z);
     if (dist > 30) return;
     const ang = Math.atan2(n.x - p.x, n.z - p.z);
-    if (Math.abs(angleDiff(ang, rot)) < 0.3) {
-      n.aggro = p.id;
-      n.aggroUntil = now + 6000;
-    }
+    if (Math.abs(angleDiff(ang, rot)) < 0.3) provoke(n, p, 'Watch it!');
   });
 }
 
@@ -965,16 +1379,79 @@ function playerFire(p, aimRot, aiming, g, aimDist) {
     }
   }
   p.hitForce = 0;
-  alertAnglers(p, aimRot);
+  if (!g.silent) {
+    alertAnglers(p, aimRot);
+    hearShot(p);
+    if (!frenzy.active) spooks.push({ x: p.x, z: p.z, until: nowMs() + 15000 });
+  }
   return { ...out, dmg: Math.round(out.dmg), ammo: p.ammo };
 }
 
+// NPCs fire short bursts. Their aim is good against someone standing still and falls apart against someone moving fast
+// (so bunny hopping is a real defence), and it tightens the longer they stay on the same target.
+const NPC_GUN = { damage: 12, range: 60, mag: 8, reload: 2300, burst: [2, 4], burstGap: 170, pause: [900, 1700], baseSpread: 0.065 };
 function npcFire(n, target) {
-  const rot = Math.atan2(target.x - n.x, target.z - n.z) + (Math.random() - 0.5) * 0.18;
+  const dist = Math.hypot(target.x - n.x, target.z - n.z);
+  const tspeed = target.speed || 0;
+  const focus = Math.min(1, (n.onTarget || 0) / 4);
+  const spread = NPC_GUN.baseSpread + tspeed * 0.012 + (n.moving ? 0.03 : 0) + dist * 0.0006 - focus * 0.025;
+  const rot = Math.atan2(target.x - n.x, target.z - n.z) + (Math.random() - 0.5) * 2 * Math.max(0.01, spread);
   n.rot = rot;
-  const hit = firstHit(n.x, n.z, rot, COMBAT.cone + 0.04, COMBAT.range, n.id);
-  const res = hit ? applyHit(hit, { name: n.name, id: n.id, x: n.x, z: n.z }) : null;
+  const hit = firstHit(n.x, n.z, rot, COMBAT.cone * 0.7, NPC_GUN.range, n.id);
+  const dmg = hit ? NPC_GUN.damage * falloff(hit.dist, NPC_GUN.range) : 0;
+  const res = hit ? applyHit(hit, { name: n.name, id: n.id, x: n.x, z: n.z }, dmg) : null;
   emitShot(n, rot, hit, n.id, res);
+}
+
+function npcSay(n, text) {
+  const now = nowMs();
+  if (now < (n.saidAt || 0) + 2500) return;
+  n.saidAt = now;
+  io.emit('npcSay', { id: n.id, text });
+}
+
+// turn an NPC on a player, and bring nearby anglers in after a short reaction delay
+function provoke(n, p, line) {
+  if (!n || !n.alive || !p || !p.alive) return;
+  const now = nowMs();
+  const fresh = n.aggro !== p.id;
+  n.aggro = p.id;
+  n.aggroUntil = now + 14000;
+  n.lastSeen = { x: p.x, z: p.z, t: now };
+  if (n.mode !== 'flee') n.mode = 'fight';
+  if (fresh && line) npcSay(n, line);
+  if (!fresh) return;
+  npcs.forEach((o) => {
+    if (o === n || !o.alive || o.role !== 'angler' || o.aggro) return;
+    if (Math.hypot(o.x - n.x, o.z - n.z) > 30) return;
+    o.joinAt = now + rand(400, 1300);
+    o.joinId = p.id;
+  });
+  if (n.role === 'angler') npcSay(n, fresh ? (line || 'Help! Over here!') : line);
+}
+
+// gunfire carries: anglers within earshot stop fishing and look toward it, and come to check it out
+function hearShot(p) {
+  const now = nowMs();
+  npcs.forEach((n) => {
+    if (!n.alive || n.role !== 'angler' || n.aggro) return;
+    const d = Math.hypot(n.x - p.x, n.z - p.z);
+    if (d > 45) return;
+    n.mode = 'alert';
+    n.alertUntil = now + rand(5000, 8000);
+    n.lastSeen = { x: p.x, z: p.z, t: now };
+    n.bobber = null;
+    if (d < 20 && Math.random() < 0.5) npcSay(n, 'What was that?');
+  });
+}
+
+// anglers who watch a player hurt someone close by step in
+function witness(p, victim) {
+  if (!p || !victim) return;
+  npcs.forEach((n) => {
+    if (!n.alive || n.role !== 'angler' || n.aggro || n === victim) return;
+    if (Math.hypot(n.x - victim.x, n.z - victim.z) < 14 && Math.random() < 0.6) provoke(n, p, 'Leave them alone!');
+  });
 }
 
 // ---------------------------------------------------------------- NPCs
@@ -1014,6 +1491,22 @@ function respawnNpc(n) {
   n.z = n.homeZ;
   n.aggro = null;
   n.bobber = null;
+  n.mode = 'calm';
+  n.mag = NPC_GUN.mag;
+  n.joinAt = 0;
+  n.lastSeen = null;
+}
+
+// move an NPC along a heading, sliding along the shore instead of stopping dead
+function npcStep(n, rot, speed, dt, strict = false) {
+  const step = speed * dt;
+  const nx = n.x + Math.sin(rot) * step;
+  const nz = n.z + Math.cos(rot) * step;
+  if (onLand(nx, nz)) { n.x = nx; n.z = nz; return true; }
+  if (strict) return false;
+  if (onLand(nx, n.z)) { n.x = nx; return true; }
+  if (onLand(n.x, nz)) { n.z = nz; return true; }
+  return false;
 }
 
 function tickNpc(n, dt) {
@@ -1022,34 +1515,124 @@ function tickNpc(n, dt) {
     if (now >= n.respawnAt) respawnNpc(n);
     return;
   }
+  n.moving = false;
+  if (n.mag === undefined) n.mag = NPC_GUN.mag;
+  // a friend called for help a moment ago
+  if (n.joinAt && now >= n.joinAt) {
+    const p = players.get(n.joinId);
+    n.joinAt = 0;
+    if (p && p.alive && !n.aggro) provoke(n, p, 'I got your back!');
+  }
   let threat = null;
   if (n.aggro && now < n.aggroUntil) {
     const p = players.get(n.aggro);
     if (p && p.alive) threat = p;
   }
-  if (!threat) n.aggro = null;
+  if (!threat && n.aggro) {
+    // lost them: go look where they were last seen, then give up
+    n.aggro = null;
+    n.onTarget = 0;
+    if (n.lastSeen && n.role === 'angler') { n.mode = 'search'; n.searchUntil = now + 9000; }
+  }
+  // heal slowly once things have been quiet for a while
+  if (!threat && n.hp < COMBAT.hp && now - (n.lastHurt || 0) > 6000) n.hp = Math.min(COMBAT.hp, n.hp + 5 * dt);
   if (threat) {
-    n.state = 'combat';
-    n.bobber = null;
-    n.rot = Math.atan2(threat.x - n.x, threat.z - n.z);
     const dist = Math.hypot(threat.x - n.x, threat.z - n.z);
-    if (n.role === 'angler' && dist > 9 && dist < 34) {
-      const step = 3.1 * dt;
-      const nx = n.x + Math.sin(n.rot) * step;
-      const nz = n.z + Math.cos(n.rot) * step;
-      if (onLand(nx, nz)) { n.x = nx; n.z = nz; }
+    const toward = Math.atan2(threat.x - n.x, threat.z - n.z);
+    n.lastSeen = { x: threat.x, z: threat.z, t: now };
+    n.onTarget = (n.onTarget || 0) + dt;
+    n.bobber = null;
+    n.state = 'combat';
+    // aggro stays fresh while they're close; far off, it runs out and they search instead
+    if (dist < 40) n.aggroUntil = Math.max(n.aggroUntil, now + 4000);
+    // badly hurt: break off and run, then come back once healed a bit
+    // (once per scrape: if they're cornered again soon after, they fight it out)
+    if (n.role === 'angler' && n.hp < 30 && n.mode !== 'flee' && now - (n.fledAt || -1e9) > 20000) {
+      n.mode = 'flee';
+      n.fledAt = now;
+      n.fleeUntil = now + 7000;
+      npcSay(n, 'I\'m out of here!');
     }
-    if (now >= n.nextShot && dist < COMBAT.range) {
-      n.nextShot = now + (n.role === 'angler' ? 1300 : 1000);
+    if (n.mode === 'flee') {
+      if (now < n.fleeUntil) {
+        n.state = 'flee';
+        // run away from the threat; if the shore is in the way, veer off to either side until there's ground
+        const away = toward + Math.PI + Math.sin(now / 900) * 0.3;
+        for (const off of [0, 0.7, -0.7, 1.4, -1.4, 2.1, -2.1]) {
+          if (npcStep(n, away + off, 5.2, dt, true)) { n.rot = away + off; n.moving = true; break; }
+        }
+        return;
+      }
+      n.mode = 'fight';
+    }
+    // up close they use a knife instead of the gun
+    if (dist < 2.2) {
+      n.rot = toward;
+      if (now >= (n.nextStab || 0)) {
+        n.nextStab = now + 900;
+        const res = hurtPlayer(threat, 20, { name: n.name, id: n.id, x: n.x, z: n.z }, 'stabbed');
+        io.emit('punch', { id: n.id, rot: toward, heavy: false, knife: true, side: 'r', hit: !!res && res !== 'safe', x: threat.x, z: threat.z });
+      }
+      return;
+    }
+    if (n.role === 'angler') {
+      // keep a fighting distance: close in when far, back off when crowded, otherwise strafe
+      if (now >= (n.strafeFlip || 0)) { n.strafe = Math.random() < 0.5 ? -1 : 1; n.strafeFlip = now + rand(900, 2400); }
+      let move = null;
+      let speed = 3.4;
+      if (dist > 20) { move = toward; speed = 4.6; } else if (dist < 8) { move = toward + Math.PI + n.strafe * 0.5; speed = 3.8; } else move = toward + (Math.PI / 2) * n.strafe;
+      if (move !== null) n.moving = npcStep(n, move, speed, dt);
+      if (!n.moving) n.strafe = -n.strafe;
+    }
+    n.rot = toward;
+    // bursts, reloads
+    if (now < (n.reloadUntil || 0)) return;
+    if (n.mag <= 0) { n.mag = NPC_GUN.mag; n.reloadUntil = now + NPC_GUN.reload; if (Math.random() < 0.6) npcSay(n, 'Reloading!'); return; }
+    if (now >= n.nextShot && dist < NPC_GUN.range) {
+      if (!n.burstLeft) n.burstLeft = Math.floor(rand(NPC_GUN.burst[0], NPC_GUN.burst[1] + 1));
       npcFire(n, threat);
+      n.mag -= 1;
+      n.burstLeft -= 1;
+      n.nextShot = now + (n.burstLeft > 0 ? NPC_GUN.burstGap : rand(NPC_GUN.pause[0], NPC_GUN.pause[1]) * (n.role === 'angler' ? 1 : 0.8));
     }
     return;
   }
+  n.onTarget = 0;
   if (n.role !== 'angler') {
     n.state = 'idle';
     n.x += (n.homeX - n.x) * Math.min(1, dt * 2);
     n.z += (n.homeZ - n.z) * Math.min(1, dt * 2);
     n.rot += angleDiff(Math.PI, n.rot) * Math.min(1, dt * 3);
+    return;
+  }
+  // heard something: look that way, and walk over if it was close
+  if (n.mode === 'alert' || n.mode === 'search') {
+    const until = n.mode === 'alert' ? n.alertUntil : n.searchUntil;
+    if (now < until && n.lastSeen) {
+      n.state = 'combat';
+      const d = Math.hypot(n.lastSeen.x - n.x, n.lastSeen.z - n.z);
+      n.rot = Math.atan2(n.lastSeen.x - n.x, n.lastSeen.z - n.z);
+      if (d > 3 && (n.mode === 'search' || d < 25)) n.moving = npcStep(n, n.rot, n.mode === 'search' ? 3.6 : 2.4, dt);
+      // spot a player with a gun out close to where the trouble was
+      if (n.mode === 'alert') {
+        players.forEach((p) => {
+          if (!p.alive || n.aggro) return;
+          const dp = Math.hypot(p.x - n.x, p.z - n.z);
+          if (dp < 12 && GUN_IDS.includes(p.held) && Math.hypot(p.x - n.lastSeen.x, p.z - n.lastSeen.z) < 6) provoke(n, p, 'Drop it!');
+        });
+      }
+      return;
+    }
+    n.mode = 'calm';
+    n.state = 'idle';
+    n.wander = Math.atan2(n.homeX - n.x, n.homeZ - n.z);
+  }
+  // wandered far from home during a fight: head back first
+  if (Math.hypot(n.homeX - n.x, n.homeZ - n.z) > 9) {
+    n.state = 'idle';
+    n.bobber = null;
+    n.rot = Math.atan2(n.homeX - n.x, n.homeZ - n.z);
+    n.moving = npcStep(n, n.rot, 2.4, dt);
     return;
   }
   if (now > n.nextThink) {
@@ -1097,7 +1680,9 @@ function spawnSchoolFish(slot, area) {
   const a = (slot && slot.area) || area || 'lake';
   const def = FISH_AREAS[a];
   const pool = def.pool();
-  const species = pool[Math.floor(Math.random() * pool.length)];
+  let species = pool[Math.floor(Math.random() * pool.length)];
+  // now and then something big is in the school: epic and legendary fish can be shot too (they take real firepower)
+  if (a === 'lake' && LAKE_RARE.length && Math.random() < 0.035) species = LAKE_RARE[Math.floor(Math.random() * LAKE_RARE.length)];
   const fish = slot || { id: 'fish-' + (fishSerial++) };
   const spot = def.place();
   fish.area = a;
@@ -1109,13 +1694,14 @@ function spawnSchoolFish(slot, area) {
   fish.rot = Math.random() * Math.PI * 2;
   fish.alive = true;
   fish.floatUntil = 0;
-  fish.maxHp = FISH_HP[species.rarity] || 2;
+  fish.maxHp = (FISH_HP[species.rarity] || 2) * 22; // damage, not hits: a legendary takes about 170
   fish.hp = fish.maxHp;
   fish.hurtUntil = 0;
+  fish.spoil = 0;
   return fish;
 }
-for (let i = 0; i < 22; i++) school.push(spawnSchoolFish(null, 'lake'));
-for (let i = 0; i < 10; i++) school.push(spawnSchoolFish(null, 'channel'));
+for (let i = 0; i < 40; i++) school.push(spawnSchoolFish(null, 'lake'));
+for (let i = 0; i < 16; i++) school.push(spawnSchoolFish(null, 'channel'));
 for (let i = 0; i < 60; i++) school.push(spawnSchoolFish(null, 'ocean'));
 
 function tickFish(dt) {
@@ -1158,6 +1744,8 @@ function collectPickups() {
       if (it.kind === 'cash') p.cash += it.amount;
       else if (it.kind === 'fish') giveFish(p, it.name, null, it.amount);
       else if (DRUGS.includes(it.kind)) p.pocket[it.kind] += it.amount;
+      else if (it.kind === 'ammo') p.ammo += it.amount;
+      else if (it.kind === 'heal') p.hp = Math.min(COMBAT.hp, p.hp + it.amount);
       pickups.splice(i, 1);
       const sock = sockOf(p.id);
       if (sock) sock.emit('loot', { kind: it.kind, amount: it.amount, name: it.name, x: it.x, z: it.z });
@@ -1175,6 +1763,7 @@ function snapshot() {
       id: p.id, name: p.name, color: p.color, look: p.look, skin: p.skin, x: r2(p.x), z: r2(p.z), rot: r2(p.rot), jy: r2(p.jy || 0), jg: p.jg === 0 ? 0 : 1, em: p.emote || null, rl: p.reloadGun || null, level: levelOf(p.xp),
       state: p.state, bobber: p.bobber, cash: p.cash, hp: Math.max(0, p.hp), alive: p.alive,
       guns: p.guns, ga: GUN_IDS.includes(p.held) ? p.att[p.held] : null, lz: !!(GUN_IDS.includes(p.held) && p.att[p.held] && p.att[p.held].laser), rod: p.rod, held: p.held || 'rod', boat: !!p.boat, bt: Math.max(0, p.boatTier), swim: !!p.swim, high: highFlags(p), caught: p.caught, best: p.best,
+      boss: p.boss ? { k: p.boss.kind, hp: Math.round((p.boss.hp / p.boss.maxHp) * 1000) / 1000, st: nowMs() < p.boss.staggerUntil ? 1 : 0, stage: p.boss.stage } : null,
     });
   }
   const standings = derby.active ? derbyStandings() : [];
@@ -1188,6 +1777,8 @@ function snapshot() {
       x: r2(n.x), z: r2(n.z), rot: r2(n.rot), hp: Math.max(0, n.hp), alive: n.alive,
       state: n.state, bobber: n.bobber,
     })),
+    mutants: mutants.map((m) => ({ id: m.id, k: m.kind, x: r2(m.x), z: r2(m.z), rot: r2(m.rot), hp: Math.max(0, m.hp) / m.maxHp, st: now < m.staggerUntil ? 'stag' : inWater(m.x, m.z) ? 'swim' : 'land' })),
+    frenzy: { active: frenzy.active, endsIn: frenzy.active ? frenzy.endsAt - now : 0, nextIn: frenzy.active ? 0 : frenzy.nextAt - now, top: [...frenzy.scores.values()].sort((a, b) => b.score - a.score).slice(0, 3).map((e) => ({ name: e.name, score: e.score, id: e.id })) },
     pickups: pickups.map((it) => ({ id: it.id, kind: it.kind, name: it.name, amount: it.amount, x: r2(it.x), z: r2(it.z) })),
     hotspots: hotspots.map((h) => ({ id: h.id, x: r2(h.x), z: r2(h.z), r: h.r, age: now - h.born, left: h.until - now })),
     derby: {
@@ -1216,7 +1807,8 @@ function privateState(p) {
   return {
     guns: p.guns, mag: p.mag, att: p.att, glvl: p.glvl, reloadGun: p.reloadGun, reloadLeft: p.reloadGun ? Math.max(0, p.reloadUntil - nowMs()) : 0, boatTier: p.boatTier,
     cash: p.cash, ammo: p.ammo, rod: p.rod, bait: p.bait, pocket: p.pocket,
-    bag: { n: p.bag.length, value: p.bag.reduce((s, f) => s + f.value, 0) },
+    bag: { n: p.bag.length, value: p.bag.reduce((s, f) => s + f.value, 0), cap: bagCap(p), tier: p.bagTier || 0, rev: p.bagRev || 0 },
+    streak: nowMs() < (p.streakUntil || 0) ? p.streak : 0, streakLeft: Math.max(0, (p.streakUntil || 0) - nowMs()),
     bagItems: p.bag.map((f) => ({ id: f.id, name: f.name, sid: f.sid || null, rarity: f.rarity || 'common', lbs: f.lbs, value: f.value, locked: !!f.locked })),
     bagMax: bagCap(p), bagTier: p.bagTier || 0,
     high: highFlags(p), highLeft: highLeft(p), moveMul: moveMul(p), hp: Math.max(0, p.hp),
@@ -1327,6 +1919,11 @@ function debugCommand(p, socket, text) {
     return say('Moved.');
   }
   if (cmd === 'hour') { setHour(Number(args[0]) || 12); return say('Clock set.'); }
+  if (cmd === 'frenzy') {
+    if (args[0] === 'boss') { if (!frenzy.active) startFrenzy(); frenzy.endsAt = nowMs() + FRENZY.length - FRENZY.bossAt; return say('The boss is coming.'); }
+    if (frenzy.active) frenzy.endsAt = nowMs(); else frenzy.nextAt = nowMs();
+    return say('Frenzy toggled.');
+  }
   if (cmd === 'derby') { if (derby.active) derby.endsAt = nowMs(); else derby.nextAt = nowMs(); return say('Tournament toggled.'); }
   if (cmd === 'tmode') { derby.modeIdx = (Number(args[0]) || 1) - 2; return say(`Next tournament: ${T_MODES[(derby.modeIdx + 1) % T_MODES.length].name}.`); }
   if (cmd === 'gear') { p.rod = WORLD.rods.length - 1; p.bait = WORLD.baits.length - 1; GUN_IDS.forEach((g) => { p.guns[g] = true; Object.keys(WORLD.attachments).forEach((k) => { p.att[g][k] = !WORLD.attachments[k].only || WORLD.attachments[k].only.includes(g); }); p.mag[g] = effGun(p, g).mag; }); GUN_IDS.forEach((g) => { p.glvl[g] = WORLD.gunLevels.names.length - 1; }); p.ammo += 200; p.boatTier = WORLD.boats.length - 1; p.ownsBoat = true; return say('Maxed out.'); }
@@ -1347,9 +1944,19 @@ function debugCommand(p, socket, text) {
     socket.emit('respawn', { x: p.x, z: p.z, rot: p.rot, hp: p.hp });
     return say('Out on the water.');
   }
+  if (cmd === 'fish') {
+    const n = Math.max(1, Math.min(80, Number(args[0]) || 10));
+    for (let i = 0; i < n; i++) {
+      const sp = SPECIES.filter((x) => x.base > 0)[Math.floor(Math.random() * SPECIES.filter((x) => x.base > 0).length)];
+      const lbs = Math.round(rand(sp.lbs[0], sp.lbs[1]) * 10) / 10;
+      giveFish(p, sp.name, lbs, Math.round(sp.base * (0.8 + Math.random() * 0.6)));
+    }
+    return say(`${n} fish in the bag.`);
+  }
+  if (cmd === 'boss') { p.forceBoss = BOSSES[args[0]] ? args[0] : 'snapjaw'; p.fastBite = true; return say(`Your next bite is ${BOSSES[p.forceBoss].name}.`); }
   if (cmd === 'weather') { const k = ['clear', 'cloudy', 'rain', 'storm'].includes(args[0]) ? args[0] : 'clear'; setWeather(k); WEATHER.until = nowMs() + 30 * 60 * 1000; return say(`Weather: ${k} (held for 30 minutes).`); }
   if (cmd === 'fast') { p.fastBite = !p.fastBite; return say(p.fastBite ? 'Fast bites on.' : 'Fast bites off.'); }
-  return say('Commands: /cash N, /tp moss|shack|camp|dock, /hour H, /derby, /gear, /fast, /boat, /sea, /channel');
+  return say('Commands: /cash N, /tp moss|shack|camp|dock, /hour H, /derby, /gear, /fast, /fish N, /boss ID, /frenzy, /boat, /sea, /channel');
 }
 
 // ---------------------------------------------------------------- sockets
@@ -1414,6 +2021,7 @@ io.on('connection', (socket) => {
         boatTier: Number.isInteger(prof.boatTier) ? Math.min(prof.boatTier, WORLD.boats.length - 1) : prof.ownsBoat ? 0 : -1,
         rod: Math.min(prof.rod || 0, WORLD.rods.length - 1), bait: Math.min(prof.bait || 0, WORLD.baits.length - 1),
         pocket: { ...freshPocket(), ...(prof.pocket || {}) }, bag: Array.isArray(prof.bag) ? prof.bag : [],
+        bagTier: Math.max(0, Math.min(WORLD.bags.length - 1, Number(prof.bagTier) || 0)),
         journal: prof.journal || {}, caught: prof.caught || 0, earned: prof.earned || 0,
         derbyWins: prof.derbyWins || 0, best: prof.best || null, ownsBoat: !!prof.ownsBoat,
         xp: Math.max(0, Number(prof.xp) || 0), quests: prof.quests,
@@ -1434,9 +2042,11 @@ io.on('connection', (socket) => {
     const now = nowMs();
     const dt = Math.min((now - p.lastMove) / 1000, 0.5);
     p.lastMove = now;
-    const mul = moveMul(p) * WORLD.sprint * WORLD.bhop;
+    const walk = moveMul(p) * WORLD.sprint;
+    const mul = walk * (p.boat ? 1.6 : WORLD.bhop);
     const speed = p.boat ? boatSpeed(p) : WORLD.moveSpeed;
-    p.budget = Math.min(p.budget + speed * mul * dt * 1.3, 2.5 * mul * (p.boat ? 1.6 : 1));
+    // the budget refills fast enough for any hop speed, but its ceiling stays small so nobody can bank up a teleport
+    p.budget = Math.min(p.budget + speed * mul * dt * 1.3, Math.max(2.5 * walk * (p.boat ? 1.6 : 1), speed * mul * 0.12));
     if (Number.isFinite(m.rot)) p.rot = m.rot;
     if (Number.isFinite(m.aim)) p.aim = m.aim;
     if (typeof m.held === 'string' && HOLDABLE.has(m.held) && ownsHold(p, m.held)) p.held = m.held;
@@ -1454,6 +2064,8 @@ io.on('connection', (socket) => {
     }
     if (p.emote && step > 0.04) p.emote = null; // walking away ends an emote or a sit
     p.budget -= step;
+    // how fast they're moving, smoothed: NPCs have a harder time hitting a fast target
+    p.speed = (p.speed || 0) * 0.7 + (dt > 0 ? step / Math.max(dt, 0.03) : 0) * 0.3;
     p.x = x;
     p.z = z;
     p.swim = !p.boat && inWater(x, z);
@@ -1494,6 +2106,7 @@ io.on('connection', (socket) => {
       clearTimers(p);
       p.state = 'reeling';
       p.reelStart = nowMs();
+      if (p.fish && p.fish.bossDef) startBossFight(p, p.fish.bossDef);
       return reply({ result: 'hooked', ...reelPayload(p) });
     }
     if (p.state === 'waiting') {
@@ -1514,39 +2127,43 @@ io.on('connection', (socket) => {
     }
     const s = f.species;
     const where = p.bobber ? { ...p.bobber } : { x: p.x, z: p.z };
-    const entry = p.journal[s.id] || (p.journal[s.id] = { n: 0, best: 0 });
-    const first = entry.n === 0;
-    const pb = !first && f.lbs > entry.best;
-    entry.n += 1;
-    entry.best = Math.max(entry.best, f.lbs);
-    p.caught += 1;
-    const rank = RARITY_RANK[s.rarity];
-    if (rank >= 1 && s.rarity !== 'treasure' && (!p.best || f.lbs > p.best.lbs)) p.best = { name: s.name, lbs: f.lbs };
-    const bagged = giveFish(p, s.name, f.lbs, f.value);
-    const levelBefore = levelOf(p.xp);
-    const xpGain = (XP_BY_RARITY[s.rarity] || 5) + (first ? 20 : 0) + (pb ? 10 : 0) + (f.hot ? 5 : 0);
-    p.xp += xpGain;
-    const questDone = advanceQuests(p, s, f.hot);
-    const level = levelOf(p.xp);
-    const levelBonus = level > levelBefore ? 25 * level : 0;
-    if (levelBonus) {
-      p.cash += levelBonus;
-      feed(`${p.name} reached angler level ${level}`, 'join');
+    let bossInfo = null;
+    if (p.boss) {
+      const b = p.boss;
+      if (b.hp > b.maxHp * b.def.landAt) { resetLine(p); return reply({ ok: false, msg: 'It was still too strong and shook the hook.' }); }
+      bossInfo = { def: b.def, hitBy: b.hitBy };
     }
-    const derbyEntry = derby.active && s.rarity !== 'junk' && s.rarity !== 'treasure';
-    const derbyLead = derbyWeighIn(p, s, f.lbs);
+    const rec = recordCatch(p, s, f.lbs, f.value, { hot: f.hot, rod: true, xpBonus: bossInfo ? 80 * bossInfo.def.tier : 0 });
+    if (bossInfo) {
+      // everyone who shot it shares in the take, by damage done
+      const total = [...bossInfo.hitBy.values()].reduce((x, y) => x + y, 0) || 1;
+      for (const [id, d] of bossInfo.hitBy) {
+        const q = players.get(id);
+        if (!q || q === p) continue;
+        const share = Math.round(f.value * 0.5 * (d / total));
+        q.cash += share;
+        q.earned += share;
+        q.xp += 30 * bossInfo.def.tier;
+        const sock = sockOf(id);
+        if (sock) sock.emit('bossShare', { share, pct: Math.round((d / total) * 100) });
+      }
+      io.emit('bossDown', { pid: p.id, kind: bossInfo.def.id, x: where.x, z: where.z });
+      for (let i = 0; i < 2 + bossInfo.def.tier; i++) spawnPickup(i % 2 ? 'heal' : 'ammo', i % 2 ? 30 : 24 + bossInfo.def.tier * 6, where.x + rand(-2, 2), where.z + rand(-2, 2));
+    }
     io.emit('caught', { id: p.id, sid: s.id, name: s.name, lbs: f.lbs, rarity: s.rarity, x: where.x, z: where.z });
-    if (rank >= 3) {
-      const article = /^[aeiou]/i.test(s.name) ? 'an' : 'a';
-      feed(`${p.name} landed ${article} ${f.lbs} lb ${s.name.toLowerCase()}`, s.rarity);
-    }
     resetLine(p);
     storeProfile(p);
-    reply({
-      ok: true, id: s.id, name: s.name, rarity: s.rarity, lbs: f.lbs, value: f.value, bagged,
-      first, pb, hot: f.hot, derby: derbyEntry, derbyLead, journal: p.journal,
-      xpGain: xpGain + questDone.reduce((n, q) => n + q.xp, 0), level, levelUp: levelBonus > 0, levelBonus, questDone,
-    });
+    reply({ ok: true, id: s.id, name: s.name, rarity: s.rarity, lbs: f.lbs, journal: p.journal, boss: !!bossInfo, ...rec });
+  });
+
+  // holding the line steady wears a boss down a little, but only so far: past its wear cap it takes real firepower
+  socket.on('bossWear', () => {
+    const b = p && p.boss;
+    if (!b || p.state !== 'reeling') return;
+    const now = nowMs();
+    if (now - b.lastWear < 800) return;
+    b.lastWear = now;
+    if (b.hp > b.maxHp * b.def.wearCap) { b.hp -= b.maxHp * 0.014; bossState(p); }
   });
 
   socket.on('lost', () => { if (p && p.state === 'reeling') resetLine(p); });
@@ -1574,12 +2191,13 @@ io.on('connection', (socket) => {
     }
     if (item === 'bagup') {
       const next = (p.bagTier || 0) + 1;
-      if (next >= WORLD.bags.length) return reply({ ok: false, msg: 'You already have the biggest pack Moss sells.' });
-      const bag = WORLD.bags[next];
-      if (!pay(bag.price)) return reply({ ok: false, msg: `The ${bag.name.toLowerCase()} is $${bag.price}.` });
+      if (next >= WORLD.bags.length) return reply({ ok: false, msg: 'You already have the biggest bag there is.' });
+      const b = WORLD.bags[next];
+      if (!pay(b.price)) return reply({ ok: false, msg: `The ${b.name.toLowerCase()} is $${b.price}.` });
       p.bagTier = next;
+      feed(`${p.name} bought a ${b.name.toLowerCase()}`, 'shop');
       storeProfile(p);
-      return reply({ ok: true, msg: `${bag.name}: room for ${bag.cap} fish.` });
+      return reply({ ok: true, msg: `The ${b.name.toLowerCase()} holds ${b.cap} fish.` });
     }
     if (item === 'boat') {
       const next = p.boatTier + 1;
@@ -1781,16 +2399,21 @@ io.on('connection', (socket) => {
     };
     players.forEach((o) => consider('player', o));
     npcs.forEach((n) => consider('npc', n));
-    const out = { ok: true, hit: null, heavy, combo: p.combo };
+    mutants.forEach((m) => { m.alive = true; consider('mutant', m); });
+    const out = { ok: true, hit: null, heavy, combo: p.combo, knife };
     if (best) {
       const o = best.o;
       // hitting someone who is facing away is a backstab
       out.back = knife && Math.abs(angleDiff(o.rot || 0, rot)) < KNIFE.backCone;
       const dmg = knife ? (out.back ? (stabKind ? KNIFE.backStab : KNIFE.backSlash) : (stabKind ? KNIFE.stab : KNIFE.slash)) : heavy ? PUNCH.heavy : PUNCH.damage;
+      out.dmg = dmg;
       const knock = knife ? (stabKind ? 1.4 : 0.5) : heavy ? PUNCH.heavyKnock : PUNCH.knock;
       const kx = Math.sin(rot) * knock;
       const kz = Math.cos(rot) * knock;
-      if (best.kind === 'player') {
+      if (best.kind === 'mutant') {
+        const res = hitMutant(o, dmg, p, knife);
+        Object.assign(out, { hit: 'mutant', killed: res.killed, glory: res.glory, stagger: res.stagger, bounty: res.bounty, dmg: res.dmg });
+      } else if (best.kind === 'player') {
         const res = hurtPlayer(o, dmg, p, knife ? 'stabbed' : 'knocked out');
         if (res === 'safe') out.hit = 'safe';
         else {
@@ -1806,8 +2429,8 @@ io.on('connection', (socket) => {
         }
       } else {
         o.hp -= dmg;
-        o.aggro = p.id;
-        o.aggroUntil = t + 9000;
+        o.lastHurt = t;
+        provoke(o, p, 'Hey!');
         if (onLand(o.x + kx, o.z + kz)) { o.x += kx; o.z += kz; }
         out.hit = 'npc';
         out.killed = o.hp <= 0;
@@ -1824,7 +2447,7 @@ io.on('connection', (socket) => {
     const reply = replyFn(ack);
     if (p) p.emote = null;
     if (!p || !p.alive) return reply({ ok: false, msg: 'You cannot shoot right now.' });
-    if (p.state !== 'idle') return reply({ ok: false, msg: 'Reel in before you shoot.' });
+    if (p.state !== 'idle' && !p.boss) return reply({ ok: false, msg: 'Reel in before you shoot.' });
     const gunId = body && WORLD.guns[body.gun] ? body.gun : GUN_IDS.includes(p.held) ? p.held : null;
     if (!gunId || !p.guns[gunId]) return reply({ ok: false, msg: 'Buy a gun from Moss.' });
     const g = effGun(p, gunId);
@@ -1988,6 +2611,8 @@ setInterval(() => {
   tickFish(dt);
   tickHotspots();
   tickDerby();
+  tickFrenzy(dt);
+  tickBosses();
   tickWeather();
   npcs.forEach((n) => tickNpc(n, dt));
   tickRespawns();

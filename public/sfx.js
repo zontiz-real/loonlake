@@ -198,6 +198,9 @@ export const sfx = {
     else if (kind === 'smg') { noise(0.09, 0.35, 420, 0.6); tone(180, 0.06, 'square', 0.07, 90); }
     else if (kind === 'pistol') { noise(0.13, 0.4, 320, 0.55); tone(200, 0.08, 'sawtooth', 0.1, 80); }
     else if (kind === 'sniper') { noise(0.45, 0.6, 140, 0.4); tone(110, 0.3, 'sawtooth', 0.16, 35); }
+    else if (kind === 'deagle') { noise(0.26, 0.6, 200, 0.45); tone(130, 0.16, 'sawtooth', 0.15, 45); }
+    else if (kind === 'lmg') { noise(0.11, 0.42, 300, 0.55); tone(120, 0.07, 'square', 0.09, 60); }
+    else if (kind === 'bow') { tone(520, 0.06, 'triangle', 0.08, 180); noise(0.05, 0.12, 900, 0.4); }
     else { noise(0.2, 0.5, 220, 0.5); tone(140, 0.12, 'sawtooth', 0.12, 60); }
   },
   // one-shot cues for the item animations (magazine clunks, knife flicks, shell loads)
