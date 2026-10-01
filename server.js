@@ -53,6 +53,17 @@ const WORLD = {
     safeRadius: 7,
   },
   shop: { ammo: 10, ammoCount: 12, weed: 25, whiskey: 15, crank: 40 },
+  // what each drug does, for the HUD; the numbers live in effects() below
+  drugs: {
+    weed: { name: 'Weed', up: ['Bites come sooner', 'Calm reel', '+25% XP', 'Slow heal'], down: ['Slower feet', 'Wild aim'], crash: 0 },
+    whiskey: { name: 'Whiskey', up: ['+20 HP now', '40% less damage taken', 'Punches hit +25%'], down: ['Wild aim', 'Jumpy line', 'Camera sway'], crash: 15 },
+    crank: { name: 'Crank', up: ['Faster feet', 'Fires 20% faster', 'Reloads 40% faster', 'Steady aim'], down: ['Fish fight harder'], crash: 15 },
+  },
+  drugCombos: {
+    hazy: { name: 'Hazy', needs: ['weed', 'whiskey'], text: 'More healing, slower feet' },
+    speedball: { name: 'Speedball', needs: ['whiskey', 'crank'], text: 'Faster still, but a longer crash' },
+    focus: { name: 'Focus', needs: ['weed', 'crank'], text: 'Steadier aim, quicker bites' },
+  },
   guns: {
     pistol: { name: 'Revolver', price: 60, mag: 6, reload: 1500, damage: 30, cooldown: 340, spread: 0.035, pellets: 1, range: 45, auto: false, start: 24, zoom: 52, look: 0.55, recoil: 0.02, sound: 'revolver', desc: 'Six shots of old-school stopping power.' },
     glock: { name: 'Glock 19', price: 140, mag: 15, reload: 1200, damage: 19, cooldown: 190, spread: 0.04, pellets: 1, range: 45, auto: false, start: 45, zoom: 52, look: 0.5, recoil: 0.012, sound: 'pistol', desc: 'Fifteen in the mag. Takes a switch, a laser, and a drum.' },
@@ -120,7 +131,12 @@ const PUNCH = { range: 2.3, cone: 0.8, damage: 14, heavy: 28, cooldown: 360, com
 
 const DERBY = { firstIn: 75 * 1000, every: 6 * 60 * 1000, length: 150 * 1000, basePot: 100, perEntry: 40 };
 
-const DRUG_MS = 30000;
+const DRUG_MS = Number(process.env.LOON_DRUG_MS) || 30000; // the env override is for tests
+const DRUG_EXTEND_MS = 20000; // using one again while it is active adds this much, up to the cap
+const DRUG_CAP_MS = 90000;
+const DRUG_MAX_STACK = 3;
+const DRUG_CRASH_MS = { weed: 0, whiskey: 15000, crank: 15000 };
+const OD = { window: 60000, uses: 4, damage: 25 };
 const DRUGS = ['weed', 'whiskey', 'crank'];
 const DRUG_USE = { weed: 'sparks a joint', whiskey: 'takes a pull of whiskey', crank: 'is wired' };
 
@@ -416,6 +432,9 @@ function effGun(p, id) {
   if (a.drum) { mag = Math.round(mag * A.drum.magMul); reload += A.drum.reloadAdd; }
   if (a.switch) { cooldown = Math.round(cooldown * A.switch.cooldownMul); spread *= A.switch.spreadMul; auto = true; }
   if (a.laser) spread *= A.laser.spreadMul;
+  const fx = effects(p);
+  cooldown = Math.round(cooldown / fx.fire);
+  reload = Math.round(reload * fx.reload);
   const level = (p.glvl && p.glvl[id]) || 0;
   const damage = base.damage * WORLD.gunLevels.mul[level];
   return { ...base, id, mag, reload, cooldown, spread, auto, damage, level, crit: CRIT[id] || 0.06, critMul: CRIT_MUL[id] || 1.75 };
@@ -657,30 +676,88 @@ function highLeft(p) {
   };
 }
 
-function moveMul(p) {
+// each extra stack makes a drug 35% stronger
+const boost = (n) => 1 + 0.35 * (Math.max(1, n) - 1);
+
+// every multiplier a player's current drugs add up to; the one place the balance lives
+function effects(p) {
+  const now = nowMs();
   const h = highFlags(p);
-  let m = 1;
-  if (h.weed) m *= 0.75;
-  if (h.whiskey) m *= 0.85;
-  if (h.crank) m *= 1.35;
-  return m;
+  const fx = { move: 1, spread: 1, resist: 1, regen: 0, xp: 0, fire: 1, reload: 1, punch: 0, bite: 1, window: 1, diff: 1, sway: 0, shake: 0, calm: h.weed, hard: h.whiskey, spike: h.crank, combos: [] };
+  if (h.weed) {
+    const k = boost(p.stack.weed);
+    fx.move *= Math.max(0.5, 1 - 0.25 * k);
+    fx.spread *= 1 + 1.2 * k;
+    fx.regen += k;
+    fx.xp += 0.25 * k;
+    fx.bite *= Math.max(0.3, 1 - 0.45 * k);
+    fx.diff *= Math.pow(0.6, Math.min(k, 1.5));
+    fx.sway += 0.15 * k;
+  }
+  if (h.whiskey) {
+    const k = boost(p.stack.whiskey);
+    fx.resist *= Math.max(0.3, 1 - 0.4 * k);
+    fx.punch += 0.25 * k;
+    fx.spread *= 1 + 2 * k;
+    fx.window *= 0.7;
+    fx.diff *= Math.min(1.8, Math.pow(1.35, k));
+    fx.move *= 0.85;
+    fx.sway += 0.32 * k;
+  }
+  if (h.crank) {
+    const k = boost(p.stack.crank);
+    fx.move *= 1 + 0.35 * k;
+    fx.fire = 1 + 0.2 * k;
+    fx.reload = Math.max(0.3, 1 - 0.4 * k);
+    fx.spread *= Math.max(0.2, 1 - 0.65 * Math.min(k, 1.3));
+    fx.diff *= 1.15;
+  }
+  if (h.weed && h.whiskey) { fx.combos.push('hazy'); fx.regen += 1; fx.move *= 0.9; }
+  if (h.whiskey && h.crank) { fx.combos.push('speedball'); fx.move *= 1.1; }
+  if (h.weed && h.crank) { fx.combos.push('focus'); fx.spread *= 0.6; fx.bite *= 0.85; }
+  if (p.crash && p.crash.until > now) {
+    if (p.crash.kind === 'crank') { fx.move *= 0.7; fx.shake += 0.5; } else { fx.move *= 0.9; fx.sway += 0.2; }
+  }
+  return fx;
 }
 
-function spreadMul(p) {
-  const h = highFlags(p);
-  let m = 1;
-  if (h.weed) m *= 2.2;
-  if (h.whiskey) m *= 3;
-  if (h.crank) m *= 0.35;
-  return m;
+const moveMul = (p) => effects(p).move;
+const spreadMul = (p) => effects(p).spread;
+
+// what the client needs to show: timers, stacks, crash and the numbers it uses for its own firing logic
+function drugState(p) {
+  const fx = effects(p);
+  const now = nowMs();
+  return {
+    stack: p.stack, combos: fx.combos, fire: fx.fire, reload: fx.reload, resist: fx.resist, regen: fx.regen, xp: fx.xp, punch: fx.punch,
+    sway: fx.sway, shake: fx.shake,
+    crash: p.crash && p.crash.until > now ? { kind: p.crash.kind, left: Math.ceil((p.crash.until - now) / 1000) } : null,
+  };
+}
+
+// a drug wears off: the stack resets and a crash may follow, longer the more it was stacked
+function tickDrugs(p, dt) {
+  if (!p.alive) return;
+  const now = nowMs();
+  for (const name of DRUGS) {
+    if (p.high[name] && p.high[name] <= now) {
+      const stacks = p.stack[name] || 1;
+      p.high[name] = 0;
+      p.stack[name] = 0;
+      let crashMs = DRUG_CRASH_MS[name] * (1 + 0.5 * (stacks - 1));
+      if (name === 'crank' && p.high.whiskey > now) crashMs *= 2; // a speedball hits harder
+      if (crashMs) p.crash = { kind: name, until: now + crashMs };
+      const sock = sockOf(p.id);
+      if (sock) sock.emit('drugEnd', { name, crash: Math.round(crashMs / 1000) });
+    }
+  }
+  const regen = effects(p).regen;
+  if (regen > 0 && p.hp < COMBAT.hp) p.hp = Math.min(COMBAT.hp, p.hp + regen * dt);
 }
 
 function reelPayload(p) {
   const h = highFlags(p);
-  let difficulty = p.fish.difficulty;
-  if (h.weed) difficulty *= 0.6;
-  if (h.whiskey) difficulty = Math.min(1, difficulty * 1.35);
-  if (h.crank) difficulty = Math.min(1, difficulty * 1.15);
+  const difficulty = Math.min(1, p.fish.difficulty * effects(p).diff);
   const rod = WORLD.rods[p.rod];
   const rank = RARITY_RANK[p.fish.species.rarity];
   return {
@@ -708,12 +785,12 @@ function resetLine(p) {
 function scheduleBite(p, socket) {
   clearTimers(p);
   p.state = 'waiting';
-  const h = highFlags(p);
-  let scale = h.weed ? 0.55 : 1;
+  const fx = effects(p);
+  let scale = fx.bite;
   if (p.bobber && hotspotAt(p.bobber.x, p.bobber.z)) scale *= 0.45;
   if (isGolden()) scale *= 0.75;
   scale *= BITE_WEATHER[WEATHER.kind] || 1;
-  p.biteWindow = TIMING.biteWindow * (h.whiskey ? 0.7 : 1);
+  p.biteWindow = TIMING.biteWindow * fx.window;
   const wait = Math.max(1200, rand(TIMING.biteMin, TIMING.biteMax) * scale * (p.fastBite ? 0.15 : 1));
   p.biteTimer = setTimeout(() => {
     if (p.state !== 'waiting') return;
@@ -801,6 +878,8 @@ function killPlayer(p, byName, verb = 'shot', from) {
   p.respawnAt = nowMs() + COMBAT.respawn;
   resetLine(p);
   p.high = { weed: 0, whiskey: 0, crank: 0 };
+  p.stack = { weed: 0, whiskey: 0, crank: 0 };
+  p.crash = null;
   const drop = Math.floor(p.cash * COMBAT.dropCash);
   const bagCount = p.bag.length;
   if (drop > 0) {
@@ -823,6 +902,7 @@ function hurtPlayer(target, dmg, shooter, verb) {
   if (!target || !target.alive) return null;
   const byPlayer = players.has(shooter.id);
   if (byPlayer && (inCamp(target) || nowMs() < target.safeUntil)) return 'safe';
+  if (target.stack) dmg = Math.max(1, Math.round(dmg * effects(target).resist));
   target.hp -= dmg;
   resetLine(target);
   const sock = sockOf(target.id);
@@ -1218,7 +1298,7 @@ function privateState(p) {
     bag: { n: p.bag.length, value: p.bag.reduce((s, f) => s + f.value, 0) },
     bagItems: p.bag.map((f) => ({ id: f.id, name: f.name, sid: f.sid || null, rarity: f.rarity || 'common', lbs: f.lbs, value: f.value, locked: !!f.locked })),
     bagMax: bagCap(p), bagTier: p.bagTier || 0,
-    high: highFlags(p), highLeft: highLeft(p), moveMul: moveMul(p), hp: Math.max(0, p.hp),
+    high: highFlags(p), highLeft: highLeft(p), moveMul: moveMul(p), drug: drugState(p), hp: Math.max(0, p.hp),
     alive: p.alive, safe: inCamp(p) || nowMs() < p.safeUntil, state: p.state,
     tourney: derby.active ? tourneyOf(p) : null,
     xp: p.xp, level: levelOf(p.xp), xpLow: xpFloor(levelOf(p.xp)), xpNext: xpFloor(levelOf(p.xp) + 1), quests: p.quests, boat: !!p.boat, ownsBoat: !!p.ownsBoat,
@@ -1329,6 +1409,7 @@ function debugCommand(p, socket, text) {
   if (cmd === 'derby') { if (derby.active) derby.endsAt = nowMs(); else derby.nextAt = nowMs(); return say('Tournament toggled.'); }
   if (cmd === 'tmode') { derby.modeIdx = (Number(args[0]) || 1) - 2; return say(`Next tournament: ${T_MODES[(derby.modeIdx + 1) % T_MODES.length].name}.`); }
   if (cmd === 'gear') { p.rod = WORLD.rods.length - 1; p.bait = WORLD.baits.length - 1; GUN_IDS.forEach((g) => { p.guns[g] = true; Object.keys(WORLD.attachments).forEach((k) => { p.att[g][k] = !WORLD.attachments[k].only || WORLD.attachments[k].only.includes(g); }); p.mag[g] = effGun(p, g).mag; }); GUN_IDS.forEach((g) => { p.glvl[g] = WORLD.gunLevels.names.length - 1; }); p.ammo += 200; p.boatTier = WORLD.boats.length - 1; p.ownsBoat = true; return say('Maxed out.'); }
+  if (cmd === 'drugs') { DRUGS.forEach((d) => { p.pocket[d] += 5; }); return say('Five of each drug added.'); }
   if (cmd === 'bag') {
     const n = Math.min(60, Number(args[0]) || 8);
     for (let i = 0; i < n; i++) {
@@ -1398,7 +1479,7 @@ io.on('connection', (socket) => {
       state: 'idle', bobber: null, fish: null,
       lastMove: nowMs(), budget: 2, lastChat: 0,
       cash: COMBAT.stake, hp: COMBAT.hp, alive: true, guns: freshGuns(), mag: freshMag(), att: freshAtt(), glvl: freshLvl(), bagTier: 0, reloadGun: null, reloadUntil: 0, boatTier: -1, swim: false, ammo: 0, rod: 0, bait: 0, held: 'rod',
-      pocket: freshPocket(), bag: [], high: { weed: 0, whiskey: 0, crank: 0 },
+      pocket: freshPocket(), bag: [], high: { weed: 0, whiskey: 0, crank: 0 }, stack: { weed: 0, whiskey: 0, crank: 0 }, crash: null, useLog: [],
       journal: {}, caught: 0, earned: 0, derbyWins: 0, best: null, xp: 0, quests: [], jy: 0,
       nextShot: 0, respawnAt: 0, bj: null, safeUntil: nowMs() + COMBAT.spawnSafe,
     };
@@ -1523,7 +1604,7 @@ io.on('connection', (socket) => {
     if (rank >= 1 && s.rarity !== 'treasure' && (!p.best || f.lbs > p.best.lbs)) p.best = { name: s.name, lbs: f.lbs };
     const bagged = giveFish(p, s.name, f.lbs, f.value);
     const levelBefore = levelOf(p.xp);
-    const xpGain = (XP_BY_RARITY[s.rarity] || 5) + (first ? 20 : 0) + (pb ? 10 : 0) + (f.hot ? 5 : 0);
+    const xpGain = Math.round(((XP_BY_RARITY[s.rarity] || 5) + (first ? 20 : 0) + (pb ? 10 : 0) + (f.hot ? 5 : 0)) * (1 + effects(p).xp));
     p.xp += xpGain;
     const questDone = advanceQuests(p, s, f.hot);
     const level = levelOf(p.xp);
@@ -1730,10 +1811,28 @@ io.on('connection', (socket) => {
     if (!p || !p.alive) return reply({ ok: false, msg: 'Not now.' });
     if (!DRUGS.includes(name)) return reply({ ok: false });
     if (p.pocket[name] <= 0) return reply({ ok: false, msg: `You are out of ${name}.` });
+    const now = nowMs();
     p.pocket[name] -= 1;
-    p.high[name] = nowMs() + DRUG_MS;
-    feed(`${p.name} ${DRUG_USE[name]}`, 'info');
-    reply({ ok: true });
+    const active = p.high[name] > now;
+    // using it again while it is active extends it and adds a stack
+    p.high[name] = active ? Math.min(now + DRUG_CAP_MS, p.high[name] + DRUG_EXTEND_MS) : now + DRUG_MS;
+    p.stack[name] = active ? Math.min(DRUG_MAX_STACK, (p.stack[name] || 1) + 1) : 1;
+    p.crash = null;
+    if (name === 'whiskey') p.hp = Math.min(COMBAT.hp, p.hp + 20);
+    p.useLog = (p.useLog || []).filter((t) => now - t < OD.window);
+    p.useLog.push(now);
+    let od = false;
+    if (p.useLog.length >= OD.uses) {
+      // too much too fast: it hurts, but never kills
+      od = true;
+      p.useLog = [];
+      p.hp = Math.max(1, p.hp - OD.damage);
+      socket.emit('hurt', { hp: p.hp, dmg: OD.damage, by: 'an overdose', how: 'drug' });
+      socket.emit('knock', { x: p.x, z: p.z, heavy: true });
+    }
+    feed(`${p.name} ${DRUG_USE[name]}${od ? ' and overdoses' : ''}`, 'info');
+    io.emit('drugUse', { id: p.id, name });
+    reply({ ok: true, od });
   });
 
   socket.on('punch', (body, ack) => {
@@ -1763,7 +1862,7 @@ io.on('connection', (socket) => {
     const out = { ok: true, hit: null, heavy, combo: p.combo };
     if (best) {
       const o = best.o;
-      const dmg = heavy ? PUNCH.heavy : PUNCH.damage;
+      const dmg = Math.round((heavy ? PUNCH.heavy : PUNCH.damage) * (1 + effects(p).punch));
       const knock = heavy ? PUNCH.heavyKnock : PUNCH.knock;
       const kx = Math.sin(rot) * knock;
       const kz = Math.cos(rot) * knock;
@@ -1968,6 +2067,7 @@ setInterval(() => {
   tickWeather();
   npcs.forEach((n) => tickNpc(n, dt));
   tickRespawns();
+  players.forEach((pl) => tickDrugs(pl, dt));
   collectPickups();
   const snap = snapshot();
   const allFish = snap.fish;
