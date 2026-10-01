@@ -1628,11 +1628,15 @@ const BOSS_BUILD = {
     }
     const head = new THREE.Group();
     head.position.set(0, 0.2, 2.5);
-    head.add(bpart(BOX, skin, 0, 0.15, 0.7, 0.75, 0.42, 1.7));
-    const jaw = bpart(BOX, belly, 0, -0.17, 0.75, 0.68, 0.18, 1.6);
+    head.add(bpart(SPH, skin, 0, 0.12, 0.2, 0.62, 0.42, 0.8)); // cranium
+    head.add(bpart(SPH, skin, 0, 0.08, 1.15, 0.4, 0.26, 1.15)); // long tapered snout
+    head.add(bpart(SPH, skin, 0, 0.1, 2.15, 0.34, 0.2, 0.42)); // snout tip
+    head.add(bpart(SPH, dark, 0.11, 0.3, 2.35, 0.06, 0.05, 0.06), bpart(SPH, dark, -0.11, 0.3, 2.35, 0.06, 0.05, 0.06)); // nostrils
+    head.add(bpart(SPH, dark, 0.34, 0.5, 0.05, 0.2, 0.13, 0.3), bpart(SPH, dark, -0.34, 0.5, 0.05, 0.2, 0.13, 0.3)); // brow ridges
+    const jaw = bpart(SPH, belly, 0, -0.14, 1.0, 0.36, 0.14, 1.35);
     head.add(jaw);
-    for (let i = 0; i < 6; i++) { head.add(bpart(CONE, bone, 0.3, -0.02, 0.2 + i * 0.26, 0.05, 0.16, 0.05), bpart(CONE, bone, -0.3, -0.02, 0.2 + i * 0.26, 0.05, 0.16, 0.05)); }
-    head.add(bpart(SPH, EYE, 0.36, 0.42, 0.0, 0.1, 0.1, 0.1), bpart(SPH, EYE, -0.36, 0.42, 0.0, 0.1, 0.1, 0.1));
+    for (let i = 0; i < 7; i++) { const z = 0.5 + i * 0.28; head.add(bpart(CONE, bone, 0.27 - i * 0.012, -0.02, z, 0.045, 0.16, 0.045), bpart(CONE, bone, -0.27 + i * 0.012, -0.02, z, 0.045, 0.16, 0.045)); }
+    head.add(bpart(SPH, EYE, 0.36, 0.5, 0.18, 0.09, 0.09, 0.09), bpart(SPH, EYE, -0.36, 0.5, 0.18, 0.09, 0.09, 0.09));
     g.add(head);
     const tail = bpart(CONE, skin, 0, 0.05, -6.2, 0.4, 3.0, 0.32);
     tail.rotation.x = -Math.PI / 2;
@@ -1679,41 +1683,59 @@ const BOSS_BUILD = {
   },
   leviathan() {
     const g = new THREE.Group();
-    const skin = bmat(0x55606C, 0.5, 0.2), plate = bmat(0x9AA6B4, 0.3, 0.8), bone = bmat(0xD8D0B8);
-    g.add(bpart(SPH, skin, 0, 0, 0, 1.4, 1.1, 4.2));
-    g.add(bpart(CONE, skin, 0, 0.1, 4.9, 0.5, 2.2, 0.5));
-    g.children[g.children.length - 1].rotation.x = Math.PI / 2;
-    g.add(bpart(CONE, skin, 0, 0.3, -4.6, 0.9, 2.6, 0.4));
-    g.children[g.children.length - 1].rotation.x = -Math.PI / 2;
-    g.add(bpart(SPH, EYE, 0.85, 0.35, 3.3, 0.14, 0.14, 0.14), bpart(SPH, EYE, -0.85, 0.35, 3.3, 0.14, 0.14, 0.14));
-    for (const s of [-1, 1]) g.add(bpart(CONE, bone, s * 0.45, -0.7, 4.4, 0.06, 0.9, 0.06));
-    // three rows of armor plates you shoot off, one row per stage
+    const skin = bmat(0x3E4A58, 0.5, 0.2), belly = bmat(0xC9C6BA, 0.5), plate = bmat(0xA9B6C6, 0.3, 0.8), bone = bmat(0xD8D0B8), fin = bmat(0x2E3844, 0.6, 0.1);
+    g.add(bpart(SPH, skin, 0, 0, 0, 1.3, 1.1, 3.8)); // torpedo body
+    g.add(bpart(SPH, belly, 0, -0.55, 0.3, 1.0, 0.6, 3.3));
+    g.add(bpart(SPH, skin, 0, 0.05, 3.6, 0.95, 0.8, 1.7)); // head
+    const snout = bpart(CONE, skin, 0, -0.05, 6.1, 0.5, 3.2, 0.34); // long shovel snout
+    snout.rotation.x = Math.PI / 2;
+    g.add(snout);
+    for (const s of [-1, 1]) {
+      g.add(bpart(CONE, bone, s * 0.18, -0.55, 6.4, 0.035, 0.7, 0.035)); // barbels
+      g.add(bpart(CONE, bone, s * 0.32, -0.55, 6.2, 0.035, 0.55, 0.035));
+      const pf = bpart(CONE, fin, s * 1.15, -0.5, 2.2, 0.12, 1.9, 0.8); // pectoral fins
+      pf.rotation.z = s * 1.2; pf.rotation.x = Math.PI / 2 - 0.3;
+      g.add(pf);
+    }
+    g.add(bpart(SPH, EYE, 0.78, 0.25, 4.1, 0.13, 0.13, 0.13), bpart(SPH, EYE, -0.78, 0.25, 4.1, 0.13, 0.13, 0.13));
+    const tail = bpart(CONE, skin, 0, 0.3, -4.9, 0.8, 2.4, 0.32); // heterocercal tail
+    tail.rotation.x = -Math.PI / 2;
+    g.add(tail);
+    const lobe = bpart(CONE, fin, 0, 1.0, -6.0, 0.18, 1.8, 0.7);
+    lobe.rotation.x = -0.5;
+    g.add(lobe);
+    g.add(bpart(CONE, fin, 0, 1.3, -1.5, 0.12, 1.4, 0.9)); // dorsal fin
+    g.children[g.children.length - 1].rotation.x = -0.35;
+    // three rows of big armor scutes you shoot off, one row per stage: dorsal and both flanks
     const rows = [[], [], []];
-    for (let r = 0; r < 3; r++) for (let i = 0; i < 5; i++) {
-      const z = -2.4 + (r * 5 + i) * 0.36;
-      const a = bpart(BOX, plate, 0, 1.05 - Math.abs(z) * 0.05, z, 0.9, 0.16, 0.34);
-      a.rotation.z = 0;
-      g.add(a);
-      rows[r].push(a);
+    for (let i = 0; i < 7; i++) {
+      const z = 2.9 - i * 0.95, y = 1.0 - Math.abs(z - 1) * 0.04;
+      for (let r = 0; r < 3; r++) {
+        const x = r === 0 ? 0 : (r === 1 ? 0.9 : -0.9), yy = r === 0 ? y + 0.1 : y - 0.35;
+        const a = bpart(CONE, plate, x, yy, z, 0.34, 0.6 - i * 0.03, 0.46);
+        if (r) a.rotation.z = r === 1 ? -0.9 : 0.9;
+        g.add(a);
+        rows[r].push(a);
+      }
     }
     return {
-      group: g, depth: 0.7, size: 10, rows, tick(t, v) {
+      group: g, depth: 0.8, size: 12, rows, tick(t, v) {
         g.rotation.z = Math.sin(t * 1.4) * 0.05;
-        rows.forEach((row, r) => row.forEach((a) => { const gone = (v.stage || 0) > r; a.visible = !gone; }));
-        if (v.hitting) g.position.y += 0;
+        tail.position.x = Math.sin(t * 2) * 0.35; lobe.position.x = Math.sin(t * 2 - 0.4) * 0.6;
+        rows.forEach((row, r) => row.forEach((a) => { a.visible = (v.stage || 0) <= r; }));
       },
     };
   },
   kraken() {
     const g = new THREE.Group();
-    const skin = bmat(0x6E2A56, 0.5, 0.1, 0x220818), belly = bmat(0xC77AA8, 0.5);
+    const skin = bmat(0x5A1F3E, 0.5, 0.1, 0x220818), belly = bmat(0xB05A86, 0.5);
     g.add(bpart(SPH, skin, 0, 1.6, 0, 2.2, 2.6, 2.2));
     g.add(bpart(SPH, EYE, 1.1, 1.9, 1.9, 0.32, 0.32, 0.32), bpart(SPH, EYE, -1.1, 1.9, 1.9, 0.32, 0.32, 0.32));
     const tents = [];
     for (let k = 0; k < 8; k++) {
       const chain = [];
       const a = (k / 8) * Math.PI * 2;
-      for (let i = 0; i < 9; i++) { const s = bpart(SPH, i % 2 ? skin : belly, 0, 0, 0, 0.5 - i * 0.04, 0.5 - i * 0.04, 0.5 - i * 0.04); g.add(s); chain.push(s); }
+      for (let i = 0; i < 15; i++) { const rad = Math.max(0.14, 0.62 - i * 0.036); const s = bpart(SPH, i % 4 === 3 ? belly : skin, 0, 0, 0, rad, rad, rad); g.add(s); chain.push(s); }
       tents.push({ chain, a });
     }
     return {
@@ -1721,8 +1743,8 @@ const BOSS_BUILD = {
         tents.forEach(({ chain, a }, k) => {
           const slam = v.hitting && k % 2 === 0 ? 1 : 0;
           chain.forEach((s, i) => {
-            const r = 1.7 + i * 0.75;
-            const lift = slam ? Math.max(0, 5.5 - i * 0.7) * (Math.sin(Math.min(1, (v.hitAge || 0) * 4) * Math.PI)) : Math.sin(t * 1.6 + k + i * 0.6) * 0.5 + 1.2 + i * 0.1;
+            const r = 1.7 + i * 0.46;
+            const lift = slam ? Math.max(0, 5.5 - i * 0.42) * (Math.sin(Math.min(1, (v.hitAge || 0) * 4) * Math.PI)) : Math.sin(t * 1.6 + k + i * 0.4) * 0.4 + 0.9 + i * 0.07;
             s.position.set(Math.sin(a + Math.sin(t * 0.7 + k) * 0.25) * r, 0.4 + lift * (i > 1 ? 1 : 0.3), Math.cos(a + Math.sin(t * 0.7 + k) * 0.25) * r);
           });
         });
@@ -4968,6 +4990,10 @@ renderer.setAnimationLoop(() => {
   const fireDist = m ? Math.hypot(m.x - world.firePos.x, m.z - world.firePos.z) : 99;
   sfx.ambient(t, world.day.night > 0.5, fireDist);
   updateHud(dt, t);
+  if (window.__loon && window.__view) { // ?debug only: lets headless tests park the camera
+    camera.position.set(...window.__view.p);
+    camera.lookAt(...window.__view.a);
+  }
   if (quality() === 'high') composer.render(dt);
   else renderer.render(scene, camera);
 });
