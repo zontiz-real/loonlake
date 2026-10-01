@@ -8,7 +8,7 @@ Fish for cash, climb through better rods and bait, fill out your journal, and wi
 
 **The rod makes you money. The gun keeps you alive.**
 
-Fishing is how you get rich: every species, the journal, XP, quests, the derby, catch streaks. Shooting an ordinary fish gets you scraps and scares the rest away, so the rod is always the better way to earn.
+Fishing is how you find the big money, and guns are how you collect it. Any fish you shoot is a real catch (journal, XP, quests, bag), but shots cost value: extra hits and overkill spoil the fish, so a clean single shot pays nearly full price and a shotgun blast pays little. Only the rod can win the derby and earn the first-catch-on-a-rod star. And now and then something huge takes your hook: a **boss**. You can't just reel it in. You shoot it to break its armor and wear it down while you keep tension on the line, then land it for the biggest payouts in the game.
 
 Every seven minutes the lake boils. During a **frenzy** mutant fish leap out of the water and hunt anyone near it, and near the end a boss, The Old One, surfaces. It's also the richest time to fish: bites come almost at once and every catch is worth two and a half times as much. The best money in the game is reeling in fish while something is trying to eat you, so fish with a friend who guards you, or do both yourself.
 
@@ -28,7 +28,14 @@ Every seven minutes the lake boils. During a **frenzy** mutant fish leap out of 
 - **Guns.** Revolver, Glock 19, Desert Eagle, hunting rifle, shotgun, double-barrel, SMG, AR pistol, Draco, M4, M249, crossbow and sniper rifle, each with its own magazine, reload, damage, spread and range. Moss sells attachments: a laser beam (tighter groups and a visible red beam), a drum mag (2.5x the rounds, slower reload), and an auto switch for the Glock and revolver (full auto, fast, sloppy). Shots you aim at the water splash where you aimed instead of flying off into the distance. Damage fades with range, some shots are critical hits, and Moss upgrades each gun from Mk I to Mk V (up to +60% damage). Kills throw the body with force that depends on the gun; casings bounce out and sink in the water; getting shot shoves you.
 - **Seeing fish.** About 40 fish swim the lake and 16 the canal, just under the surface. Each one casts a dark shape on the water, and uncommon, rare, epic and legendary fish have a pulsing ring in their rarity color. Dropped loot has a column of light over it (gold for cash, blue for fish, green for drugs).
 - **The frenzy.** About every seven minutes, for almost two minutes. Leapers (fast, weak), snappers and gulpers (big, slow, hit hard) come out of the water near players, leap ashore and flop after you; they won't go near the campfire. They drop ammo and health, so the fight pays for itself. Hurt one badly and it staggers belly up, glowing orange: finish it with the knife to **gut it** for double bounty, double loot and 25 health. Kills close together call out DOUBLE KILL, TRIPLE KILL and up. Seventy seconds in, **The Old One** surfaces in the middle of the lake and hurls itself at whoever is on the shore; everyone who hurt it shares a $1,200 bounty by damage done. The top three scorers (kills and catches) get $400, $200 and $100. If a mutant kills you, you keep your cash but it eats half your bag.
-- **Shooting fish.** A shot fish is worth scraps (a tenth of its value, straight to cash), counts for nothing in the journal, and gunfire slows bites within about 24 m for 15 seconds, outside a frenzy.
+- **Shooting fish.** A shot fish goes into your bag as a normal catch: journal entry, XP, quests, streak. It sells for its weight-based value minus spoilage: each extra hit costs 12% and overkill up to 30%, and floating numbers show the damage and the lost dollars. Gunfire slows bites within about 24 m for 15 seconds outside a frenzy, so shooting is for when you want fish now and fishing is for when you want the best fish.
+- **Boss hunts.** Every bite has a chance (more with better bait, hot spots, night and frenzy) to be a boss instead of a fish. Bosses need your rod *and* your gun: shoot to break armor stages (at 66% and 33% health the boss staggers for four seconds), and steady reeling wears it down too. When it is low enough, land it. Everyone who hurt it shares the loot by damage. Each one telegraphs its attacks with a red warning ring before it hits.
+  - **Snapjaw** (any rod): a snapping turtle. Lunges and thrashes. About $220.
+  - **Piranha Storm** (any rod): a swarm that thins as you shoot it, then the king. About $190.
+  - **Gator King** (fiberglass+): death rolls and tail whips, goes under for slack. About $700.
+  - **Voltaic Eel** (graphite+): glowing, discharges into everyone nearby. About $650.
+  - **Leviathan Sturgeon** (Lunker stick+): armor plates you shoot off row by row; dives, breaches, rams. About $1,500.
+  - **The Kraken** (carbon pro, ocean only): tentacle slams, blots the screen with ink. About $4,000.
 - **Hot spots.** Bubbling patches that drift around the lake. They bite faster and hold bigger fish. They show as gold rings on the minimap.
 - **Day and night.** A full day takes 12 minutes.
 - **Derbies.** Every 6 minutes a derby runs for 2.5 minutes. The heaviest fish takes the pot, which grows with each player who weighs in. If you log off, you still get paid.
@@ -74,6 +81,7 @@ Start with `npm run debug` (works in any terminal; or set `LOON_DEBUG=1` yoursel
 - `/derby` starts or ends a derby now.
 - `/gear` maxes your rod, bait, and rifle.
 - `/fish 20` puts 20 random fish in your bag.
+- `/boss snapjaw` (or `piranha`, `gator`, `eel`, `leviathan`, `kraken`) makes your next bite that boss.
 - `/frenzy` starts or ends a frenzy now; `/frenzy boss` skips to the boss.
 - `/fast` makes bites come quickly.
 - `/boat` gives you a boat. `/channel` and `/sea` put you in it out on the water.
