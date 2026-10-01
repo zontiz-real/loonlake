@@ -238,7 +238,7 @@ button.slot {
   width: 56px; height: 56px; padding: 0; border-radius: 12px; position: relative;
   display: grid; place-items: center; background: rgba(236, 242, 234, .1); border: 1px solid transparent;
 }
-button.slot svg { width: 26px; height: 26px; }
+button.slot svg { width: 30px; height: 30px; }
 button.slot.empty { color: rgba(236, 242, 234, .32); background: rgba(236, 242, 234, .04); }
 button.slot.on { border-color: var(--brass); color: var(--brass); }
 button.slot.held { border-color: var(--paper); background: rgba(238, 242, 236, .28); box-shadow: inset 0 0 0 1px rgba(238, 242, 236, .55); }
@@ -376,6 +376,8 @@ select option { color: #1D2A25; }
 .reel svg { width: 42px; height: 42px; }
 .reel.spin svg { animation: spin .09s linear infinite; }
 @keyframes spin { 50% { transform: translateY(8px); opacity: .5; } }
+#storeMsg { margin-bottom: 12px; min-height: 2.8em; color: var(--muted); line-height: 1.4; }
+#storeMsg.win { color: var(--brass); font-weight: 600; }
 #slotMsg { margin-bottom: 12px; min-height: 2.8em; color: var(--muted); line-height: 1.4; }
 #slotMsg.win { color: var(--brass); font-weight: 600; }
 #spinBtn { width: 100%; }

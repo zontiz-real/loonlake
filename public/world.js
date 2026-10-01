@@ -1,5 +1,7 @@
 // Loon Lake world: sky and day cycle, water, terrain, camp, forest, and loons.
 import * as THREE from 'three';
+import { buildPlaces } from './places.js';
+import { keepClear } from './layout.js';
 
 export const WATER_Y = 0.2;
 export const DOCK_Y = 0.55;
@@ -377,6 +379,7 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
   }
 
   let boats = [];
+  let places = null;
   function build(w, kit) {
     W = w;
     waterU.uRadius.value = w.lakeRadius;
@@ -606,6 +609,9 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
       colliders.push({ x: bx2, z: bz2, r: 0.5, h: 1.0 });
     });
 
+    // roads, the gas station, the trail and towers on land; the rig, island, pier and ships at sea
+    places = buildPlaces({ scene, w, groundHeight, makeLabel, canvasTex, colliders, solids, emissives, lights, high, wave, WATER_Y });
+
     // forest, instanced
     const rnd = mulberry32(7);
     const treeCount = high ? 340 : 170;
@@ -635,6 +641,7 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
       const z = (rnd() * 2 - 1) * spread;
       if (Math.hypot(x, z) < w.shoreRadius + 7) continue;
       if (nearWaterArea(x, z, 3)) continue;
+      if (keepClear(x, z, 3)) continue;
       if (Math.abs(x) < 6 && z > 0 && z < 50) continue;
       if (Math.hypot(x - camp.dealer.x, z - camp.dealer.z) < 8) continue;
       if (Math.hypot(x - camp.shack.x, z - camp.shack.z) < 11) continue;
@@ -674,7 +681,7 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
       const x = Math.sin(a) * r;
       const z = Math.cos(a) * r;
       if (Math.abs(x) < 7 && z > 0 && z < 52) continue;
-      if (nearWaterArea(x, z, 2)) continue;
+      if (nearWaterArea(x, z, 2) || keepClear(x, z, 2)) continue;
       if (Math.hypot(x - camp.dealer.x, z - camp.dealer.z) < 8 || Math.hypot(x - camp.shack.x, z - camp.shack.z) < 11 || Math.hypot(x - f.x, z - f.z) < 7) continue;
       if (colliders.some((c) => Math.hypot(c.x - x, c.z - z) < c.r + 1.2)) continue;
       const s = 0.8 + rnd() * 0.5;
@@ -741,7 +748,7 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
       const z = Math.cos(a) * r;
       if (Math.abs(x) > w.bounds + 12 || Math.abs(z) > w.bounds + 12) continue;
       if (Math.abs(x) < 2.4 && z > w.dock.minZ && z < w.dock.maxZ + 3) continue;
-      if (nearWaterArea(x, z, 0.5)) continue;
+      if (nearWaterArea(x, z, 0.5) || keepClear(x, z, 0.4)) continue;
       if (clear.some((c) => (c.x - x) ** 2 + (c.z - z) ** 2 < (c.r + 0.4) ** 2)) continue;
       const s = 0.7 + rnd() * 0.6;
       dummy.position.set(x, groundHeight(x, z), z);
@@ -886,6 +893,7 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
   function buildModelScenery(w, kit, rnd, dummy, tint, camp, f) {
     const avoid = (x, z, pad) =>
       nearWaterArea(x, z, pad) ||
+      keepClear(x, z, pad) ||
       (Math.abs(x) < 5 && z > 0 && z < 52) ||
       Math.hypot(x - camp.dealer.x, z - camp.dealer.z) < 7 + pad ||
       Math.hypot(x - camp.shack.x, z - camp.shack.z) < 10 + pad ||
@@ -909,6 +917,7 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
       const z = Math.cos(a) * r;
       if (Math.abs(x) < 3 && z > 0) continue;
       if (Math.abs(x) < 7 && z < 0) continue;
+      if (keepClear(x, z, 0.8)) continue;
       const k = i % 3;
       if (rockCount[k] >= 16) continue;
       tint.setHSL(0.08, 0.05, 0.75 + rnd() * 0.35);
@@ -1124,6 +1133,7 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
       b.obj.position.set(b.x, WATER_Y + wave(b.x, b.z, t) - 0.12, b.z);
       b.obj.rotation.set(Math.sin(t * 0.9 + b.x) * 0.04, b.ry + Math.sin(t * 0.3) * 0.04, Math.cos(t * 1.1) * 0.05);
     }
+    if (places) places.update(t, dt, day.night);
     updateLoons(dt, t, events);
   }
 
@@ -1197,5 +1207,6 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     return false;
   }
 
-  return { build, update, collide, platformAt, blocked, day, firePos, loons, sunDir };
+  const setTraffic = (list) => { if (places) places.setTraffic(list); };
+  return { build, update, collide, platformAt, blocked, day, firePos, loons, sunDir, setTraffic };
 }

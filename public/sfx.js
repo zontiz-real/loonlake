@@ -258,6 +258,11 @@ export const sfx = {
     tone(196, 0.9, 'sawtooth', 0.05, 190);
     tone(247, 0.9, 'sawtooth', 0.04, 245);
   },
+  // a car horn that carries: vol falls off with distance (0..1)
+  carHorn(vol = 1) {
+    tone(392, 0.45, 'square', 0.035 * vol, 388);
+    tone(494, 0.45, 'square', 0.03 * vol, 490);
+  },
   loon(dist = 20) { loonCall(Math.max(0.012, 0.05 - dist * 0.0006)); },
   // ambience ticks: birds by day, crickets by night, the campfire when close
   ambient(t, night, fireDist) {

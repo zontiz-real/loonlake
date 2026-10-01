@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { sfx } from './sfx.js';
 import { initTouch } from './touch.js';
+import { HIGHWAY, CAMP_ROAD, GAS, TRAIL, WATER_TOWER, RADIO_TOWER } from './layout.js';
 import { createWorld, makeLabel, wave, WATER_Y, DOCK_Y, isNightHour, isGoldenHour, groundHeight } from './world.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { createFx } from './fx.js';
@@ -78,7 +79,7 @@ const RARITY_LABEL = {
 const RARITY_RANK = { junk: 0, common: 1, uncommon: 2, treasure: 3, rare: 3, epic: 4, legendary: 5 };
 const DRUGS = ['weed', 'whiskey', 'crank'];
 const DRUG_INFO = {
-  weed: 'Calms the reel and fish bite sooner. Slows your feet and your aim.',
+  weed: '<path fill="#4E9A48" d="M24 44V26c-7-2-12-8-12-15 7 .5 11 5 12 11 1-6 5-10.5 12-11 0 7-5 13-12 15v18z"/>',
   whiskey: 'Sways the camera and makes the line jumpy. Cheap courage.',
   crank: 'Faster feet and a steadier rifle. Fish fight harder.',
 };
@@ -244,13 +245,18 @@ let touch = null;
 const me = () => views.get(myId);
 const alive = () => !myData || myData.alive !== false;
 
-const onDock = (x, z) => W && x >= W.dock.minX && x <= W.dock.maxX && z >= W.dock.minZ && z <= W.dock.maxZ;
+const inRect = (d, x, z) => x >= d.minX && x <= d.maxX && z >= d.minZ && z <= d.maxZ;
+const onDock = (x, z) => W && W.docks.some((d) => inRect(d, x, z));
+// only the lake dock rents boats; the pier out on the big water is just a pier
+const onMainDock = (x, z) => W && inRect(W.dock, x, z);
+const dockH = (x, z) => (W && W.docks.indexOf(W.docks.find((d) => inRect(d, x, z))) > 0 ? W.pierY : DOCK_Y);
+const inSeaObstacle = (x, z) => W && W.sea.some((o) => (x - o.x) ** 2 + (z - o.z) ** 2 < o.r * o.r);
 const inChannel = (x, z, m = 0) => W && x >= W.channel.minX - m && x <= W.channel.maxX + m && z >= W.channel.minZ - m && z <= W.channel.maxZ + m;
 const inOcean = (x, z) => W && x > W.ocean.minX && x < W.ocean.maxX && z > W.ocean.minZ && z < W.ocean.maxZ;
 const onLand = (x, z) => onDock(x, z) || (Math.hypot(x, z) >= W.shoreRadius && Math.abs(x) <= W.bounds && Math.abs(z) <= W.bounds && !inChannel(x, z, 0.8));
-const inWater = (x, z) => W && !onDock(x, z) && (Math.hypot(x, z) < W.lakeRadius - 0.3 || inChannel(x, z) || inOcean(x, z));
+const inWater = (x, z) => W && !onDock(x, z) && !inSeaObstacle(x, z) && (Math.hypot(x, z) < W.lakeRadius - 0.3 || inChannel(x, z) || inOcean(x, z));
 // where a body or boat rests: water surface, dock planks, or the ground
-const surfaceAt = (x, z, t) => (inWater(x, z) ? WATER_Y + wave(x, z, t) : onDock(x, z) ? DOCK_Y : groundHeight(x, z));
+const surfaceAt = (x, z, t) => (inWater(x, z) ? WATER_Y + wave(x, z, t) : onDock(x, z) ? dockH(x, z) : groundHeight(x, z));
 const isGun = (h) => !!(W && W.guns && W.guns[h]);
 const gunOf = (h) => (W && W.guns ? W.guns[h] : null);
 // a gun's stats once its attachments are on (mirrors the server)
@@ -271,6 +277,7 @@ const boatOk = (x, z) => inWater(x, z) && (Math.hypot(x, z) < W.lakeRadius - 2.2
 const footOk = (x, z) => onLand(x, z) || inWater(x, z) || inChannel(x, z, 0.8) || Math.hypot(x, z) < W.shoreRadius;
 fx.setFloor((x, z) => surfaceAt(x, z, audioT), (x, z) => inWater(x, z));
 const boating = () => !!(myData && myData.boat);
+const nearStore = (m) => W && W.store && m && Math.hypot(m.x - W.store.x, m.z - W.store.z) <= W.store.range;
 const near = (m, spot) => W && m && spot && Math.hypot(m.x - spot.x, m.z - spot.z) <= W.camp.range;
 const hotAt = (x, z) => hotspots.some((h) => Math.hypot(x - h.x, z - h.z) <= h.r);
 
@@ -1116,6 +1123,7 @@ socket.on('state', (s) => {
     if (v.rodLevel !== d.rod && W.rods[d.rod]) { v.rodLevel = d.rod; v.rodMat.color.set(W.rods[d.rod].color); }
   }
   for (const [id, v] of views) if (!seen.has(id)) { removeView(v); views.delete(id); }
+  world.setTraffic(s.cars || []);
   syncNpcs(s.npcs || []);
   syncFish(s.fish || []);
   syncPickups(s.pickups || []);
@@ -1297,6 +1305,11 @@ socket.on('punch', (p) => {
   }
 });
 
+socket.on('honk', (h) => {
+  const m = me();
+  const d = m ? Math.hypot(m.x - h.x, m.z - h.z) : 99;
+  if (d < 90) sfx.carHorn(Math.max(0.1, 1 - d / 90));
+});
 socket.on('knock', (k) => {
   const m = me();
   if (!m) return;
@@ -1689,7 +1702,7 @@ function flashPrompt(text, cls, ms) {
 
 // ================================================================ panels
 
-const PANELS = ['shop', 'shack', 'journal', 'help', 'phone', 'inventory'];
+const PANELS = ['shop', 'store', 'shack', 'journal', 'help', 'phone', 'inventory'];
 let shopSig = '';
 
 function togglePanel(name) {
@@ -1702,6 +1715,7 @@ function togglePanel(name) {
   if (pointerLocked) document.exitPointerLock();
   shopSig = '';
   if (name === 'shop') renderShop();
+  if (name === 'store') renderStore();
   if (name === 'shack') renderShack();
   if (name === 'journal') renderJournal();
   if (name === 'inventory') { invSig = ''; renderInventory(); }
@@ -1716,13 +1730,14 @@ function closePanels() {
 document.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => { closePanels(); if (!isTouch) requestLock(true); }));
 
 function interact() {
-  if (openPanel === 'shop' || openPanel === 'shack') { closePanels(); if (!isTouch) requestLock(false); return; }
+  if (openPanel === 'shop' || openPanel === 'shack' || openPanel === 'store') { closePanels(); if (!isTouch) requestLock(false); return; }
   const m = me();
   if (!m || !W || !alive() || phase !== 'idle') return;
   if (boating()) { boatAction('land'); return; }
   if (near(m, W.camp.dealer)) togglePanel('shop');
   else if (near(m, W.camp.shack)) togglePanel('shack');
-  else if (nearWaterEdge(m)) boatAction('launch', !myData.ownsBoat && onDock(m.x, m.z));
+  else if (nearStore(m)) togglePanel('store');
+  else if (nearWaterEdge(m)) boatAction('launch', !myData.ownsBoat && onMainDock(m.x, m.z));
 }
 
 function nearWaterEdge(m) {
@@ -1885,31 +1900,79 @@ function renderMessages() {
   }
   list.scrollTop = list.scrollHeight;
 }
+// roads, the gas station, the towers and everything out in the big water, drawn with whatever projection the map uses
+function drawPlaces(g, map, k, big) {
+  const path = (pts) => { g.beginPath(); pts.forEach(([x, z], i) => { const [px, pz] = map(x, z); if (i) g.lineTo(px, pz); else g.moveTo(px, pz); }); };
+  const line = (pts, width, color) => { g.strokeStyle = color; g.lineWidth = Math.max(1.2, width * k); g.lineJoin = 'round'; path(pts); g.stroke(); };
+  const box = (x0, z0, x1, z1, fill) => { g.fillStyle = fill; path([[x0, z0], [x1, z0], [x1, z1], [x0, z1]]); g.closePath(); g.fill(); };
+  const dot = (x, z, r, fill) => { const [px, pz] = map(x, z); g.fillStyle = fill; g.beginPath(); g.arc(px, pz, Math.max(1.5, r * k), 0, Math.PI * 2); g.fill(); };
+  const badge = (x, z, letter, bg) => {
+    const [px, pz] = map(x, z);
+    g.fillStyle = bg; g.beginPath(); g.arc(px, pz, big ? 11 : 12, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#FFF'; g.font = '600 14px Fredoka, system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(letter, px, pz + 1);
+  };
+  line([[HIGHWAY.x, HIGHWAY.z0], [HIGHWAY.x, HIGHWAY.z1]], HIGHWAY.w + 1.6, '#8A7E66');
+  line([[HIGHWAY.x, HIGHWAY.z0], [HIGHWAY.x, HIGHWAY.z1]], HIGHWAY.w, '#4A4E52');
+  line([[HIGHWAY.x, HIGHWAY.z0], [HIGHWAY.x, HIGHWAY.z1]], 0.4, '#E8B824');
+  line([[CAMP_ROAD.x0, CAMP_ROAD.z], [HIGHWAY.x, CAMP_ROAD.z]], CAMP_ROAD.w, '#A89878');
+  line(TRAIL, 1.8, '#B89A6A');
+  const lot = GAS.lot;
+  box(lot.x0, lot.z0, lot.x1, lot.z1, '#5A5E62');
+  const st = GAS.store;
+  box(st.x - st.w / 2, st.z - st.d / 2, st.x + st.w / 2, st.z + st.d / 2, '#E9E2CE');
+  box(GAS.canopy.x - GAS.canopy.w / 2, GAS.canopy.z - GAS.canopy.d / 2, GAS.canopy.x + GAS.canopy.w / 2, GAS.canopy.z + GAS.canopy.d / 2, 'rgba(242, 160, 61, .75)');
+  dot(WATER_TOWER.x, WATER_TOWER.z, 3, '#B9C0C4');
+  dot(RADIO_TOWER.x, RADIO_TOWER.z, 2, '#C43B2B');
+  for (const d of W.docks.slice(1)) box(d.minX, d.minZ, d.maxX, d.maxZ, '#9A7650');
+  for (const o of W.sea) {
+    if (o.id === 'island') { dot(o.x, o.z, o.r, '#D6C6A0'); dot(o.x, o.z, o.r * 0.68, '#5E7A46'); }
+    else if (o.id === 'rig') { box(o.x - 7.5, o.z - 7.5, o.x + 7.5, o.z + 7.5, '#8A9096'); dot(o.x + 2.5, o.z - 1, 2, '#C43B2B'); }
+    else if (o.id === 'sail') dot(o.x, o.z, 3.2, '#F1EFE8');
+    else dot(o.x, o.z, o.r * 0.85, '#6E6C66');
+  }
+  if (big) {
+    badge(GAS.canopy.x - 4, GAS.canopy.z, 'G', '#1F7A78');
+    badge(WATER_TOWER.x, WATER_TOWER.z, 'W', '#5D7C8C');
+    badge(RADIO_TOWER.x, RADIO_TOWER.z, 'R', '#8C4A4A');
+    const rig = W.sea.find((o) => o.id === 'rig');
+    const isl = W.sea.find((o) => o.id === 'island');
+    const pier = W.docks[1];
+    if (rig) badge(rig.x, rig.z, 'O', '#6B6F73');
+    if (isl) badge(isl.x, isl.z, 'I', '#4E7A3A');
+    if (pier) badge((pier.minX + pier.maxX) / 2, pier.maxZ - 8, 'P', '#9A7650');
+  } else {
+    const mini = (x, z, letter, bg) => { const [px, pz] = map(x, z); g.fillStyle = bg; g.beginPath(); g.arc(px, pz, 9, 0, Math.PI * 2); g.fill(); g.fillStyle = '#FFF'; g.font = '600 12px Fredoka, system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(letter, px, pz + 1); };
+    mini(GAS.canopy.x - 4, GAS.canopy.z, 'G', '#1F7A78');
+    const pier = W.docks[1];
+    if (pier) mini((pier.minX + pier.maxX) / 2, pier.maxZ - 8, 'P', '#9A7650');
+  }
+}
 function drawBigMap() {
   const c = $('bigMap');
   const g = c.getContext('2d');
   const m = me();
   if (!W || !m) return;
-  // north-up: x from -70 to 70, z from 60 down to -150
-  const S = c.width / 140;
-  const map = (x, z) => [(x + 70) * S, (60 - z) * S];
+  // north-up: x from -130 to 130, z from 70 down to -270
+  const S = c.width / 260;
+  const map = (x, z) => [(x + 130) * S, (70 - z) * S];
   g.fillStyle = '#4A6A3C';
   g.fillRect(0, 0, c.width, c.height);
   const rect = (x0, z0, x1, z1, fill) => { const [a, b] = map(x0, z0); const [e, f] = map(x1, z1); g.fillStyle = fill; g.fillRect(a, b, e - a, f - b); };
-  rect(-80, W.ocean.maxZ + 12, 80, -200, '#C9B98E');
-  rect(-80, W.ocean.maxZ, 80, -200, '#1E5E7A');
+  rect(-140, W.ocean.maxZ + 12, 140, -300, '#C9B98E');
+  rect(-140, W.ocean.maxZ, 140, -300, '#1E5E7A');
   rect(W.channel.minX - 1.5, W.channel.maxZ, W.channel.maxX + 1.5, W.channel.minZ, '#C9B98E');
   rect(W.channel.minX, W.channel.maxZ, W.channel.maxX, W.channel.minZ, '#2E7F86');
   const [lx, lz] = map(0, 0);
   g.fillStyle = '#C9B98E'; g.beginPath(); g.arc(lx, lz, (W.shoreRadius + 2) * S, 0, Math.PI * 2); g.fill();
   g.fillStyle = '#2E7F86'; g.beginPath(); g.arc(lx, lz, W.lakeRadius * S, 0, Math.PI * 2); g.fill();
   rect(W.dock.minX, W.dock.maxZ, W.dock.maxX, W.dock.minZ, '#9A7650');
-  for (const h of hotspots) { const [x, z] = map(h.x, h.z); g.strokeStyle = '#F2B134'; g.lineWidth = 3; g.beginPath(); g.arc(x, z, h.r * S, 0, Math.PI * 2); g.stroke(); }
-  const label = (x, z, t, bg) => { const [px, pz] = map(x, z); g.fillStyle = bg; g.beginPath(); g.arc(px, pz, 13, 0, Math.PI * 2); g.fill(); g.fillStyle = '#fff'; g.font = '600 15px Fredoka, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(t, px, pz + 1); };
+  drawPlaces(g, map, S, true);
+  for (const h of hotspots) { const [x, z] = map(h.x, h.z); g.strokeStyle = '#F2B134'; g.lineWidth = 2; g.beginPath(); g.arc(x, z, h.r * S, 0, Math.PI * 2); g.stroke(); }
+  const label = (x, z, t, bg) => { const [px, pz] = map(x, z); g.fillStyle = bg; g.beginPath(); g.arc(px, pz, 11, 0, Math.PI * 2); g.fill(); g.fillStyle = '#fff'; g.font = '600 14px Fredoka, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(t, px, pz + 1); };
   label(W.camp.dealer.x, W.camp.dealer.z, 'M', '#C73A28');
   label(W.camp.shack.x, W.camp.shack.z, 'S', '#6B4A32');
   const [fx0, fz0] = map(13, -109);
-  g.fillStyle = '#F2EFE6'; g.fillRect(fx0 - 4, fz0 - 9, 8, 18);
+  g.fillStyle = '#F2EFE6'; g.fillRect(fx0 - 3, fz0 - 6, 6, 12);
   for (const v of views.values()) {
     if (v.data.alive === false) continue;
     const [x, z] = map(v.x, v.z);
@@ -1917,7 +1980,8 @@ function drawBigMap() {
     g.beginPath(); g.arc(x, z, v.data.id === myId ? 8 : 6, 0, Math.PI * 2); g.fill(); g.stroke();
   }
   g.fillStyle = '#EEF2EC'; g.font = '600 14px Fredoka, sans-serif'; g.textAlign = 'center';
-  g.fillText('The big water', c.width / 2, map(0, -140)[1]);
+  g.fillText('The big water', c.width / 2, map(0, -215)[1]);
+  g.fillText('Route 61', map(HIGHWAY.x - 18, 0)[0], map(0, 62)[1]);
   g.fillText('N', c.width / 2, 16);
 }
 $('phone').addEventListener('click', (e) => {
@@ -2067,6 +2131,39 @@ $('shop').addEventListener('click', (e) => {
   btn.blur();
   if (btn.id === 'sellBtn') return sell();
   if (btn.dataset.buy) buy(btn.dataset.buy);
+});
+
+let storeSig = '';
+function renderStore() {
+  if (openPanel !== 'store' || !myData || !W || !W.store) return;
+  const d = myData;
+  const sig = [d.cash, Math.round(d.hp)].join('|');
+  if (sig === storeSig) return;
+  storeSig = sig;
+  $('storeHp').textContent = `Health ${Math.round(d.hp)} / 100`;
+  const list = $('storeList');
+  list.replaceChildren();
+  for (const it of W.store.items) {
+    const full = !!it.heal && d.hp >= 100;
+    list.append(itemButton(`store:${it.id}`, it.name, full ? `${it.desc} You are not hurt.` : it.desc, `$${it.price}`, d.cash < it.price || full));
+  }
+}
+$('store').addEventListener('click', (e) => {
+  const btn = e.target.closest('button');
+  if (!btn || !btn.dataset.buy) return;
+  btn.blur();
+  socket.emit('storeBuy', btn.dataset.buy.slice(6), (res) => {
+    if (!res) return;
+    const msg = $('storeMsg');
+    msg.textContent = res.msg || '';
+    msg.classList.toggle('win', !!res.prize);
+    if (res.ok) {
+      if (res.ticket) { if (res.prize) sfx.slotWin(res.prize >= 100); else sfx.ui(); } else sfx.coin();
+      const m = me();
+      if (m && res.prize) fx.floater(m.x, 2.3, m.z, `+$${res.prize}`, 'cash', 1.8);
+    } else if (res.msg) flashPrompt(res.msg, '', 1500);
+    storeSig = '';
+  });
 });
 
 function sell() {
@@ -3127,7 +3224,7 @@ function updateCastMarker(m, t) {
   const hot = valid && hotAt(x, z);
   castInfo = { valid, hot, dock: onDock(x, z) };
   castMarker.visible = true;
-  const y = valid ? WATER_Y + wave(x, z, t) + 0.05 : onDock(x, z) ? DOCK_Y + 0.02 : 0.06;
+  const y = valid ? WATER_Y + wave(x, z, t) + 0.05 : onDock(x, z) ? dockH(x, z) + 0.02 : 0.06;
   castMarker.position.set(x, y, z);
   const s = 1 + Math.sin(t * 8) * 0.06;
   castMarker.scale.set(s, 1, s);
@@ -3330,7 +3427,7 @@ function updateView(v, dt, t) {
   } else {
     if (v.boatMesh) v.boatMesh.visible = false;
     const swimNow = isMe ? !!v.swimming : !!v.data.swim;
-    const restY = swimNow ? WATER_Y + wave(v.x, v.z, t) - 0.3 : onDock(v.x, v.z) ? DOCK_Y : 0;
+    const restY = swimNow ? WATER_Y + wave(v.x, v.z, t) - 0.3 : onDock(v.x, v.z) ? dockH(v.x, v.z) : 0;
     v.y += (restY - v.y) * k;
     v.swimLean = (v.swimLean || 0) + ((swimNow && aliveNow ? 1.1 : 0) - (v.swimLean || 0)) * k;
   }
@@ -3515,13 +3612,13 @@ function updateNpc(v, dt, t) {
   const combat = aliveNow && d.state === 'combat';
   v.group.rotation.y = v.rot;
   if (v.model) {
-    v.group.position.set(v.x, onDock(v.x, v.z) ? DOCK_Y : 0, v.z);
+    v.group.position.set(v.x, onDock(v.x, v.z) ? dockH(v.x, v.z) : 0, v.z);
     v.rifle.visible = combat;
     v.pivot.visible = aliveNow && d.role === 'angler' && !combat;
     v.speed = moving ? 2 : 0;
     animateModel(v, dt, moving, false, !aliveNow ? 'idle' : combat ? 'rifle' : d.role === 'angler' ? 'rod' : 'idle', aliveNow);
   } else {
-    const y = (onDock(v.x, v.z) ? DOCK_Y : 0) + (moving ? Math.abs(Math.sin(t * 10)) * 0.06 : 0) + (aliveNow ? 0 : 0.35);
+    const y = (onDock(v.x, v.z) ? dockH(v.x, v.z) : 0) + (moving ? Math.abs(Math.sin(t * 10)) * 0.06 : 0) + (aliveNow ? 0 : 0.35);
     v.group.position.set(v.x, y, v.z);
     v.group.rotation.z = aliveNow ? 0 : Math.PI / 2;
     v.rifle.visible = combat || (aliveNow && d.role !== 'angler');
@@ -3720,24 +3817,25 @@ function updateCamera(m, dt, t) {
 
 // ================================================================ HUD
 
+// two-tone: currentColor for the main shape, lower opacity for secondary parts, #163438 for cut-outs (matches the panel)
 const SLOT_ART = {
-  knife: '<path fill="currentColor" d="M4 20 16.5 3.5c1.6-.2 3.2.5 4 2-1 3.6-5.2 8.7-9.7 12.3z"/><path d="M4.5 19.5 8 16l1.6 1.6-3.5 3.5z" fill="#8A6A3A"/>',
-  fists: '<path fill="currentColor" d="M6.5 9.2c0-1 .8-1.7 1.7-1.7s1.7.7 1.7 1.7V8c0-1 .8-1.7 1.7-1.7s1.7.7 1.7 1.7v.3c.2-.8.9-1.3 1.7-1.3 1 0 1.7.8 1.7 1.7v.9c.3-.4.8-.6 1.3-.6.9 0 1.6.7 1.6 1.6v4.2c0 3.4-2.7 6.2-6.2 6.2h-.8c-3.1 0-5.7-2.3-6.1-5.4l-.5-3.6c-.1-.8.4-1.5 1.2-1.6.5-.1 1 .1 1.3.5z"/><path d="M9.9 9.3v2.4M13.3 8.9v2.8M16.7 9.6v2.2" stroke="#163438" stroke-width="1.1" stroke-linecap="round"/>',
-  rod: '<path d="M4 21 20 3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="8" cy="17" r="2.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M20 3v9" stroke="currentColor" stroke-width="1" stroke-dasharray="2 2"/>',
-  bait: '<path d="M4 15c3-6 6 2 9-3s5 1 7-2" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>',
-  rifle: '<path fill="currentColor" d="M2 13.5h9.2l1.6-2.4H22v2.6h-2.4l-1.4 2.6H8.2L6.6 13.5z"/>',
-  pistol: '<path fill="currentColor" d="M3 8.5h14.5l1.5 1.8H21v3h-4.2l-.9 4.2c-.2.8-.9 1.3-1.7 1.3h-2c-.9 0-1.6-.8-1.4-1.7l.6-3.8H3z"/>',
-  shotgun: '<path fill="currentColor" d="M1 12.2h13.5l2-1.4H22v2.8h-4.5l-1.4 2.4h-3.6L11.2 14.6H1z"/><path d="M3 10.6h10" stroke="currentColor" stroke-width="1.2"/>',
-  smg: '<path fill="currentColor" d="M2 9.5h14.5l1.5-1.4H22v3h-3l-1 1.4v5.6h-2.6v-4.6h-3.2l-.9 3.4H8.8l.8-3.4H2z"/>',
-  sniper: '<path fill="currentColor" d="M1 13.6h12l1.2-2.2h2.4v-1.2h-4.6V8.6h-2v1.6H8.4v1.4H1z"/><path fill="currentColor" d="M14 13.6h8.5v1.6h-8.5z"/>',
-  weed: '<path fill="currentColor" d="M12 22V12.2C8.6 11.4 6 8.6 6 5.2 9.4 5.4 11.4 7.6 12 10.6 12.6 7.6 14.6 5.4 18 5.2 18 8.6 15.4 11.4 12 12.2V22z"/>',
-  whiskey: '<path fill="currentColor" d="M9 2h6v1.6h-.8v3.2L16.4 10v12H7.6V10l2.2-3.2V3.6H9z"/>',
-  crank: '<path fill="currentColor" d="M13.2 2 5 13.2h6.2L10 22l9.2-12.4h-6z"/>',
-  bag: '<path fill="currentColor" d="M2 12.2c4.2-4.6 9.2-4.8 13.4-2.2 2.2 1.3 4.2 1.4 6.6-.6-1.4 3.4-3.8 5.6-7 5.8C10.6 15.4 6.2 14.2 2 12.2z"/><circle cx="16.2" cy="10.6" r="1" fill="#163438"/>',
+  knife: '<path fill="currentColor" d="M4 20 16.5 3.5c1.6-.2 3.2.5 4 2-1 3.6-5.2 8.7-9.7 12.3z"/><path d="M13.5 6.2 7 15" stroke="#163438" stroke-width=".9" stroke-linecap="round" opacity=".45"/><path d="M4.5 19.5 8 16l1.6 1.6-3.5 3.5z" fill="currentColor" opacity=".6"/>',
+  fists: '<g fill="currentColor"><rect x="5" y="9.5" width="14" height="10" rx="3.4"/><circle cx="7.9" cy="9.6" r="2.2"/><circle cx="10.9" cy="8.6" r="2.3"/><circle cx="14" cy="8.6" r="2.3"/><circle cx="16.9" cy="9.6" r="2.2"/><rect x="3" y="12.6" width="8.4" height="3.8" rx="1.9" opacity=".6"/></g><path d="M9.4 9v3M12.4 8.4v3.4M15.4 9v3" stroke="#163438" stroke-width="1" stroke-linecap="round"/><path d="M4.6 14.4h5.6" stroke="#163438" stroke-width="1" stroke-linecap="round"/>',
+  rod: '<path d="M3 21.5 20.5 3" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><path d="M20.5 3c1 4 1 8 .2 11.6" fill="none" stroke="currentColor" stroke-width=".9" opacity=".7"/><circle cx="8.2" cy="16.4" r="3" fill="currentColor" opacity=".35"/><circle cx="8.2" cy="16.4" r="3" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="8.2" cy="16.4" r="1" fill="currentColor"/><path d="M8.2 19.4v2.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="20.6" cy="16.4" r="1.9" fill="currentColor"/>',
+  bait: '<path d="M3 16c2.6-5.4 5.4 1.8 8-2.6s4.8 1.6 7-2.4l2.4-2.4" fill="none" stroke="currentColor" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M6.6 11.4l1.6 3.2M10.8 12.8l.6 3.4M15 11.4l1.6 2.8" stroke="#163438" stroke-width="1" stroke-linecap="round" opacity=".7"/><circle cx="20.2" cy="8.2" r=".9" fill="#163438"/>',
+  pistol: '<g fill="currentColor"><rect x="3" y="6.4" width="17.5" height="4.4" rx="1.1"/><path d="M4.6 10.8h9.6v1.7h-3.3l-1 6.3c-.1.8-.8 1.4-1.6 1.4H6.4c-1 0-1.7-.9-1.5-1.8z"/><rect x="4.2" y="5.2" width="1.8" height="1.2" opacity=".6"/><rect x="18" y="5.2" width="1.6" height="1.2" opacity=".6"/></g><path d="M11 12.6v.9c0 .9.7 1.6 1.6 1.6h2" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M6.6 7.4v2.4M8.2 7.4v2.4M9.8 7.4v2.4" stroke="#163438" stroke-width=".9" stroke-linecap="round"/>',
+  glock: '<g fill="currentColor"><rect x="3" y="6.2" width="17.5" height="4.4" rx="1.4"/><path d="M4.4 10.6h9.6v1.7h-3.3l-.9 6c-.1.8-.7 1.3-1.5 1.3H6.4c-.9 0-1.6-.8-1.4-1.7z"/><rect x="4.4" y="18.6" width="6.6" height="3" rx=".9"/><rect x="13.6" y="10.8" width="5.4" height="1.8" rx=".5" opacity=".6"/></g><path d="M11 12.4v.9c0 .9.7 1.6 1.6 1.6h1.4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M14 7.4h4M6.4 7.4v2.4M8 7.4v2.4" stroke="#163438" stroke-width=".9" stroke-linecap="round"/>',
+  smg: '<g fill="currentColor"><rect x="4" y="7" width="13" height="5" rx="1.2"/><rect x="16.6" y="8.2" width="5.6" height="1.9" rx=".6"/><rect x="8.4" y="11.6" width="3.4" height="9.6" rx=".8"/><rect x="13.4" y="11.6" width="2.4" height="4.4" rx="1" opacity=".6"/><rect x="5" y="5.6" width="6" height="1.5" rx=".5" opacity=".6"/></g><path d="M4 8.6H1.6v3.6H4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M6 9.5h5.6" stroke="#163438" stroke-width=".9" stroke-linecap="round"/>',
+  arp: '<g fill="currentColor"><rect x="3.6" y="7.4" width="10.4" height="3.4" rx=".9"/><rect x="14" y="7.2" width="6.2" height="3.8" rx=".9" opacity=".6"/><rect x="20" y="8.3" width="2.6" height="1.6" rx=".4"/><rect x="1.4" y="7.6" width="2.4" height="3.2" rx=".6" opacity=".6"/><path d="M4.2 10.8h7.6l-.3 1.4H9.2l-1 5.6c-.1.6-.6 1-1.2 1H6c-.7 0-1.2-.6-1.1-1.3z"/><path d="M10.4 12h3.2l.9 7.8h-3.6z"/><rect x="6.2" y="5.8" width="4.4" height="1.6" rx=".4" opacity=".6"/></g><path d="M15.4 8.4h3.4M15.4 9.9h3.4" stroke="#163438" stroke-width=".8" stroke-linecap="round"/>',
+  draco: '<g fill="currentColor"><rect x="4" y="8.2" width="10" height="3.4" rx=".9"/><rect x="14" y="8.6" width="5.4" height="3" rx=".9" opacity=".6"/><rect x="13" y="6.8" width="7" height="1.1" rx=".5" opacity=".6"/><rect x="19.4" y="9.3" width="3.4" height="1.4" rx=".4"/><path d="M4.4 11.6h4.4l-.9 5.8c-.1.6-.6 1-1.2 1h-1c-.7 0-1.2-.6-1.1-1.3z"/><path d="M9.6 11.6h3.6c.3 3.2 1.6 5.6 3.9 6.8l-.6 1.7c-3.4-1-5.9-4.1-6.9-8.5z"/></g><path d="M5.6 9.9h6.4" stroke="#163438" stroke-width=".9" stroke-linecap="round"/>',
+  shotgun: '<g fill="currentColor"><rect x="7" y="8.4" width="15.6" height="1.9" rx=".6"/><rect x="7" y="10.6" width="13.4" height="1.4" rx=".6" opacity=".6"/><rect x="12.2" y="10.2" width="5.2" height="3" rx="1.2"/><rect x="5.4" y="7.8" width="5.6" height="4.6" rx=".9"/><path d="M1 9.2c0-.5.4-.9.9-1l3.6-.5v5.2L3 15.8c-.6.7-1.7.5-2-.4z"/></g><path d="M8.4 12.6v.9c0 .8.6 1.4 1.4 1.4h1" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>',
+  rifle: '<g fill="currentColor"><rect x="9" y="8.4" width="13.6" height="1.6" rx=".5"/><rect x="6" y="7.8" width="5.6" height="3.4" rx=".8"/><path d="M11.4 10h7.6v1.6h-7.6z" opacity=".6"/><path d="M1 9.4l5-.9v3.7l-1.2 3.3c-.2.5-.6.7-1.1.6L1.6 15c-.4-.1-.6-.4-.6-.8z"/><rect x="7.4" y="11.2" width="2.6" height="2.8" rx=".5" opacity=".6"/><rect x="19.4" y="7.3" width="1.4" height="1.1"/></g><path d="M11.6 12v.8c0 .8-.6 1.4-1.4 1.4" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><circle cx="8.6" cy="9.5" r=".5" fill="#163438"/>',
+  sniper: '<g fill="currentColor"><rect x="10" y="9.8" width="12.4" height="1.4" rx=".5"/><rect x="21" y="9.2" width="1.8" height="2.6" rx=".4"/><rect x="5.6" y="9.4" width="6" height="3.2" rx=".8"/><rect x="7.4" y="5.4" width="9.4" height="2.4" rx="1.2"/><rect x="6.8" y="5.8" width="1.8" height="1.6" rx=".4"/><rect x="15.6" y="5.6" width="2.4" height="2" rx=".5"/><path d="M1 10.2l4.6-.8v3.2l-1 3.2c-.2.5-.6.7-1.1.6L1.6 15.6c-.4-.1-.6-.4-.6-.8z"/><rect x="7.6" y="12.4" width="2.8" height="2.8" rx=".5" opacity=".6"/></g><path d="M9 7.8v1.6M14 7.8v1.6M17 11.2l-1.8 5.4M19 11.2l1.8 5.4" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" opacity=".8"/>',
+  weed: '<g fill="currentColor"><path d="M12 14c-2.3 -4.34 -2.3 -9.3 0 -12.4c2.3 3.1 2.3 8.06 0 12.4z" transform="rotate(0 12 14)"/><path d="M12 14c-2 -3.36 -2 -7.199999999999999 0 -9.6c2 2.4 2 6.24 0 9.6z" transform="rotate(-36 12 14)"/><path d="M12 14c-2 -3.36 -2 -7.199999999999999 0 -9.6c2 2.4 2 6.24 0 9.6z" transform="rotate(36 12 14)"/><path d="M12 14c-1.6 -2.4499999999999997 -1.6 -5.25 0 -7c1.6 1.75 1.6 4.55 0 7z" transform="rotate(-68 12 14)"/><path d="M12 14c-1.6 -2.4499999999999997 -1.6 -5.25 0 -7c1.6 1.75 1.6 4.55 0 7z" transform="rotate(68 12 14)"/></g><path d="M12 13.5v8.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M12 12.5V4" stroke="#163438" stroke-width=".8" stroke-linecap="round" opacity=".55"/>',
+  whiskey: '<g fill="currentColor"><rect x="9.6" y="1.8" width="4.8" height="2.2" rx=".7"/><path d="M10.2 4h3.6v3.2c0 .7.4 1.2 1.2 2.2.6.8.9 1.6.9 2.6v8.6c0 .9-.7 1.6-1.6 1.6H9.7c-.9 0-1.6-.7-1.6-1.6v-8.6c0-1 .3-1.8.9-2.6.8-1 1.2-1.5 1.2-2.2z"/></g><rect x="8.9" y="12.4" width="6.2" height="5.2" rx=".6" fill="#163438" opacity=".65"/><path d="M10.4 14.2h3.2M10.4 15.9h2.2" stroke="currentColor" stroke-width=".9" stroke-linecap="round"/>',
+  crank: '<path fill="currentColor" d="M14 1.6 4.6 13.4h6L9 22.4l10.4-12.6h-6.6z"/><path d="M13 5.6 8.6 11.8" stroke="#163438" stroke-width=".9" stroke-linecap="round" opacity=".6"/>',
+  bag: '<g fill="currentColor"><path d="M1.6 12.2C4.6 7.6 9.4 6.6 14 8.4l3.2-3.2v3.4l.1.2 4.6 3.6-4.6 3.8v3.2L14 15.6c-4.6 1.8-9.6.8-12.4-3.4z"/></g><path d="M14.4 8.6c1.2 2 1.2 4.6 0 6.8" fill="none" stroke="#163438" stroke-width="1" stroke-linecap="round" opacity=".6"/><circle cx="5.6" cy="11" r="1" fill="#163438"/><path d="M8.4 12.2c1.2.8 2.6 1 3.8.6" fill="none" stroke="#163438" stroke-width=".8" stroke-linecap="round" opacity=".5"/>',
 };
-SLOT_ART.glock = SLOT_ART.pistol;
-SLOT_ART.arp = SLOT_ART.smg;
-SLOT_ART.draco = SLOT_ART.rifle;
 let hotbarSig = '';
 function renderHotbar() {
   const d = myData;
@@ -3862,7 +3960,8 @@ function renderVitals() {
   const golden = isGoldenHour(clockHour);
   const wxName = { cloudy: 'cloudy', rain: 'raining', storm: 'thunderstorm' }[weatherKind];
   const clockText = fmtHour(clockHour) + (golden ? ', golden hour' : night ? ', night' : '') + (wxName ? `, ${wxName}` : '');
-  const status = d.alive === false ? '' : d.safe ? 'Safe in camp. No shooting.' : '';
+  const buffText = d.buffs ? Object.entries(d.buffs).filter(([, sec]) => sec > 0).map(([k, sec]) => `${k === 'coffee' ? 'Coffee' : 'Energy'} ${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`).join(' · ') : '';
+  const status = d.alive === false ? '' : [d.safe ? 'Safe in camp. No shooting.' : '', buffText].filter(Boolean).join('  ');
   const questSig = (d.quests || []).map((q) => `${q.type}${q.n}/${q.goal}`).join(',');
   const sig = [clockText, d.hp, d.cash, d.bag.n, d.bag.value, status, d.xp, d.level, questSig].join('|');
   if (sig === vitalsSig) return;
@@ -3952,6 +4051,7 @@ function drawMinimap(t) {
     if (i) g.lineTo(px, pz); else g.moveTo(px, pz);
   });
   g.fill();
+  drawPlaces(g, map, k, false);
   g.fillStyle = 'rgba(255, 255, 255, .07)';
   [W.camp.dealer, W.camp.shack, W.camp.fire].forEach((s) => {
     const [x, z] = map(s.x, s.z);
@@ -4034,10 +4134,11 @@ function promptFor() {
   if (phase === 'idle' && m) {
     if (near(m, W.camp.dealer)) return [myData.bag.n ? (isTouch ? `Tap Moss to sell ${myData.bag.n} fish for $${myData.bag.value}` : `E to sell ${myData.bag.n} fish for $${myData.bag.value} and shop`) : (isTouch ? 'Tap Moss to trade' : 'E to trade with Moss'), 'good'];
     if (near(m, W.camp.shack)) return [isTouch ? 'Tap Shack to sit down' : 'E to sit down at the shack', ''];
+    if (nearStore(m)) return [isTouch ? 'Tap Store to shop' : `E to shop at ${W.store.name}`, 'good'];
     if (myData.bag.n >= (myData.bagMax || W.bagMax)) return [isTouch ? 'Your bag is full. Sell to Moss or on your phone.' : 'Your bag is full. Sell to Moss, or press P and use the Market app.', ''];
     if (boating() && nearLandEdge(m)) return [isTouch ? 'Tap Use to step ashore' : 'E to step ashore', ''];
     if (!boating() && myData.ownsBoat && nearWaterEdge(m)) return [isTouch ? 'Tap Use to launch your boat' : 'E to launch your boat', ''];
-    if (!boating() && !myData.ownsBoat && onDock(m.x, m.z) && m.z < W.dock.minZ + 5) return [isTouch ? `Tap Use to rent a boat for $${W.boat.rent}` : `E to rent a boat for $${W.boat.rent}`, ''];
+    if (!boating() && !myData.ownsBoat && onMainDock(m.x, m.z) && m.z < W.dock.minZ + 5) return [isTouch ? `Tap Use to rent a boat for $${W.boat.rent}` : `E to rent a boat for $${W.boat.rent}`, ''];
   }
   return ['', ''];
 }
@@ -4129,6 +4230,7 @@ function updateHud(dt, t) {
   renderHotbar();
   renderDerby();
   if (openPanel === 'shop') renderShop();
+  if (openPanel === 'store') renderStore();
   if (openPanel === 'inventory') renderInventory();
   if (openPanel === 'phone') { renderPhone(); if (phoneApp === 'map') drawBigMap(); }
   if (openPanel === 'shack') renderShack();
@@ -4140,15 +4242,16 @@ function updateHud(dt, t) {
     haze.classList.toggle('crank', !!h.crank);
     const m = me();
     if (openPanel === 'shop' && !near(m, W.camp.dealer)) closePanels();
+    if (openPanel === 'store' && !nearStore(m)) closePanels();
     if (openPanel === 'shack' && !near(m, W.camp.shack) && !(table.active && table.status === 'play')) closePanels();
   }
   if (touch) {
     const m = me();
-    let useLabel = m && phase === 'idle' ? (near(m, W.camp.dealer) ? 'Moss' : near(m, W.camp.shack) ? 'Shack' : null) : null;
+    let useLabel = m && phase === 'idle' ? (near(m, W.camp.dealer) ? 'Moss' : near(m, W.camp.shack) ? 'Shack' : nearStore(m) ? 'Store' : null) : null;
     if (m && phase === 'idle' && !useLabel && d) {
       if (d.boat && nearLandEdge(m)) useLabel = 'Ashore';
       else if (!d.boat && d.ownsBoat && nearWaterEdge(m)) useLabel = 'Boat';
-      else if (!d.boat && onDock(m.x, m.z) && m.z < W.dock.minZ + 5) useLabel = 'Rent boat';
+      else if (!d.boat && onMainDock(m.x, m.z) && m.z < W.dock.minZ + 5) useLabel = 'Rent boat';
     }
     const fishLabel = { idle: 'Cast', charging: 'Let go', casting: 'Cast', out: 'Hook', bite: 'Hook', reeling: 'Reel' }[phase] || 'Cast';
     const attackLabel = phase !== 'idle' ? null : held === 'fists' ? 'Punch' : held === 'knife' ? 'Slash' : isGun(held) && ownsGun(held) ? 'Shoot' : null;
