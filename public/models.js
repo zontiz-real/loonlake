@@ -531,7 +531,7 @@ export async function loadModels(onProgress) {
       for (const l of liquid) {
         const glass = new THREE.Mesh(l.geometry, new THREE.MeshStandardMaterial({ color: 0xDDEEFF, transparent: true, opacity: 0.18, roughness: 0.1, depthWrite: false }));
         glass.userData.shared = true;
-        glass.scale.setScalar(1.045);
+        glass.scale.copy(l.scale).multiplyScalar(1.045);
         glass.position.copy(l.position);
         glass.quaternion.copy(l.quaternion);
         l.parent.add(glass);
