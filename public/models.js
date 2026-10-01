@@ -179,9 +179,9 @@ export async function loadModels(onProgress) {
         current = a;
         this.punchUntil = now + (heavy ? 0.62 : 0.36);
       },
-      // pose is idle, rod, rifle, drug, or fists; dirs are in the avatar's own space (facing +z)
+      // pose is idle, rod, rifle, drug, or fists (or an arm-direction object, for timed animations); dirs are in the avatar's own space (facing +z)
       aimArms(pose, groupQuat) {
-        const dirs = ARM_POSES[pose];
+        const dirs = typeof pose === 'string' ? ARM_POSES[pose] : pose;
         if (!dirs || !bones.upR) return;
         const d = (v) => tmpA.set(v[0], v[1], v[2]).normalize().applyQuaternion(groupQuat).clone();
         root.updateMatrixWorld(true);
@@ -456,6 +456,80 @@ export async function loadModels(onProgress) {
     return copy;
   };
   kit.gunSpecs = GUN_SPECS;
+
+  // ---------- drug props (joint, whiskey bottle, powder baggie): small, so they load with the game
+  // axis: the file's long axis and which way is "up" (the ember, the neck, the zip); h is the height in metres
+  // and grip is how far up the item the hand holds it
+  const ITEM_SPECS = {
+    weed: { file: 'drug_joint', rotZ: Math.PI / 2, h: 0.15, grip: 0.22 },
+    whiskey: { file: 'drug_whiskey', h: 0.3, grip: 0.4 },
+    crank: { file: 'drug_baggie', h: 0.17, grip: 0.5 },
+  };
+  const itemTemplates = {};
+  function prepItem(name, scene) {
+    const spec = ITEM_SPECS[name];
+    scene.traverse((o) => {
+      if (!o.isMesh) return;
+      o.castShadow = false;
+      o.userData.shared = true;
+      (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => {
+        if (m.emissive && !m.emissiveMap) m.emissive.setRGB(0, 0, 0);
+        if ('metalness' in m) { m.metalness = Math.min(m.metalness, 0.2); m.roughness = Math.max(m.roughness, 0.4); }
+        if (m.transparent) m.depthWrite = false;
+      });
+    });
+    const wrap = new THREE.Group();
+    if (spec.rotZ) wrap.rotation.z = spec.rotZ;
+    wrap.add(scene);
+    const holder = new THREE.Group();
+    holder.add(wrap);
+    holder.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(holder);
+    const size = box.getSize(new THREE.Vector3());
+    const s = spec.h / size.y;
+    wrap.scale.setScalar(s);
+    wrap.position.set(-(box.min.x + size.x / 2) * s, -(box.min.y + spec.grip * size.y) * s, -(box.min.z + size.z / 2) * s);
+    holder.userData.top = (1 - spec.grip) * spec.h;
+    holder.userData.bottom = -spec.grip * spec.h;
+    if (name === 'weed') {
+      // a glowing tip, brightened while inhaling (see paintEmber in client.js)
+      const ember = new THREE.Mesh(new THREE.SphereGeometry(0.011, 8, 6), new THREE.MeshBasicMaterial({ color: 0xFF5A1A, transparent: true, opacity: 0.9 }));
+      ember.position.y = holder.userData.top;
+      ember.name = 'ember';
+      holder.add(ember);
+      holder.userData.ember = ember;
+    }
+    if (name === 'whiskey') {
+      // the file's glass shell was dropped to save triangles; a faint copy of the liquid stands in for it
+      const liquid = [];
+      scene.traverse((o) => { if (o.isMesh && o.material && o.material.name === 'liquid') liquid.push(o); });
+      for (const l of liquid) {
+        const glass = new THREE.Mesh(l.geometry, new THREE.MeshStandardMaterial({ color: 0xDDEEFF, transparent: true, opacity: 0.18, roughness: 0.1, depthWrite: false }));
+        glass.userData.shared = true;
+        glass.scale.setScalar(1.045);
+        glass.position.copy(l.position);
+        glass.quaternion.copy(l.quaternion);
+        l.parent.add(glass);
+      }
+    }
+    return holder;
+  }
+  for (const name of Object.keys(ITEM_SPECS)) {
+    loader.loadAsync(`/models/${ITEM_SPECS[name].file}.glb`)
+      .then((gltf) => { itemTemplates[name] = prepItem(name, gltf.scene); })
+      .catch((e) => console.warn('item model failed', name, e));
+  }
+  kit.itemReady = (name) => !!itemTemplates[name];
+  // a normalized copy (upright, held point at the origin), or null until the file has loaded
+  kit.itemModel = (name) => {
+    const t = itemTemplates[name];
+    if (!t) return null;
+    const c = t.clone(true);
+    c.userData = { ...t.userData };
+    const e = c.getObjectByName('ember');
+    if (e) { e.material = e.material.clone(); c.userData.ember = e; }
+    return c;
+  };
 
   return kit;
 }

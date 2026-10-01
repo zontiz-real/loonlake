@@ -231,7 +231,7 @@ let aimRot = 0;
 let castInfo = { valid: false, hot: false };
 let camLift = 0;
 const cam = { yaw: 0, pitch: 0.34, dist: TUNING.camDist, aim: 0, shake: 0 };
-if (window.__loon) Object.assign(window.__loon, { cam, vel, weather, playerViews: () => views.values(), fishState: () => ({ phase, power, reel: reel ? { tension: reel.tension, progress: reel.progress, dir: reel.dir } : null }), phys: () => ({ jumpY, jumpV, grounded }), fishViews: () => fishViews, makeFish, species: () => speciesById, hold: (h) => { held = h; hotbarSig = ''; }, data: () => myData, me: () => views.get(myId), npcViews: () => npcViews, ragStep: (id, n) => { const v = npcViews.get(id) || views.get(id); for (let i = 0; v && v.rag && i < n; i++) stepRagdoll(v, 1 / 60, audioT); } });
+if (window.__loon) Object.assign(window.__loon, { useDrug: (n) => useDrug(n), useFreeze: (n, p) => { const v = me(); if (!v) return; if (n == null) { v.useFreeze = null; v.useAnim = null; } else { v.useAnim = { name: n, t0: audioT }; v.useFreeze = p; } }, cam, vel, weather, playerViews: () => views.values(), fishState: () => ({ phase, power, reel: reel ? { tension: reel.tension, progress: reel.progress, dir: reel.dir } : null }), phys: () => ({ jumpY, jumpV, grounded }), fishViews: () => fishViews, makeFish, species: () => speciesById, hold: (h) => { held = h; hotbarSig = ''; }, data: () => myData, me: () => views.get(myId), npcViews: () => npcViews, ragStep: (id, n) => { const v = npcViews.get(id) || views.get(id); for (let i = 0; v && v.rag && i < n; i++) stepRagdoll(v, 1 / 60, audioT); } });
 let pointerLocked = false;
 // automated browsers can't hold pointer lock (it also blocks screenshots), so they use drag-to-look
 let noLock = isTouch || !!navigator.webdriver;
@@ -262,6 +262,8 @@ function effGun(id) {
   if (a.drum) { mag = Math.round(mag * A.drum.magMul); reload += A.drum.reloadAdd; }
   if (a.switch) { cooldown = Math.round(cooldown * A.switch.cooldownMul); spread *= A.switch.spreadMul; auto = true; }
   if (a.laser) spread *= A.laser.spreadMul;
+  const dr = myData && myData.drug;
+  if (dr) { cooldown = Math.round(cooldown / dr.fire); reload = Math.round(reload * dr.reload); }
   const level = (myData && myData.glvl && myData.glvl[id]) || 0;
   return { ...base, mag, reload, cooldown, spread, auto, level, damage: base.damage * W.gunLevels.mul[level] };
 }
@@ -453,7 +455,7 @@ function animateModel(v, dt, moving, fast, pose, aliveNow, sit) {
   } else ch.play('idle');
   ch.mixer.update(dt);
   v.group.updateMatrixWorld(true);
-  if (aliveNow && audioT >= ch.punchUntil && pose !== 'idle') ch.aimArms(pose, v.group.quaternion);
+  if (aliveNow && audioT >= ch.punchUntil && pose !== 'idle') ch.aimArms(v.useDirs || pose, v.group.quaternion);
   if (aliveNow && sit) ch.sit(v.group.quaternion);
   v.group.updateMatrixWorld(true);
   ch.handWorld(tmpHand);
@@ -952,6 +954,13 @@ function makePickupMesh(it) {
     g.add(mesh);
     return g;
   }
+  if (kit && kit.itemReady(it.kind)) {
+    const g = new THREE.Group();
+    const m = kit.itemModel(it.kind);
+    m.scale.setScalar({ weed: 2.4, whiskey: 1.2, crank: 2 }[it.kind] || 1);
+    g.add(m);
+    return g;
+  }
   if (it.kind === 'weed') mesh = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 6), new THREE.MeshStandardMaterial({ color: 0x6DBF67 }));
   else if (it.kind === 'whiskey') mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 0.32, 8), new THREE.MeshStandardMaterial({ color: 0x8A4B1F }));
   else if (it.kind === 'crank') mesh = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.08, 0.22), new THREE.MeshStandardMaterial({ color: 0xF4F1EA }));
@@ -1298,6 +1307,22 @@ socket.on('knock', (k) => {
   m.x = m.tx = k.x;
   m.z = m.tz = k.z;
   cam.shake += k.heavy ? 0.45 : 0.2;
+});
+
+socket.on('drugUse', (e) => {
+  if (!e || !DRUG_ANIM[e.name]) return;
+  const v = views.get(e.id);
+  if (v) { v.useAnim = { name: e.name, t0: audioT }; v.smokeAcc = 0; }
+  const m = me();
+  const d = v && m ? Math.hypot(v.x - m.x, v.z - m.z) : 0;
+  const vol = e.id === myId ? 1 : clamp(1 - d / 25, 0, 1);
+  if (vol > 0.05) sfx.drug(e.name, vol);
+});
+
+socket.on('drugEnd', (e) => {
+  if (!e || !W || !W.drugs[e.name]) return;
+  if (e.crash) sfx.crash(); else sfx.drugEnd();
+  flashPrompt(`${W.drugs[e.name].name} wore off.${e.crash ? ` Crash: ${e.crash}s.` : ''}`, '', 1800);
 });
 
 socket.on('hurt', (h) => {
@@ -2812,11 +2837,9 @@ function showHitmark(kill, crit) {
 function useDrug(name) {
   if (!myId || !alive()) return;
   socket.emit('useDrug', name, (res) => {
-    if (res && res.ok) {
-      sfx.drug(name);
-      const m = me();
-      if (m) fx.puff(m.x, 1.9, m.z, name === 'weed' ? 0x9FC68A : name === 'whiskey' ? 0xC49A6A : 0xEEEEEE, 6);
-    } else if (res && res.msg) flashPrompt(res.msg, '', 1400);
+    // the sound and animation come from the server's drugUse event, so everyone sees the same thing
+    if (res && res.ok) { if (res.od) flashPrompt('Too much, too fast. That hurt.', '', 2200); }
+    else if (res && res.msg) flashPrompt(res.msg, '', 1400);
   });
 }
 
@@ -3144,6 +3167,40 @@ function startPunch(v, side, heavy) {
   v.punchHeavy = !!heavy;
 }
 
+// ---------- drug use animations (realistic avatars). Arm directions are in the avatar's own space (facing +z, its right side is -x)
+const R_REST = [[-0.2, -0.85, 0.45], [0.15, 0.75, 0.65]];
+const R_MOUTH = [[-0.1, -0.7, 0.7], [0.5, 0.8, -0.2]];
+const R_LOW = [[-0.15, -0.8, 0.55], [0.3, 0.75, 0.25]];
+// ms matches the length of each sound in sfx.drug; arm and tilt are keyframes [progress 0..1, value]
+const DRUG_ANIM = {
+  weed: { ms: 3200, arm: [[0, R_REST], [0.12, R_MOUTH], [0.62, R_MOUTH], [0.82, R_LOW], [0.95, R_REST]], tilt: [[0, 0.7], [0.12, 1.3], [0.62, 1.3], [0.92, 0.7]] },
+  whiskey: { ms: 2900, arm: [[0, R_REST], [0.14, R_MOUTH], [0.74, R_MOUTH], [0.88, R_REST]], tilt: [[0, 0], [0.14, -0.5], [0.22, -1.2], [0.7, -1.2], [0.8, -0.4], [0.9, 0]], gulps: [0.26, 0.41, 0.57] },
+  crank: { ms: 2200, arm: [[0, R_REST], [0.15, R_MOUTH], [0.6, R_MOUTH], [0.8, R_REST]], tilt: [[0, 0.2], [0.15, -1.0], [0.6, -1.0], [0.82, 0.2]] },
+};
+const DRUG_REST_TILT = { weed: 0.7, whiskey: 0, crank: 0.2 };
+const smooth = (x) => x * x * (3 - 2 * x);
+function keyAt(keys, p, mix) {
+  if (p <= keys[0][0]) return keys[0][1];
+  for (let i = 1; i < keys.length; i++) {
+    if (p <= keys[i][0]) return mix(keys[i - 1][1], keys[i][1], smooth((p - keys[i - 1][0]) / (keys[i][0] - keys[i - 1][0])));
+  }
+  return keys[keys.length - 1][1];
+}
+const mixArm = (a, b, k) => a.map((pair, i) => pair.map((v, j) => v + (b[i][j] - v) * k));
+const mixNum = (a, b, k) => a + (b - a) * k;
+// swap the plain stand-in in an avatar's hand for the real model once it has loaded
+function ensureHandItem(v, name) {
+  if (!kit || (v.itemSwap && v.itemSwap[name]) || !kit.itemReady(name)) return;
+  const item = kit.itemModel(name);
+  if (!item) return;
+  item.name = name;
+  const old = v.hand.getObjectByName(name);
+  if (old) v.hand.remove(old);
+  v.hand.add(item);
+  v.itemSwap = { ...(v.itemSwap || {}), [name]: item };
+}
+const mouthTmp = new THREE.Vector3();
+
 function paintHigh(v, h) {
   const on = !!(h && (h.weed || h.whiskey || h.crank));
   v.highMark.visible = on && v.data.alive !== false;
@@ -3197,8 +3254,15 @@ function updateView(v, dt, t) {
   v.group.rotation.y = v.rot;
   v.group.rotation.z = aliveNow ? 0 : Math.PI / 2;
   const state = isMe ? { charging: 'charging', casting: 'waiting', out: 'waiting', bite: 'bite', reeling: 'reeling' }[phase] || 'idle' : v.state;
-  const inHand = isMe ? held : (v.data.held || 'rod');
+  let inHand = isMe ? held : (v.data.held || 'rod');
   const fishing = state !== 'idle';
+  // a drug being used: show that item, whatever the player had out, until the animation ends
+  const ua = v.useAnim;
+  let uaP = -1;
+  if (ua) {
+    uaP = v.useFreeze != null ? v.useFreeze : (audioT - ua.t0) / DRUG_ANIM[ua.name].ms; // useFreeze is a test hook
+    if (uaP >= 1 || fishing || !aliveNow) { v.useAnim = null; uaP = -1; } else inHand = ua.name;
+  }
   v.pivot.visible = aliveNow && (fishing || inHand === 'rod') && !(emNow && !fishing);
   const gunHeld = isGun(inHand) && !!(v.data.guns && v.data.guns[inHand]);
   v.rifle.visible = aliveNow && !fishing && gunHeld;
@@ -3216,7 +3280,39 @@ function updateView(v, dt, t) {
   }
   const drug = !fishing && aliveNow && (inHand === 'weed' || inHand === 'whiskey' || inHand === 'crank');
   v.hand.visible = drug;
+  if (drug) ensureHandItem(v, inHand);
   for (const child of v.hand.children) child.visible = drug && child.name === inHand;
+  v.useDirs = null;
+  let useTilt = DRUG_REST_TILT[inHand] || 0;
+  if (uaP >= 0) {
+    const A = DRUG_ANIM[ua.name];
+    v.useDirs = { R: keyAt(A.arm, uaP, mixArm) };
+    useTilt = keyAt(A.tilt, uaP, mixNum);
+    if (A.gulps) for (const g of A.gulps) useTilt -= Math.max(0, 1 - Math.abs(uaP - g) / 0.04) * 0.3; // a tip back for each swallow
+    if (ua.name === 'crank' && uaP > 0.62 && uaP < 0.85) v.useDirs.R = mixArm(v.useDirs.R, R_MOUTH, 0.1 * Math.sin(audioT * 55));
+  }
+  v.hand.rotation.set(useTilt, 0, 0);
+  // the joint's tip: dark until lit, glowing while inhaling, with a thin wisp after
+  const ember = v.itemSwap && v.itemSwap.weed && v.itemSwap.weed.userData.ember;
+  if (ember) {
+    const lit = inHand === 'weed' && uaP > 0.08;
+    ember.visible = lit;
+    if (lit) {
+      const pull = uaP > 0.14 && uaP < 0.62 ? 1 + (uaP - 0.14) * 2.4 : 1;
+      ember.scale.setScalar(pull);
+      ember.material.color.setRGB(1, 0.35 + 0.25 * (pull - 1), 0.1);
+    }
+  }
+  // exhaled smoke leaves the mouth while the arm comes down
+  if (ua && ua.name === 'weed' && uaP > 0.62 && uaP < 0.9) {
+    v.smokeAcc = (v.smokeAcc || 0) + dt;
+    if (v.smokeAcc > 0.035) {
+      v.smokeAcc = 0;
+      const fx0 = Math.sin(v.rot);
+      const fz0 = Math.cos(v.rot);
+      fx.smoke(v.x + fx0 * 0.14, v.y + 1.58, v.z + fz0 * 0.14, fx0 * 0.8, fz0 * 0.8, 2, 1);
+    }
+  }
   v.label.visible = !isMe && aliveNow;
   const pose = !aliveNow || (emNow && !fishing) ? 'idle' : fishing || inHand === 'rod' ? 'rod' : gunHeld ? 'rifle' : inHand === 'fists' ? 'fists' : drug ? 'drug' : 'idle';
   if (v.model) {
@@ -3262,6 +3358,16 @@ function updateView(v, dt, t) {
   v.pivot.rotation.x += (tilt - v.pivot.rotation.x) * Math.min(1, dt * (isMe ? 18 : 12));
   v.pivot.rotation.z = isMe && reel ? -reel.side * 0.3 : 0;
   paintHigh(v, v.data.high);
+  // ambient signs of what someone is on
+  const hh = v.data.high;
+  if (hh && aliveNow && (hh.weed || hh.crank)) {
+    v.highAcc = (v.highAcc || 0) + dt;
+    if (v.highAcc > (hh.weed ? 0.7 : 0.35)) {
+      v.highAcc = 0;
+      if (hh.weed) fx.smoke(v.x, v.y + 2.0, v.z, 0, 0, 1, 0.6);
+      if (hh.crank) fx.sparkle(v.x, v.y + 1.9, v.z, 0xF4F1EA, 2, 0.8);
+    }
+  }
   const hp = isMe && myData ? myData.hp : v.data.hp;
   v.hp.sprite.visible = aliveNow && hp < 100 && hp > 0;
   if (v.hp.sprite.visible) drawHp(v.hp, hp);
@@ -3512,8 +3618,10 @@ function updateCamera(m, dt, t) {
   if (camera.position.y < floor) camera.position.y = floor;
   const high = (myData && myData.high) || {};
   let sway = 0;
-  if (high.weed) sway += 0.15;
-  if (high.whiskey) sway += 0.32;
+  const dr = myData && myData.drug;
+  if (dr) sway = dr.sway;
+  else { if (high.weed) sway += 0.15; if (high.whiskey) sway += 0.32; }
+  if (dr && dr.shake) cam.shake = Math.max(cam.shake, dr.shake * 0.12);
   if (sway && !reducedMotion) {
     camera.position.x += Math.sin(t * 1.35) * sway * 1.6;
     camera.position.y += Math.cos(t * 0.85) * sway * 0.7;
@@ -3559,6 +3667,36 @@ SLOT_ART.m4a1 = SLOT_ART.rifle;
 SLOT_ART.m60 = SLOT_ART.sniper;
 SLOT_ART.minigun = SLOT_ART.shotgun;
 let hotbarSig = '';
+// the buff bar: one chip per active drug (icon, stacks, time left), plus any combo or crash line
+let buffSig = '';
+function renderBuffs() {
+  const el = $('buffs');
+  const d = myData;
+  if (!d || !W || !d.drug || !alive()) { if (buffSig) { el.replaceChildren(); el.hidden = true; buffSig = ''; } return; }
+  const dr = d.drug;
+  const rows = DRUGS.filter((n) => d.high[n]).map((n) => `${n}:${dr.stack[n]}:${d.highLeft[n]}`);
+  const sig = `${rows.join(',')}|${dr.combos.join('+')}|${dr.crash ? dr.crash.kind + dr.crash.left : ''}`;
+  if (sig === buffSig) return;
+  buffSig = sig;
+  el.hidden = !rows.length && !dr.crash;
+  el.replaceChildren();
+  for (const n of DRUGS) {
+    if (!d.high[n]) continue;
+    const info = W.drugs[n];
+    const chip = document.createElement('div');
+    chip.className = `buff ${n}`;
+    chip.title = `${info.name}\n+ ${info.up.join('\n+ ')}\n- ${info.down.join('\n- ')}`;
+    const pips = '●'.repeat(dr.stack[n] || 1);
+    chip.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${SLOT_ART[n]}</svg><b>${info.name}</b><i>${pips}</i><span>${d.highLeft[n]}s</span>`;
+    el.append(chip);
+  }
+  const note = document.createElement('div');
+  note.className = 'buffNote';
+  const lines = dr.combos.map((c) => `${W.drugCombos[c].name}: ${W.drugCombos[c].text}`);
+  if (dr.crash) lines.push(`Crash: slower for ${dr.crash.left}s`);
+  if (lines.length) { note.textContent = lines.join('  ·  '); note.classList.toggle('crash', !!dr.crash && !dr.combos.length); el.append(note); }
+}
+
 function renderHotbar() {
   const d = myData;
   if (!d || !W) return;
@@ -3946,6 +4084,7 @@ function updateHud(dt, t) {
   drawMinimap(t);
   renderVitals();
   renderHotbar();
+  renderBuffs();
   renderDerby();
   if (openPanel === 'shop') renderShop();
   if (openPanel === 'inventory') renderInventory();
@@ -3957,6 +4096,10 @@ function updateHud(dt, t) {
     haze.classList.toggle('weed', !!h.weed);
     haze.classList.toggle('whiskey', !!h.whiskey);
     haze.classList.toggle('crank', !!h.crank);
+    const crashing = !!(d.drug && d.drug.crash);
+    haze.classList.toggle('crash', crashing);
+    document.body.classList.toggle('drunk', !!h.whiskey && !isTouch && !reducedMotion);
+    document.body.classList.toggle('crashed', crashing && !reducedMotion);
     const m = me();
     if (openPanel === 'shop' && !near(m, W.camp.dealer)) closePanels();
     if (openPanel === 'shack' && !near(m, W.camp.shack) && !(table.active && table.status === 'play')) closePanels();
@@ -4046,6 +4189,11 @@ renderer.setAnimationLoop(() => {
   fx.update(dt);
   const fireDist = m ? Math.hypot(m.x - world.firePos.x, m.z - world.firePos.z) : 99;
   sfx.ambient(t, world.day.night > 0.5, fireDist);
+  {
+    const dr = myData && myData.drug;
+    // a racing heartbeat on crank, and a slow one in the crash after it
+    sfx.pulse(t, dr && dr.stack.crank ? 105 + 14 * dr.stack.crank : dr && dr.crash && dr.crash.kind === 'crank' ? 95 : 0);
+  }
   updateHud(dt, t);
   if (quality() === 'high') composer.render(dt);
   else renderer.render(scene, camera);

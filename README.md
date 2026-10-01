@@ -29,6 +29,7 @@ Fish for cash, climb through better rods and bait, fill out your journal, and wi
 - **The big water.** A channel runs south from the lake past a lighthouse out to open water with real swells. Out there you'll find cisco, whitefish, coho salmon, lake trout, a shipwreck bell, and, if the old-timers are right, Pressie.
 - **Fists.** Slot 1, or press F anywhere to throw a punch. Punches alternate hands, and every third punch in a quick combo is a haymaker that does double damage and shoves the target back. Anglers you punch fight back.
 - **Combat.** The rifle hits fish, NPC anglers, and players. Lake fish take two rounds; a wounded one bolts and trails blood. Hits spray blood, bodies ragdoll when they drop, and blood pools where they fall. Turn blood off under Help (H). Hold right click to aim over the shoulder for a tighter shot. Camp is a no-shooting zone for players, and you get 5 seconds of protection after spawning. NPCs only fight back when they're shot at.
+- **Weed, whiskey and crank.** Moss's dealer sells three things you can use from the hotbar, each lasting 30 seconds and showing as a chip above the hotbar. Weed brings bites sooner, a calm reel, +25% catch XP and a slow heal, at the cost of slower feet and wild aim. Whiskey heals 20 HP on the spot, takes 40% off the damage you take and makes your punches hit harder, but wrecks your aim and sways the camera. Crank gives faster feet, faster firing and reloading and a steadier aim, but fish fight harder. Using one again while it is active extends it and stacks it (up to three times, each stack 35% stronger); weed with whiskey, whiskey with crank, and weed with crank each make a combo. Whiskey and crank leave a 15 second crash when they wear off. Four uses inside a minute is an overdose (25 damage, never lethal). Other players see you light up, drink or take it.
 - **Saves.** Cash, gear, bag, ammo, pocket, and journal save per browser (a token in localStorage) to `data/players.json`.
 - **Chat.** Press Enter. Messages also show as speech bubbles.
 - **Friends.** The Friends app on your phone (P) lists everyone on the lake with their level, catches and distance. Whisper them a private message, or gift $25 (guests can't trade).
@@ -59,7 +60,7 @@ Start with `npm run debug` (works in any terminal; or set `LOON_DEBUG=1` yoursel
 - `/tp moss`, `/tp shack`, `/tp camp`, `/tp dock`, or `/tp x z` moves you.
 - `/hour 22` sets the clock.
 - `/derby` starts or ends a tournament now, and `/tmode 1-4` picks the next one (heaviest, most fish, total weight, rarest).
-- `/gear` maxes your rod, bait, and rifle.
+- `/gear` maxes your rod, bait, and rifle. `/drugs` gives five of each drug.
 - `/fast` makes bites come quickly.
 - `/boat` gives you a boat. `/channel` and `/sea` put you in it out on the water.
 

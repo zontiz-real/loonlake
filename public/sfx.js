@@ -11,6 +11,7 @@ let birdAt = 3;
 let cricketAt = 2;
 let crackleAt = 0;
 let motorAt = 0;
+let pulseAt = 0;
 
 function ac() {
   if (!ctx) {
@@ -266,10 +267,41 @@ export const sfx = {
   hurt() { tone(180, 0.16, 'sawtooth', 0.14, 70); },
   down() { tone(90, 0.5, 'triangle', 0.16, 40); },
   pickup() { tone(660, 0.08, 'sine', 0.08, 990); },
-  drug(name) {
-    if (name === 'weed') tone(220, 0.35, 'sine', 0.06, 160);
-    else if (name === 'whiskey') noise(0.12, 0.08, 400, 0.4);
-    else tone(740, 0.06, 'square', 0.05, 1480);
+  // each drug has a timed use sound that lines up with its arm animation (DRUG_USE_MS in client.js)
+  drug(name, vol = 1) {
+    const n = (d, pk, f, q, dl = 0, ty) => noise(d, pk * vol, f, q, dl, ty);
+    const t = (f, d, ty, pk, sl, dl = 0) => tone(f, d, ty, pk * vol, sl, dl);
+    if (name === 'weed') {
+      // lighter, then a long pull, a held breath, and the exhale
+      t(2200, 0.015, 'square', 0.05, 1500, 0.25); n(0.03, 0.16, 3500, 2, 0.25);
+      n(0.35, 0.08, 900, 0.6, 0.32);
+      n(0.3, 0.05, 900, 0.8, 0.5); n(0.3, 0.06, 1400, 0.8, 0.7); n(0.3, 0.07, 2000, 0.8, 0.9);
+      t(900, 0.08, 'sine', 0.02, 700, 0.55);
+      n(0.5, 0.06, 1300, 0.7, 2.0); n(0.6, 0.05, 700, 0.7, 2.4);
+      if (Math.random() < 0.3) for (let i = 0; i < 3; i++) { n(0.08, 0.14, 700, 1.2, 3.0 + i * 0.14); t(180, 0.06, 'sawtooth', 0.05, 120, 3.0 + i * 0.14); }
+    } else if (name === 'whiskey') {
+      // cap, three glugs, the sigh
+      for (let i = 0; i < 4; i++) { n(0.02, 0.1, 2600, 2, i * 0.06); t(1800, 0.012, 'square', 0.025, 1200, i * 0.06); }
+      for (const at of [0.75, 1.2, 1.65]) { t(190, 0.1, 'sine', 0.08, 110, at); n(0.1, 0.07, 500, 0.7, at, 'lowpass'); t(150, 0.07, 'sine', 0.06, 100, at + 0.1); }
+      t(170, 0.55, 'sawtooth', 0.045, 120, 2.25); n(0.5, 0.05, 600, 0.6, 2.25);
+      t(330, 0.05, 'square', 0.04, 220, 2.7); // the bottle set down
+    } else {
+      // the baggie tears, a swallow, a shudder
+      n(0.12, 0.15, 3200, 0.9, 0.1); n(0.2, 0.1, 2400, 0.7, 0.2);
+      t(140, 0.12, 'sine', 0.09, 90, 1.15);
+      n(0.25, 0.05, 1600, 0.8, 1.35);
+      t(740, 0.06, 'square', 0.04, 1480, 1.6);
+    }
+  },
+  // a drug wearing off, and the crash after it
+  drugEnd() { tone(300, 0.4, 'sine', 0.05, 120); },
+  crash() { tone(80, 0.5, 'triangle', 0.14, 40); noise(0.6, 0.08, 300, 0.5); tone(260, 0.7, 'sine', 0.04, 150, 0.2); },
+  // a racing heartbeat while on crank: call every frame with the beats per minute (0 to stop)
+  pulse(t, bpm) {
+    if (!bpm || t < pulseAt) return;
+    pulseAt = t + 60 / bpm;
+    tone(72, 0.1, 'sine', 0.1, 45);
+    tone(62, 0.12, 'sine', 0.08, 40, 0.14);
   },
   card() { noise(0.05, 0.1, 1800, 1.2); },
   slotTick() { tone(520, 0.03, 'square', 0.03, 480); },

@@ -265,6 +265,17 @@ export function createFx(scene, camera) {
     }
   }
 
+  // a drifting grey plume, for exhaled smoke and the tip of a joint (dirx/dirz push it the way the breath goes)
+  function smoke(x, y, z, dirx = 0, dirz = 0, n = 4, scale = 1) {
+    for (let i = 0; i < n; i++) {
+      soft.spawn({
+        x: x + rand(-0.02, 0.02), y, z: z + rand(-0.02, 0.02),
+        vx: dirx * rand(0.4, 1.1) + rand(-0.12, 0.12), vy: rand(0.25, 0.6), vz: dirz * rand(0.4, 1.1) + rand(-0.12, 0.12),
+        drag: 1.4, life: rand(1.4, 2.4), size: 0.08 * scale, size1: rand(0.45, 0.8) * scale, color: 0xCFCBC4, alpha: 0.32,
+      });
+    }
+  }
+
   function sparkle(x, y, z, color = 0xF2B134, n = 26, spread = 2.4) {
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2;
@@ -428,5 +439,5 @@ export function createFx(scene, camera) {
     }
   }
 
-  return { casing, setFloor: (fn, water) => { floorAt = fn; if (water) isWater = water; }, ripple, floater, tracer, splash, bubbles, puff, sparkle, fire, firefly, blood, bloodPool, waterBlood, wake, update };
+  return { casing, setFloor: (fn, water) => { floorAt = fn; if (water) isWater = water; }, ripple, floater, tracer, splash, bubbles, puff, smoke, sparkle, fire, firefly, blood, bloodPool, waterBlood, wake, update };
 }

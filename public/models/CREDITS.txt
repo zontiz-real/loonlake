@@ -31,4 +31,17 @@ attribution) before publishing the game. gun_m60 has the loose ammo boxes, belts
 its textures downscaled to 512px. gun_arp and gun_sniper were also reduced in triangle count
 (about 49k to 8.5k and 36k to 14k) and had their textures shrunk to 512px.
 
+Prop models for the consumables (read from each file's own metadata). These are the only models here with a recorded license:
+- drug_joint: "Fat Joint" by streetpharmacy (https://sketchfab.com/streetpharmacy), CC-BY-4.0
+  https://sketchfab.com/3d-models/fat-joint-5b7dcea4012d4843a4c2baac027c7e78  (license: http://creativecommons.org/licenses/by/4.0/)
+  Used as is; the glowing tip is added in code.
+- drug_baggie: "Cocaine Baggie" by streetpharmacy (https://sketchfab.com/streetpharmacy), CC-BY-4.0
+  https://sketchfab.com/3d-models/cocaine-baggie-a8ef621c050143ca93caf28cb2cb937b  (license: http://creativecommons.org/licenses/by/4.0/)
+  Used as is, as the game's powder prop.
+- drug_whiskey: "Whiskey bottle" by Dominik (https://sketchfab.com/domokomoromo), CC-BY-SA-4.0
+  https://sketchfab.com/3d-models/whiskey-bottle-4f3c04a463fa4956b0ca63afd32db727  (license: http://creativecommons.org/licenses/by-sa/4.0/)
+  ADAPTED: triangles reduced from about 82,000 to 7,000, the glass shell and a stray plane removed, textures shrunk to
+  512px, and the label repainted with a generic design (the original showed a real whiskey brand). Because of the
+  ShareAlike license, this adapted file (public/models/drug_whiskey.glb) is itself released under CC-BY-SA-4.0.
+
 Consider supporting Quaternius on Patreon: https://www.patreon.com/quaternius

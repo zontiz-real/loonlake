@@ -229,6 +229,21 @@ input {
 #pullText { color: var(--muted); }
 
 /* ---------- hotbar ---------- */
+/* ---------- drug buff bar ---------- */
+#buffs { position: fixed; left: 50%; bottom: calc(92px + var(--safe-b)); transform: translateX(-50%); z-index: 6; display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; max-width: min(92vw, 520px); pointer-events: none; }
+#buffs[hidden] { display: none; }
+.buff { display: flex; align-items: center; gap: 6px; padding: 4px 10px 4px 6px; border-radius: 999px; background: rgba(8, 18, 16, .72); border: 1px solid rgba(236, 242, 234, .18); color: var(--paper); font-size: .8rem; }
+.buff svg { width: 18px; height: 18px; color: var(--c, var(--paper)); flex: none; }
+.buff b { font-weight: 600; }
+.buff i { font-style: normal; font-size: .55rem; letter-spacing: 1px; color: var(--c, var(--paper)); }
+.buff span { font-variant-numeric: tabular-nums; opacity: .85; }
+.buff.weed { --c: #6DBF67; border-color: rgba(109, 191, 103, .5); }
+.buff.whiskey { --c: #E0A050; border-color: rgba(224, 160, 80, .5); }
+.buff.crank { --c: #F4F1EA; border-color: rgba(244, 241, 234, .5); }
+.buffNote { flex-basis: 100%; text-align: center; font-size: .72rem; color: var(--brass); text-shadow: 0 1px 4px rgba(8, 18, 16, .9); }
+.buffNote.crash { color: #E5645A; }
+body.touch #buffs { bottom: calc(78px + var(--safe-b)); }
+body.photo #buffs { visibility: hidden; }
 #hotbar { position: fixed; left: 50%; bottom: calc(16px + var(--safe-b)); transform: translateX(-50%); z-index: 6; }
 #slots {
   display: flex; gap: 6px; padding: 7px; background: rgba(14, 30, 26, .7);
@@ -285,7 +300,14 @@ select option { color: #1D2A25; }
 #haze { position: fixed; inset: 0; pointer-events: none; z-index: 1; transition: background 1s, box-shadow 1s; }
 #haze.weed { background: rgba(80, 150, 60, .22); }
 #haze.whiskey { box-shadow: inset 0 0 140px rgba(110, 50, 8, .62); }
-#haze.crank { box-shadow: inset 0 0 90px rgba(255, 255, 255, .35); }
+#haze.crank { box-shadow: inset 0 0 90px rgba(255, 255, 255, .35); animation: crankPulse .9s ease-in-out infinite; }
+#haze.crash { box-shadow: inset 0 0 130px rgba(20, 24, 40, .6); background: rgba(40, 48, 70, .16); }
+@keyframes crankPulse { 50% { box-shadow: inset 0 0 130px rgba(255, 255, 255, .5); } }
+@keyframes weedPulse { 50% { background: rgba(80, 150, 60, .32); } }
+#haze.weed { animation: weedPulse 5s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { #haze.weed, #haze.crank { animation: none; } }
+body.drunk #game canvas { filter: blur(.7px) saturate(1.15); }
+body.crashed #game canvas { filter: saturate(.55) brightness(.92); }
 #hurtFlash { position: fixed; inset: 0; pointer-events: none; z-index: 2; opacity: 0; box-shadow: inset 0 0 160px rgba(200, 30, 20, .85); }
 #floaters { position: fixed; inset: 0; pointer-events: none; z-index: 3; overflow: hidden; }
 .floater {
