@@ -376,6 +376,8 @@ select option { color: #1D2A25; }
 .reel svg { width: 42px; height: 42px; }
 .reel.spin svg { animation: spin .09s linear infinite; }
 @keyframes spin { 50% { transform: translateY(8px); opacity: .5; } }
+#storeMsg { margin-bottom: 12px; min-height: 2.8em; color: var(--muted); line-height: 1.4; }
+#storeMsg.win { color: var(--brass); font-weight: 600; }
 #slotMsg { margin-bottom: 12px; min-height: 2.8em; color: var(--muted); line-height: 1.4; }
 #slotMsg.win { color: var(--brass); font-weight: 600; }
 #spinBtn { width: 100%; }

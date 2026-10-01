@@ -276,6 +276,7 @@ const boatOk = (x, z) => inWater(x, z) && (Math.hypot(x, z) < W.lakeRadius - 2.2
 const footOk = (x, z) => onLand(x, z) || inWater(x, z) || inChannel(x, z, 0.8) || Math.hypot(x, z) < W.shoreRadius;
 fx.setFloor((x, z) => surfaceAt(x, z, audioT), (x, z) => inWater(x, z));
 const boating = () => !!(myData && myData.boat);
+const nearStore = (m) => W && W.store && m && Math.hypot(m.x - W.store.x, m.z - W.store.z) <= W.store.range;
 const near = (m, spot) => W && m && spot && Math.hypot(m.x - spot.x, m.z - spot.z) <= W.camp.range;
 const hotAt = (x, z) => hotspots.some((h) => Math.hypot(x - h.x, z - h.z) <= h.r);
 
@@ -1085,6 +1086,7 @@ socket.on('state', (s) => {
     if (v.rodLevel !== d.rod && W.rods[d.rod]) { v.rodLevel = d.rod; v.rodMat.color.set(W.rods[d.rod].color); }
   }
   for (const [id, v] of views) if (!seen.has(id)) { removeView(v); views.delete(id); }
+  world.setTraffic(s.cars || []);
   syncNpcs(s.npcs || []);
   syncFish(s.fish || []);
   syncPickups(s.pickups || []);
@@ -1259,6 +1261,11 @@ socket.on('punch', (p) => {
   }
 });
 
+socket.on('honk', (h) => {
+  const m = me();
+  const d = m ? Math.hypot(m.x - h.x, m.z - h.z) : 99;
+  if (d < 90) sfx.carHorn(Math.max(0.1, 1 - d / 90));
+});
 socket.on('knock', (k) => {
   const m = me();
   if (!m) return;
@@ -1649,7 +1656,7 @@ function flashPrompt(text, cls, ms) {
 
 // ================================================================ panels
 
-const PANELS = ['shop', 'shack', 'journal', 'help', 'phone', 'inventory'];
+const PANELS = ['shop', 'store', 'shack', 'journal', 'help', 'phone', 'inventory'];
 let shopSig = '';
 
 function togglePanel(name) {
@@ -1662,6 +1669,7 @@ function togglePanel(name) {
   if (pointerLocked) document.exitPointerLock();
   shopSig = '';
   if (name === 'shop') renderShop();
+  if (name === 'store') renderStore();
   if (name === 'shack') renderShack();
   if (name === 'journal') renderJournal();
   if (name === 'inventory') { invSig = ''; renderInventory(); }
@@ -1676,12 +1684,13 @@ function closePanels() {
 document.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => { closePanels(); if (!isTouch) requestLock(true); }));
 
 function interact() {
-  if (openPanel === 'shop' || openPanel === 'shack') { closePanels(); if (!isTouch) requestLock(false); return; }
+  if (openPanel === 'shop' || openPanel === 'shack' || openPanel === 'store') { closePanels(); if (!isTouch) requestLock(false); return; }
   const m = me();
   if (!m || !W || !alive() || phase !== 'idle') return;
   if (boating()) { boatAction('land'); return; }
   if (near(m, W.camp.dealer)) togglePanel('shop');
   else if (near(m, W.camp.shack)) togglePanel('shack');
+  else if (nearStore(m)) togglePanel('store');
   else if (nearWaterEdge(m)) boatAction('launch', !myData.ownsBoat && onMainDock(m.x, m.z));
 }
 
@@ -2076,6 +2085,39 @@ $('shop').addEventListener('click', (e) => {
   btn.blur();
   if (btn.id === 'sellBtn') return sell();
   if (btn.dataset.buy) buy(btn.dataset.buy);
+});
+
+let storeSig = '';
+function renderStore() {
+  if (openPanel !== 'store' || !myData || !W || !W.store) return;
+  const d = myData;
+  const sig = [d.cash, Math.round(d.hp)].join('|');
+  if (sig === storeSig) return;
+  storeSig = sig;
+  $('storeHp').textContent = `Health ${Math.round(d.hp)} / 100`;
+  const list = $('storeList');
+  list.replaceChildren();
+  for (const it of W.store.items) {
+    const full = !!it.heal && d.hp >= 100;
+    list.append(itemButton(`store:${it.id}`, it.name, full ? `${it.desc} You are not hurt.` : it.desc, `$${it.price}`, d.cash < it.price || full));
+  }
+}
+$('store').addEventListener('click', (e) => {
+  const btn = e.target.closest('button');
+  if (!btn || !btn.dataset.buy) return;
+  btn.blur();
+  socket.emit('storeBuy', btn.dataset.buy.slice(6), (res) => {
+    if (!res) return;
+    const msg = $('storeMsg');
+    msg.textContent = res.msg || '';
+    msg.classList.toggle('win', !!res.prize);
+    if (res.ok) {
+      if (res.ticket) { if (res.prize) sfx.slotWin(res.prize >= 100); else sfx.ui(); } else sfx.coin();
+      const m = me();
+      if (m && res.prize) fx.floater(m.x, 2.3, m.z, `+$${res.prize}`, 'cash', 1.8);
+    } else if (res.msg) flashPrompt(res.msg, '', 1500);
+    storeSig = '';
+  });
 });
 
 function sell() {
@@ -3698,7 +3740,8 @@ function renderVitals() {
   const golden = isGoldenHour(clockHour);
   const wxName = { cloudy: 'cloudy', rain: 'raining', storm: 'thunderstorm' }[weatherKind];
   const clockText = fmtHour(clockHour) + (golden ? ', golden hour' : night ? ', night' : '') + (wxName ? `, ${wxName}` : '');
-  const status = d.alive === false ? '' : d.safe ? 'Safe in camp. No shooting.' : '';
+  const buffText = d.buffs ? Object.entries(d.buffs).filter(([, sec]) => sec > 0).map(([k, sec]) => `${k === 'coffee' ? 'Coffee' : 'Energy'} ${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`).join(' · ') : '';
+  const status = d.alive === false ? '' : [d.safe ? 'Safe in camp. No shooting.' : '', buffText].filter(Boolean).join('  ');
   const questSig = (d.quests || []).map((q) => `${q.type}${q.n}/${q.goal}`).join(',');
   const sig = [clockText, d.hp, d.cash, d.bag.n, d.bag.value, status, d.xp, d.level, questSig].join('|');
   if (sig === vitalsSig) return;
@@ -3871,6 +3914,7 @@ function promptFor() {
   if (phase === 'idle' && m) {
     if (near(m, W.camp.dealer)) return [myData.bag.n ? (isTouch ? `Tap Moss to sell ${myData.bag.n} fish for $${myData.bag.value}` : `E to sell ${myData.bag.n} fish for $${myData.bag.value} and shop`) : (isTouch ? 'Tap Moss to trade' : 'E to trade with Moss'), 'good'];
     if (near(m, W.camp.shack)) return [isTouch ? 'Tap Shack to sit down' : 'E to sit down at the shack', ''];
+    if (nearStore(m)) return [isTouch ? 'Tap Store to shop' : `E to shop at ${W.store.name}`, 'good'];
     if (myData.bag.n >= (myData.bagMax || W.bagMax)) return [isTouch ? 'Your bag is full. Sell to Moss or on your phone.' : 'Your bag is full. Sell to Moss, or press P and use the Market app.', ''];
     if (boating() && nearLandEdge(m)) return [isTouch ? 'Tap Use to step ashore' : 'E to step ashore', ''];
     if (!boating() && myData.ownsBoat && nearWaterEdge(m)) return [isTouch ? 'Tap Use to launch your boat' : 'E to launch your boat', ''];
@@ -3966,6 +4010,7 @@ function updateHud(dt, t) {
   renderHotbar();
   renderDerby();
   if (openPanel === 'shop') renderShop();
+  if (openPanel === 'store') renderStore();
   if (openPanel === 'inventory') renderInventory();
   if (openPanel === 'phone') { renderPhone(); if (phoneApp === 'map') drawBigMap(); }
   if (openPanel === 'shack') renderShack();
@@ -3977,11 +4022,12 @@ function updateHud(dt, t) {
     haze.classList.toggle('crank', !!h.crank);
     const m = me();
     if (openPanel === 'shop' && !near(m, W.camp.dealer)) closePanels();
+    if (openPanel === 'store' && !nearStore(m)) closePanels();
     if (openPanel === 'shack' && !near(m, W.camp.shack) && !(table.active && table.status === 'play')) closePanels();
   }
   if (touch) {
     const m = me();
-    let useLabel = m && phase === 'idle' ? (near(m, W.camp.dealer) ? 'Moss' : near(m, W.camp.shack) ? 'Shack' : null) : null;
+    let useLabel = m && phase === 'idle' ? (near(m, W.camp.dealer) ? 'Moss' : near(m, W.camp.shack) ? 'Shack' : nearStore(m) ? 'Store' : null) : null;
     if (m && phase === 'idle' && !useLabel && d) {
       if (d.boat && nearLandEdge(m)) useLabel = 'Ashore';
       else if (!d.boat && d.ownsBoat && nearWaterEdge(m)) useLabel = 'Boat';

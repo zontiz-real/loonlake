@@ -581,37 +581,30 @@ export function buildPlaces(ctx) {
     beaconMid.scale.setScalar(on ? 1.2 : 1);
   });
 
-  // ---------- traffic on Route 61
-  const traffic = [];
-  const kinds = ['sedan', 'sedan', 'pickup', 'truck', 'sedan', 'pickup'];
-  const carN = high ? 6 : 3;
-  for (let i = 0; i < carN; i++) {
-    const car = { g: null, dir: i % 2 ? 1 : -1, speed: 0, wait: rnd() * 14 + i * 3, kind: '' };
-    traffic.push(car);
-  }
-  function launch(car) {
-    if (car.g) scene.remove(car.g);
-    car.kind = kinds[Math.floor(rnd() * kinds.length)];
-    car.g = makeVehicle(car.kind, CAR_COLORS[Math.floor(rnd() * CAR_COLORS.length)]);
-    car.speed = 11 + rnd() * 8;
-    car.dir = rnd() < 0.5 ? 1 : -1;
-    car.z = car.dir > 0 ? hw.z0 - 6 : hw.z1 + 6;
-    const lane = car.dir > 0 ? hw.x - 2 : hw.x + 2; // northbound keeps west, southbound east (right-hand traffic)
-    car.g.position.set(lane, 0.05, car.z);
-    car.g.rotation.y = car.dir > 0 ? -Math.PI / 2 : Math.PI / 2;
-    scene.add(car.g);
+  // ---------- traffic on Route 61: cars are driven by the server, we draw them and smooth between updates
+  const cars = new Map();
+  function setTraffic(list) {
+    const seen = new Set();
+    for (const c of list) {
+      seen.add(c.id);
+      let car = cars.get(c.id);
+      if (!car) {
+        car = { g: makeVehicle(c.k, CAR_COLORS[c.c % CAR_COLORS.length]), z: c.z };
+        car.g.position.set(c.x, 0.05, c.z);
+        car.g.rotation.y = c.d > 0 ? -Math.PI / 2 : Math.PI / 2;
+        scene.add(car.g);
+        cars.set(c.id, car);
+      }
+      car.tz = c.z; car.v = c.v; car.d = c.d; car.x = c.x;
+    }
+    for (const [id, car] of cars) if (!seen.has(id)) { scene.remove(car.g); cars.delete(id); }
   }
   animated.push((t, dt) => {
-    for (const car of traffic) {
-      if (!car.g) {
-        car.wait -= dt;
-        if (car.wait <= 0) launch(car);
-        continue;
-      }
-      car.z += car.dir * car.speed * dt;
-      car.g.position.z = car.z;
-      car.g.position.y = 0.05 + Math.sin(t * 9 + car.speed) * 0.006;
-      if (car.z > hw.z1 + 8 || car.z < hw.z0 - 8) { scene.remove(car.g); car.g = null; car.wait = 4 + rnd() * 18; }
+    for (const car of cars.values()) {
+      const step = car.d * car.v * dt;
+      car.tz += step;
+      car.z += step + (car.tz - car.z - step) * Math.min(1, dt * 5);
+      car.g.position.set(car.x, 0.05 + Math.sin(t * 9 + car.x) * 0.005 * Math.min(1, car.v / 8), car.z);
     }
   });
 
@@ -1024,5 +1017,5 @@ export function buildPlaces(ctx) {
     for (const b of buoys) b.lampMat.emissiveIntensity = b.lampMat.userData.blink ? 3.2 : 0.15;
     ship.userData.update();
   }
-  return { update };
+  return { update, setTraffic };
 }

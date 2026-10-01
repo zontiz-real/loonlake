@@ -94,6 +94,22 @@ WORLD.docks = [
   { minX: -22, maxX: -18.8, minZ: -152, maxZ: -104 },
   { minX: -40, maxX: -18.8, minZ: -158, maxZ: -152 },
 ];
+// the Loon Gas & Go counter: food heals (there is no other way to heal), drinks buff, tickets gamble
+WORLD.store = {
+  name: 'Loon Gas & Go', x: 40.6, z: 27, range: 3.4,
+  items: [
+    { id: 'jerky', name: 'Beef jerky', price: 3, heal: 15, desc: 'Heals 15 health. Chewy.' },
+    { id: 'hotdog', name: 'Roller-grill hot dog', price: 5, heal: 30, desc: 'Heals 30 health. It has been rolling since Tuesday.' },
+    { id: 'sandwich', name: 'Egg salad sandwich', price: 9, heal: 60, desc: 'Heals 60 health. Mostly fine.' },
+    { id: 'firstaid', name: 'First-aid kit', price: 30, heal: 100, desc: 'Patches you up all the way.' },
+    { id: 'coffee', name: 'Black coffee', price: 4, buff: 'coffee', ms: 180000, desc: 'Fish bite sooner for 3 minutes.' },
+    { id: 'energy', name: 'Energy drink', price: 6, buff: 'energy', ms: 90000, desc: 'Run 20% faster for 90 seconds.' },
+    { id: 'ticket', name: 'Scratch ticket', price: 5, ticket: true, desc: 'Scratch it. Pays up to $500.' },
+  ],
+};
+// scratch ticket odds: about 60 cents back on the dollar
+const TICKET_PAYS = [[0.7, 0], [0.2, 5], [0.07, 10], [0.025, 25], [0.0045, 100], [0.0005, 500]];
+
 // things standing in the big water: boats stay off them and a cast that lands on one counts as landing on shore
 WORLD.sea = [
   { id: 'rig', x: 105, z: -190, r: 9 },
@@ -671,9 +687,11 @@ function highLeft(p) {
   };
 }
 
+const buffLeft = (p, k) => Math.max(0, ((p.buffs && p.buffs[k]) || 0) - nowMs());
 function moveMul(p) {
   const h = highFlags(p);
   let m = 1;
+  if (buffLeft(p, 'energy')) m *= 1.2;
   if (h.weed) m *= 0.75;
   if (h.whiskey) m *= 0.85;
   if (h.crank) m *= 1.35;
@@ -727,6 +745,7 @@ function scheduleBite(p, socket) {
   if (p.bobber && hotspotAt(p.bobber.x, p.bobber.z)) scale *= 0.45;
   if (isGolden()) scale *= 0.75;
   scale *= BITE_WEATHER[WEATHER.kind] || 1;
+  if (buffLeft(p, 'coffee')) scale *= 0.7;
   p.biteWindow = TIMING.biteWindow * (h.whiskey ? 0.7 : 1);
   const wait = Math.max(1200, rand(TIMING.biteMin, TIMING.biteMax) * scale * (p.fastBite ? 0.15 : 1));
   p.biteTimer = setTimeout(() => {
@@ -815,6 +834,7 @@ function killPlayer(p, byName, verb = 'shot', from) {
   p.respawnAt = nowMs() + COMBAT.respawn;
   resetLine(p);
   p.high = { weed: 0, whiskey: 0, crank: 0 };
+  p.buffs = {};
   const drop = Math.floor(p.cash * COMBAT.dropCash);
   const bagCount = p.bag.length;
   if (drop > 0) {
@@ -845,7 +865,7 @@ function hurtPlayer(target, dmg, shooter, verb) {
     killPlayer(target, shooter.name, verb, shooter);
     return 'kill';
   }
-  if (sock) sock.emit('hurt', { hp: target.hp, dmg, by: shooter.name, how: verb === 'knocked out' ? 'punch' : 'shot', from: { x: shooter.x, z: shooter.z } });
+  if (sock) sock.emit('hurt', { hp: target.hp, dmg, by: shooter.name, how: verb === 'knocked out' ? 'punch' : verb === 'ran over' ? 'car' : 'shot', from: { x: shooter.x, z: shooter.z } });
   return 'hit';
 }
 
@@ -1178,6 +1198,73 @@ function collectPickups() {
   }
 }
 
+// ---------------------------------------------------------------- Route 61 traffic
+// The server drives the cars, so everyone sees the same ones. They brake and honk for people in the road,
+// and hit what they cannot stop for.
+const ROAD = { x: 57, z0: -74, z1: 74 };
+const CAR_KINDS = {
+  sedan: { len: 4.4, wid: 1.85, name: 'A sedan' },
+  pickup: { len: 5.2, wid: 2, name: 'A pickup' },
+  truck: { len: 7.2, wid: 2.3, name: 'A box truck' },
+};
+const CAR_MIX = ['sedan', 'sedan', 'pickup', 'truck', 'sedan', 'pickup'];
+const traffic = [];
+let carSeq = 1;
+let nextCarIn = 2;
+function spawnCar() {
+  const kind = CAR_MIX[Math.floor(Math.random() * CAR_MIX.length)];
+  const dir = Math.random() < 0.5 ? 1 : -1; // northbound keeps west, southbound keeps east
+  const cruise = 11 + Math.random() * 8;
+  traffic.push({ id: carSeq++, kind, color: Math.floor(Math.random() * 8), dir, x: ROAD.x + (dir > 0 ? -2 : 2), z: dir > 0 ? ROAD.z0 - 6 : ROAD.z1 + 6, v: cruise, cruise, honkAt: 0 });
+}
+function tickTraffic(dt) {
+  if (!players.size) { traffic.length = 0; return; }
+  nextCarIn -= dt;
+  if (traffic.length < 5 && nextCarIn <= 0) { spawnCar(); nextCarIn = 3 + Math.random() * 9; }
+  const now = nowMs();
+  for (let i = traffic.length - 1; i >= 0; i--) {
+    const c = traffic[i];
+    const k = CAR_KINDS[c.kind];
+    // how far ahead is something it cannot drive through: a person in its lane, or a slower car
+    let ahead = Infinity;
+    let person = false;
+    for (const o of players.values()) {
+      if (!o.alive || o.boat) continue;
+      const gap = (o.z - c.z) * c.dir - k.len / 2;
+      if (gap > -0.5 && Math.abs(o.x - c.x) < k.wid / 2 + 1.1 && gap < ahead) { ahead = gap; person = true; }
+    }
+    for (const o of traffic) {
+      if (o === c || o.dir !== c.dir) continue;
+      const gap = (o.z - c.z) * c.dir - (k.len + CAR_KINDS[o.kind].len) / 2;
+      if (gap > 0 && gap < ahead) { ahead = gap; person = false; }
+    }
+    const stopDist = (c.v * c.v) / (2 * 8) + 4;
+    if (ahead < stopDist && !c.noBrake) {
+      c.v = Math.max(0, c.v - 9 * dt);
+      if (person && now - c.honkAt > 3500) { c.honkAt = now; io.emit('honk', { x: c.x, z: c.z }); }
+    } else c.v = Math.min(c.cruise, c.v + 4 * dt);
+    c.z += c.dir * c.v * dt;
+    if (c.z > ROAD.z1 + 10 || c.z < ROAD.z0 - 10) { traffic.splice(i, 1); continue; }
+    if (c.v < 1.5) continue;
+    for (const o of players.values()) {
+      if (!o.alive || o.boat || now < (o.carHitUntil || 0) || now < o.safeUntil) continue;
+      const along = (o.z - c.z) * c.dir;
+      const side = o.x - c.x;
+      if (Math.abs(along) > k.len / 2 + 0.35 || Math.abs(side) > k.wid / 2 + 0.35) continue;
+      o.carHitUntil = now + 1500;
+      const dmg = Math.max(10, Math.min(80, Math.round(8 + c.v * 3.4)));
+      const nx = o.x + (side >= 0 ? 1 : -1) * 1.4;
+      const nz = o.z + c.dir * 3.5;
+      if (footOk(nx, nz)) { o.x = nx; o.z = nz; }
+      const sock = sockOf(o.id);
+      if (sock) sock.emit('knock', { x: o.x, z: o.z, heavy: true });
+      hurtPlayer(o, dmg, { id: `car${c.id}`, name: k.name, x: c.x, z: c.z, hitForce: 8 + c.v * 0.9 }, 'ran over');
+      c.v *= 0.55;
+      if (now - c.honkAt > 1000) { c.honkAt = now; io.emit('honk', { x: c.x, z: c.z }); }
+    }
+  }
+}
+
 // ---------------------------------------------------------------- snapshots
 
 function snapshot() {
@@ -1194,6 +1281,7 @@ function snapshot() {
   return {
     hour: Math.round(hourNow() * 1000) / 1000,
     wx: WEATHER.kind,
+    cars: traffic.map((c) => ({ id: c.id, k: c.kind, c: c.color, x: r2(c.x), z: r2(c.z), d: c.dir, v: r2(c.v) })),
     players: list,
     fish: school.map((f) => ({ id: f.id, sid: f.sid, x: r2(f.x), z: r2(f.z), rot: r2(f.rot), alive: f.alive, hurt: f.alive && f.hp < f.maxHp })),
     npcs: npcs.map((n) => ({
@@ -1233,6 +1321,7 @@ function privateState(p) {
     bagItems: p.bag.map((f) => ({ id: f.id, name: f.name, sid: f.sid || null, rarity: f.rarity || 'common', lbs: f.lbs, value: f.value, locked: !!f.locked })),
     bagMax: bagCap(p), bagTier: p.bagTier || 0,
     high: highFlags(p), highLeft: highLeft(p), moveMul: moveMul(p), hp: Math.max(0, p.hp),
+    buffs: { coffee: Math.ceil(buffLeft(p, 'coffee') / 1000), energy: Math.ceil(buffLeft(p, 'energy') / 1000) },
     alive: p.alive, safe: inCamp(p) || nowMs() < p.safeUntil, state: p.state,
     tourney: derby.active ? tourneyOf(p) : null,
     xp: p.xp, level: levelOf(p.xp), xpLow: xpFloor(levelOf(p.xp)), xpNext: xpFloor(levelOf(p.xp) + 1), quests: p.quests, boat: !!p.boat, ownsBoat: !!p.ownsBoat,
@@ -1367,9 +1456,15 @@ function debugCommand(p, socket, text) {
     socket.emit('respawn', { x: p.x, z: p.z, rot: p.rot, hp: p.hp });
     return say('Out on the water.');
   }
+  if (cmd === 'car') {
+    // debug: a car that will not brake comes straight at you down the highway lane you are standing in
+    const dir = args[0] === 'south' ? -1 : 1;
+    traffic.push({ id: carSeq++, kind: CAR_MIX[Math.floor(Math.random() * CAR_MIX.length)], color: 3, dir, x: p.x, z: p.z - dir * 22, v: 16, cruise: 16, honkAt: 0, noBrake: true });
+    return say('Here it comes.');
+  }
   if (cmd === 'weather') { const k = ['clear', 'cloudy', 'rain', 'storm'].includes(args[0]) ? args[0] : 'clear'; setWeather(k); WEATHER.until = nowMs() + 30 * 60 * 1000; return say(`Weather: ${k} (held for 30 minutes).`); }
   if (cmd === 'fast') { p.fastBite = !p.fastBite; return say(p.fastBite ? 'Fast bites on.' : 'Fast bites off.'); }
-  return say('Commands: /cash N, /tp moss|shack|camp|dock, /hour H, /derby, /gear, /fast, /boat, /sea [x z], /channel');
+  return say('Commands: /cash N, /tp moss|shack|camp|dock, /hour H, /derby, /gear, /fast, /boat, /sea [x z], /channel, /car [south]');
 }
 
 // ---------------------------------------------------------------- sockets
@@ -1700,6 +1795,37 @@ io.on('connection', (socket) => {
     return { total, count: list.length };
   };
 
+  socket.on('storeBuy', (id, ack) => {
+    const reply = replyFn(ack);
+    if (!p || !p.alive || p.state !== 'idle') return reply({ ok: false, msg: 'Reel in first.' });
+    const st = WORLD.store;
+    if (distTo(p.x, p.z, st) > st.range + 0.8) return reply({ ok: false, msg: 'Walk up to the counter.' });
+    const it = st.items.find((i) => i.id === id);
+    if (!it) return reply({ ok: false });
+    if (it.heal && p.hp >= COMBAT.hp) return reply({ ok: false, msg: 'You are not hurt.' });
+    if (p.cash < it.price) return reply({ ok: false, msg: `${it.name} is $${it.price}.` });
+    p.cash -= it.price;
+    let msg = `${it.name}. ${it.desc}`;
+    if (it.heal) {
+      p.hp = Math.min(COMBAT.hp, p.hp + it.heal);
+      msg = `${it.name}. Health ${Math.round(p.hp)}.`;
+    } else if (it.buff) {
+      if (!p.buffs) p.buffs = {};
+      p.buffs[it.buff] = nowMs() + it.ms;
+    } else if (it.ticket) {
+      let r = Math.random();
+      let prize = 0;
+      for (const [w, pay] of TICKET_PAYS) { if ((r -= w) <= 0) { prize = pay; break; } }
+      p.cash += prize;
+      msg = prize ? `Winner. $${prize}.` : 'Not a winner. Better luck next time.';
+      if (prize >= 100) feed(`${p.name} won $${prize} on a scratch ticket`, 'shop');
+      storeProfile(p);
+      return reply({ ok: true, msg, prize, ticket: true });
+    }
+    storeProfile(p);
+    return reply({ ok: true, msg });
+  });
+
   socket.on('sellRemote', (_, ack) => {
     const reply = replyFn(ack);
     if (!p || !p.alive) return reply({ ok: false, msg: 'Not right now.' });
@@ -1987,6 +2113,7 @@ setInterval(() => {
   tickHotspots();
   tickDerby();
   tickWeather();
+  tickTraffic(dt);
   npcs.forEach((n) => tickNpc(n, dt));
   tickRespawns();
   collectPickups();

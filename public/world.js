@@ -1207,5 +1207,6 @@ export function createWorld(scene, renderer, camera, { isTouch, high = !isTouch 
     return false;
   }
 
-  return { build, update, collide, platformAt, blocked, day, firePos, loons, sunDir };
+  const setTraffic = (list) => { if (places) places.setTraffic(list); };
+  return { build, update, collide, platformAt, blocked, day, firePos, loons, sunDir, setTraffic };
 }
